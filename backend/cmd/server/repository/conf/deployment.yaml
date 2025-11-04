@@ -36,5 +36,5 @@ observability:
     type: "console"
     format: "json"
   metrics:
-    enabled: true
+    enabled: false
   failure_mode: "graceful"

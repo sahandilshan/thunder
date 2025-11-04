@@ -16,7 +16,7 @@
  * under the License.
  */
 
-// Package event provides event models and types for the analytics system.
+// Package event provides event models and types for the observability system.
 package event
 
 import (
@@ -41,30 +41,30 @@ type EventCategory string
 
 const (
 	// CategoryAuthentication groups all authentication-related events.
-	CategoryAuthentication EventCategory = "analytics.authentication"
+	CategoryAuthentication EventCategory = "observability.authentication"
 
 	// CategoryAuthorization groups all authorization-related events.
-	CategoryAuthorization EventCategory = "analytics.authorization"
+	CategoryAuthorization EventCategory = "observability.authorization"
 
 	// CategoryTokens groups all token-related events.
-	CategoryTokens EventCategory = "analytics.tokens" // #nosec G101 -- Not a credential, analytics category name
+	CategoryTokens EventCategory = "observability.tokens" // #nosec G101 -- Not a credential, observability category name
 
 	// CategoryFlows groups all flow execution events.
-	CategoryFlows EventCategory = "analytics.flows"
+	CategoryFlows EventCategory = "observability.flows"
 
 	// CategorySessions groups all session-related events.
-	CategorySessions EventCategory = "analytics.sessions"
+	CategorySessions EventCategory = "observability.sessions"
 
 	// CategoryRegistration groups all user registration events.
-	CategoryRegistration EventCategory = "analytics.registration"
+	CategoryRegistration EventCategory = "observability.registration"
 
 	// CategoryAll is a special category that matches all events.
 	// Subscribers to this category receive all events regardless of type.
-	CategoryAll EventCategory = "analytics.all"
+	CategoryAll EventCategory = "observability.all"
 
 	// CategoryUnknown represents events that are not mapped to any category.
 	// This indicates a missing mapping in eventTypeToCategory and should be investigated.
-	CategoryUnknown EventCategory = "analytics.unknown"
+	CategoryUnknown EventCategory = "observability.unknown"
 )
 
 // eventTypeToCategory maps each event type to its category.

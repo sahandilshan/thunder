@@ -30,9 +30,9 @@ func TestDefaultConfig(t *testing.T) {
 		t.Fatal("DefaultConfig() returned nil")
 	}
 
-	// Verify default enabled state
-	if !cfg.Enabled {
-		t.Error("DefaultConfig() should have Enabled = true")
+	// Verify default disable state
+	if cfg.Enabled {
+		t.Error("DefaultConfig() should have Enabled = false")
 	}
 
 	// Verify default output type
@@ -45,9 +45,9 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("DefaultConfig() Output.Format = %s, want json", cfg.Output.Format)
 	}
 
-	// Verify metrics enabled
-	if !cfg.Metrics.Enabled {
-		t.Error("DefaultConfig() should have Metrics.Enabled = true")
+	// Verify metrics disabled
+	if cfg.Metrics.Enabled {
+		t.Error("DefaultConfig() should have Metrics.Enabled = false")
 	}
 
 	// Verify metrics export interval

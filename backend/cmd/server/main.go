@@ -56,8 +56,8 @@ func main() {
 	// Initialize the cache manager.
 	initCacheManager(logger)
 
-	// Initialize observability with console adapter and JSON format
-	initObservability(logger)
+	// Initialize observability from configuration
+	initObservability(logger, cfg)
 
 	// Create a new HTTP multiplexer.
 	mux := http.NewServeMux()
@@ -141,20 +141,25 @@ func initCacheManager(logger *log.Logger) {
 	cm.Init()
 }
 
-// initObservability initializes the observability service with console adapter and JSON format.
-func initObservability(logger *log.Logger) {
-	// Configure observability to use console adapter with JSON format
-	observabilityCfg := &observability.Config{
-		Enabled: true,
-		Output: observability.OutputConfig{
-			Type:   "console", // Output to stdout
-			Format: "json",
-		},
-		Metrics: observability.MetricsConfig{
-			Enabled: true,
-		},
-		FailureMode: "graceful", // Don't fail if observability has issues
+// initObservability initializes the observability service from configuration.
+func initObservability(logger *log.Logger, cfg *config.Config) {
+	// Start with defaults and override with non-empty values from system config
+	observabilityCfg := observability.DefaultConfig()
+
+	// Override with system configuration values if provided
+	observabilityCfg.Enabled = cfg.Observability.Enabled
+
+	if cfg.Observability.Output.Type != "" {
+		observabilityCfg.Output.Type = cfg.Observability.Output.Type
 	}
+	if cfg.Observability.Output.Format != "" {
+		observabilityCfg.Output.Format = cfg.Observability.Output.Format
+	}
+	if cfg.Observability.FailureMode != "" {
+		observabilityCfg.FailureMode = cfg.Observability.FailureMode
+	}
+
+	observabilityCfg.Metrics.Enabled = cfg.Observability.Metrics.Enabled
 
 	svc, err := observability.InitializeWithConfig(observabilityCfg)
 	if err != nil {
@@ -165,7 +170,7 @@ func initObservability(logger *log.Logger) {
 	if svc.IsEnabled() {
 		logger.Debug("Observability service initialized successfully with console adapter and JSON format")
 	} else {
-		logger.Warn("Observability service is disabled")
+		logger.Debug("Observability service is disabled")
 	}
 }
 

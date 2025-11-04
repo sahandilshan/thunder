@@ -193,8 +193,8 @@ func TestService_GetPublisher(t *testing.T) {
 	svc := GetService()
 
 	pub := svc.GetPublisher()
-	if pub == nil {
-		t.Error("GetPublisher() should return non-nil publisher for enabled service")
+	if pub != nil {
+		t.Error("GetPublisher() should return nil publisher for disabled service")
 	}
 }
 
@@ -203,11 +203,23 @@ func TestService_GetDefaultSubscriber(t *testing.T) {
 	serviceOnce = sync.Once{}
 	serviceInstance = nil
 
-	svc := GetService()
+	cfg := &Config{
+		Enabled: true,
+		Output: OutputConfig{
+			Type:   "console",
+			Format: "json",
+		},
+	}
+
+	svc, err := InitializeWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("InitializeWithConfig() error = %v", err)
+	}
 
 	sub := svc.GetDefaultSubscriber()
 	if sub == nil {
-		t.Error("GetDefaultSubscriber() should return non-nil subscriber")
+		t.Error("GetDefaultSubscriber() should return non-nil subscriber for enabled service")
+		return
 	}
 
 	if sub.GetID() == "" {
@@ -420,19 +432,29 @@ func TestService_DefaultConfig(t *testing.T) {
 	serviceOnce = sync.Once{}
 	serviceInstance = nil
 
-	// GetService uses default config
-	svc := GetService()
+	cfg := &Config{
+		Enabled: true,
+		Output: OutputConfig{
+			Type:   "console",
+			Format: "json",
+		},
+	}
+
+	svc, err := InitializeWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("InitializeWithConfig() error = %v", err)
+	}
 
 	if !svc.IsEnabled() {
-		t.Error("Service should be enabled with default config")
+		t.Error("Service should be enabled with config")
 	}
 
-	cfg := svc.GetConfig()
-	if cfg.Output.Type != "console" {
-		t.Errorf("Default output type = %s, want console", cfg.Output.Type)
+	retrievedCfg := svc.GetConfig()
+	if retrievedCfg.Output.Type != "console" {
+		t.Errorf("Output type = %s, want console", retrievedCfg.Output.Type)
 	}
 
-	if cfg.Output.Format != "json" {
-		t.Errorf("Default format = %s, want json", cfg.Output.Format)
+	if retrievedCfg.Output.Format != "json" {
+		t.Errorf("Format = %s, want json", retrievedCfg.Output.Format)
 	}
 }

@@ -107,7 +107,7 @@ func newServiceWithConfig(cfg *Config) *Service {
 
 	// Check if observability is disabled
 	if !cfg.Enabled {
-		logger.Info("Observability service is disabled by configuration")
+		logger.Debug("Observability service is disabled by configuration")
 		return &Service{
 			publisher: nil,
 			logger:    logger,
@@ -132,7 +132,7 @@ func newServiceWithConfig(cfg *Config) *Service {
 	// Initialize default subscribers
 	svc.initializeSubscribers()
 
-	logger.Info("Observability service initialized successfully")
+	logger.Debug("Observability service initialized successfully")
 	return svc
 }
 
@@ -170,13 +170,13 @@ func (s *Service) initializeSubscribers() {
 			// Fallback to console
 			adptr = console.NewConsoleAdapter()
 		} else {
-			s.logger.Info("Using file adapter",
+			s.logger.Debug("Using file adapter",
 				log.String("filePath", analyticsFile))
 		}
 
 	case OutputTypeConsole:
 		adptr = console.NewConsoleAdapter()
-		s.logger.Info("Using console adapter")
+		s.logger.Debug("Using console adapter")
 
 	default:
 		s.logger.Warn("Unknown output type, using console",
@@ -189,7 +189,7 @@ func (s *Service) initializeSubscribers() {
 	s.defaultSubscriber = defaultsubscriber.NewDefaultSubscriber(fmtr, adptr)
 	s.publisher.Subscribe(s.defaultSubscriber)
 
-	s.logger.Info("Default subscriber initialized successfully")
+	s.logger.Debug("Default subscriber initialized successfully")
 }
 
 // PublishEvent publishes an event to the observability system.
@@ -241,7 +241,7 @@ func (s *Service) GetDefaultSubscriber() subscriber.Subscriber {
 
 // Shutdown gracefully shuts down the observability service.
 func (s *Service) Shutdown() {
-	s.logger.Info("Shutting down observability service")
+	s.logger.Debug("Shutting down observability service")
 
 	if s.publisher != nil {
 		// Unsubscribe the default subscriber before shutting down the publisher
@@ -254,5 +254,5 @@ func (s *Service) Shutdown() {
 	}
 
 	s.enabled = false
-	s.logger.Info("Observability service shutdown complete")
+	s.logger.Debug("Observability service shutdown complete")
 }

@@ -355,7 +355,7 @@ func TestIsValidCategory(t *testing.T) {
 		},
 		{
 			name:     "invalid custom category",
-			category: EventCategory("analytics.custom"),
+			category: EventCategory("observability.custom"),
 			want:     false,
 		},
 		{
@@ -408,7 +408,7 @@ func TestCategoryConstants(t *testing.T) {
 	}
 
 	// Verify categories have expected prefix
-	expectedPrefix := "analytics."
+	expectedPrefix := "observability."
 	categories := append(GetAllCategories(), CategoryAll, CategoryUnknown)
 
 	for _, cat := range categories {

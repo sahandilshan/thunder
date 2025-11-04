@@ -101,13 +101,13 @@ type MetricsConfig struct {
 // For production, configure file output with rotation.
 func DefaultConfig() *Config {
 	return &Config{
-		Enabled: true,
+		Enabled: false,
 		Output: OutputConfig{
 			Type:   OutputTypeConsole,
 			Format: FormatJSON,
 		},
 		Metrics: MetricsConfig{
-			Enabled:        true,
+			Enabled:        false,
 			ExportInterval: 60 * time.Second,
 		},
 		FailureMode: "graceful",

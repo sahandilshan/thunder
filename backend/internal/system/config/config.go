@@ -143,20 +143,40 @@ type ImmutableResources struct {
 	Enabled bool `yaml:"enabled" json:"enabled" default:"false"`
 }
 
+// ObservabilityConfig holds the observability configuration details.
+type ObservabilityConfig struct {
+	Enabled     bool                       `yaml:"enabled" json:"enabled"`
+	Output      ObservabilityOutputConfig  `yaml:"output" json:"output"`
+	Metrics     ObservabilityMetricsConfig `yaml:"metrics" json:"metrics"`
+	FailureMode string                     `yaml:"failure_mode" json:"failure_mode"`
+}
+
+// ObservabilityOutputConfig holds observability output configuration.
+type ObservabilityOutputConfig struct {
+	Type   string `yaml:"type" json:"type"`
+	Format string `yaml:"format" json:"format"`
+}
+
+// ObservabilityMetricsConfig holds observability metrics configuration.
+type ObservabilityMetricsConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+}
+
 // Config holds the complete configuration details of the server.
 type Config struct {
-	Server             ServerConfig       `yaml:"server" json:"server"`
-	GateClient         GateClientConfig   `yaml:"gate_client" json:"gate_client"`
-	Security           SecurityConfig     `yaml:"security" json:"security"`
-	Database           DatabaseConfig     `yaml:"database" json:"database"`
-	Cache              CacheConfig        `yaml:"cache" json:"cache"`
-	JWT                JWTConfig          `yaml:"jwt" json:"jwt"`
-	OAuth              OAuthConfig        `yaml:"oauth" json:"oauth"`
-	Flow               FlowConfig         `yaml:"flow" json:"flow"`
-	Crypto             CryptoConfig       `yaml:"crypto" json:"crypto"`
-	Hash               HashConfig         `yaml:"hash"`
-	CORS               CORSConfig         `yaml:"cors" json:"cors"`
-	ImmutableResources ImmutableResources `yaml:"immutable_resources" json:"immutable_resources"`
+	Server             ServerConfig        `yaml:"server" json:"server"`
+	GateClient         GateClientConfig    `yaml:"gate_client" json:"gate_client"`
+	Security           SecurityConfig      `yaml:"security" json:"security"`
+	Database           DatabaseConfig      `yaml:"database" json:"database"`
+	Cache              CacheConfig         `yaml:"cache" json:"cache"`
+	JWT                JWTConfig           `yaml:"jwt" json:"jwt"`
+	OAuth              OAuthConfig         `yaml:"oauth" json:"oauth"`
+	Flow               FlowConfig          `yaml:"flow" json:"flow"`
+	Crypto             CryptoConfig        `yaml:"crypto" json:"crypto"`
+	Hash               HashConfig          `yaml:"hash"`
+	CORS               CORSConfig          `yaml:"cors" json:"cors"`
+	ImmutableResources ImmutableResources  `yaml:"immutable_resources" json:"immutable_resources"`
+	Observability      ObservabilityConfig `yaml:"observability" json:"observability"`
 }
 
 // LoadConfig loads the configurations from the specified YAML file and applies defaults.
