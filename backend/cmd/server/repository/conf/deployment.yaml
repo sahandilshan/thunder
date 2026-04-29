@@ -51,6 +51,9 @@ jwt:
 cors:
   allowed_origins:
     - "https://localhost:3000"
+    - "https://localhost:5190"
+    - "https://localhost:5191"
+
 
 passkey:
   allowed_origins:
@@ -59,3 +62,11 @@ passkey:
 consent:
   enabled: true
   base_url: "http://localhost:9090/api/v1"
+
+gate_client:
+  port: 5190
+
+#resource:
+#  system_resource_server:
+#    handle: ""
+#    identifier: ""   # defaults to server URL

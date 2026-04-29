@@ -50,6 +50,17 @@ $ErrorActionPreference = 'Stop'
 Log-Info "Creating default Thunder resources..."
 Write-Host ""
 
+# System resource server configuration from environment variables.
+$SYSTEM_RS_HANDLE = if ($env:THUNDER_SYSTEM_RS_HANDLE) { $env:THUNDER_SYSTEM_RS_HANDLE } else { "" }
+$SYSTEM_RS_IDENTIFIER = if ($env:THUNDER_SYSTEM_RS_IDENTIFIER) { $env:THUNDER_SYSTEM_RS_IDENTIFIER } else { $env:THUNDER_API_BASE }
+
+# Derive the system permission root based on the configured handle.
+if ($SYSTEM_RS_HANDLE) {
+    $SYSTEM_PERMISSION = "${SYSTEM_RS_HANDLE}:system"
+} else {
+    $SYSTEM_PERMISSION = "system"
+}
+
 # ============================================================================
 # Create Default Organization Unit
 # ============================================================================
@@ -287,7 +298,8 @@ if (-not $DEFAULT_OU_ID) {
 $resourceServerData = @{
     name = "System"
     description = "System resource server"
-    identifier = "system"
+    handle = $SYSTEM_RS_HANDLE
+    identifier = $SYSTEM_RS_IDENTIFIER
     ouId = $DEFAULT_OU_ID
 } | ConvertTo-Json -Depth 10
 
@@ -312,7 +324,7 @@ elseif ($response.StatusCode -eq 409) {
 
     if ($response.StatusCode -eq 200) {
         $body = $response.Body | ConvertFrom-Json
-        $systemRS = $body.resourceServers | Where-Object { $_.identifier -eq "system" } | Select-Object -First 1
+        $systemRS = $body.resourceServers | Where-Object { $_.name -eq "System" } | Select-Object -First 1
 
         if ($systemRS) {
             $SYSTEM_RS_ID = $systemRS.id
@@ -800,7 +812,7 @@ Write-Host ""
 # Create Admin Role
 # ============================================================================
 
-Log-Info "Creating admin role with 'system' permission..."
+Log-Info "Creating admin role with '$SYSTEM_PERMISSION' permission..."
 
 if (-not $ADMIN_GROUP_ID) {
     Log-Error "Administrator group ID is not available. Cannot create role."
@@ -824,7 +836,7 @@ $roleData = @{
     permissions = @(
         @{
             resourceServerId = $SYSTEM_RS_ID
-            permissions = @("system")
+            permissions = @($SYSTEM_PERMISSION)
         }
     )
     assignments = @(
@@ -979,6 +991,18 @@ else {
         else {
             Log-Info "No registration flow files found"
         }
+    }
+
+    # Template user onboarding flow files with the dynamic system permission.
+    if ((Test-Path $USER_ONBOARDING_FLOWS_DIR) -and ($SYSTEM_PERMISSION -ne "system")) {
+        $TEMPLATED_ONBOARDING_DIR = Join-Path ([System.IO.Path]::GetTempPath()) "thunder-onboarding-flows"
+        New-Item -ItemType Directory -Path $TEMPLATED_ONBOARDING_DIR -Force | Out-Null
+        Get-ChildItem -Path $USER_ONBOARDING_FLOWS_DIR -Filter "*.json" -File | ForEach-Object {
+            $content = Get-Content -Path $_.FullName -Raw
+            $content = $content -replace '\["system"\]', "[`"$SYSTEM_PERMISSION`"]"
+            Set-Content -Path (Join-Path $TEMPLATED_ONBOARDING_DIR $_.Name) -Value $content
+        }
+        $USER_ONBOARDING_FLOWS_DIR = $TEMPLATED_ONBOARDING_DIR
     }
 
     # Process user onboarding flows
@@ -1410,5 +1434,5 @@ Write-Host ""
 Log-Info "👤 Admin credentials:"
 Log-Info "   Username: admin"
 Log-Info "   Password: admin"
-Log-Info "   Role: Administrator (system permission via Administrators group)"
+Log-Info "   Role: Administrator ($SYSTEM_PERMISSION permission via Administrators group)"
 Write-Host ""

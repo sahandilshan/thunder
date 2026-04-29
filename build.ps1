@@ -234,6 +234,8 @@ function Read-Config {
             $script:PUBLIC_HOSTNAME = & yq eval '.server.public_hostname // ""' $CONFIG_FILE 2>$null
             $consentEnabled = & yq eval '.consent.enabled // true' $CONFIG_FILE 2>$null
             $script:CONSENT_ENABLED = ($consentEnabled -eq "true")
+            $script:SYSTEM_RS_HANDLE = & yq eval '.resource.system_resource_server.handle // ""' $CONFIG_FILE 2>$null
+            $script:SYSTEM_RS_IDENTIFIER = & yq eval '.resource.system_resource_server.identifier // ""' $CONFIG_FILE 2>$null
         }
         else {
             # Fallback: basic parsing with regex
@@ -277,6 +279,28 @@ function Read-Config {
             }
             else {
                 $script:CONSENT_ENABLED = $true
+            }
+
+            # Try to extract system resource server handle
+            if ($content -match '(?ms)system_resource_server:.*?handle:\s*[''"]([^''"]*)[''"]') {
+                $script:SYSTEM_RS_HANDLE = $matches[1]
+            }
+            elseif ($content -match '(?ms)system_resource_server:.*?handle:\s*([^\s#]+)') {
+                $script:SYSTEM_RS_HANDLE = $matches[1]
+            }
+            else {
+                $script:SYSTEM_RS_HANDLE = ""
+            }
+
+            # Try to extract system resource server identifier
+            if ($content -match '(?ms)system_resource_server:.*?identifier:\s*[''"]([^''"]*)[''"]') {
+                $script:SYSTEM_RS_IDENTIFIER = $matches[1]
+            }
+            elseif ($content -match '(?ms)system_resource_server:.*?identifier:\s*([^\s#]+)') {
+                $script:SYSTEM_RS_IDENTIFIER = $matches[1]
+            }
+            else {
+                $script:SYSTEM_RS_IDENTIFIER = ""
             }
         }
     }
@@ -1618,6 +1642,8 @@ function Run {
     
     # Run the bootstrap script directly with environment variable and arguments
     $env:THUNDER_API_BASE = $BASE_URL
+    $env:THUNDER_SYSTEM_RS_HANDLE = if ($script:SYSTEM_RS_HANDLE) { $script:SYSTEM_RS_HANDLE } else { "" }
+    $env:THUNDER_SYSTEM_RS_IDENTIFIER = if ($script:SYSTEM_RS_IDENTIFIER) { $script:SYSTEM_RS_IDENTIFIER } else { "" }
     $bootstrapScript = Join-Path $BACKEND_BASE_DIR "cmd/server/bootstrap/01-default-resources.ps1"
     & $bootstrapScript -ConsoleRedirectUris "https://localhost:${CONSOLE_APP_DEFAULT_PORT}/console"
 

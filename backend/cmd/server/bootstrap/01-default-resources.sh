@@ -43,6 +43,17 @@ source "${SCRIPT_DIR}/common.sh"
 log_info "Creating default Thunder resources..."
 echo ""
 
+# System resource server configuration from environment variables.
+SYSTEM_RS_HANDLE="${THUNDER_SYSTEM_RS_HANDLE:-}"
+SYSTEM_RS_IDENTIFIER="${THUNDER_SYSTEM_RS_IDENTIFIER:-${THUNDER_API_BASE}}"
+
+# Derive the system permission root based on the configured handle.
+if [[ -n "$SYSTEM_RS_HANDLE" ]]; then
+    SYSTEM_PERMISSION="${SYSTEM_RS_HANDLE}:system"
+else
+    SYSTEM_PERMISSION="system"
+fi
+
 # ============================================================================
 # Create Default Organization Unit
 # ============================================================================
@@ -276,7 +287,8 @@ fi
 RESPONSE=$(thunder_api_call POST "/resource-servers" "{
   \"name\": \"System\",
   \"description\": \"System resource server\",
-  \"identifier\": \"system\",
+  \"handle\": \"${SYSTEM_RS_HANDLE}\",
+  \"identifier\": \"${SYSTEM_RS_IDENTIFIER}\",
   \"ouId\": \"${DEFAULT_OU_ID}\"
 }")
 
@@ -302,9 +314,9 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
     if [[ "$HTTP_CODE" == "200" ]]; then
         SYSTEM_RS_ID=$(echo "$BODY" | grep -o '"id":"[^"]*","[^"]*":"System"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-        # Fallback parsing
+        # Fallback parsing by name
         if [[ -z "$SYSTEM_RS_ID" ]]; then
-            SYSTEM_RS_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"identifier":"system"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+            SYSTEM_RS_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"name":"System"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
         fi
 
         if [[ -n "$SYSTEM_RS_ID" ]]; then
@@ -729,7 +741,7 @@ echo ""
 # Create Admin Role
 # ============================================================================
 
-log_info "Creating admin role with 'system' permission..."
+log_info "Creating admin role with '${SYSTEM_PERMISSION}' permission..."
 
 if [[ -z "$ADMIN_GROUP_ID" ]]; then
     log_error "Administrator group ID is not available. Cannot create role."
@@ -753,7 +765,7 @@ RESPONSE=$(thunder_api_call POST "/roles" "{
   \"permissions\": [
     {
       \"resourceServerId\": \"${SYSTEM_RS_ID}\",
-      \"permissions\": [\"system\"]
+      \"permissions\": [\"${SYSTEM_PERMISSION}\"]
     }
   ],
   \"assignments\": [
@@ -922,6 +934,16 @@ else
         else
             log_warning "No registration flow files found"
         fi
+    fi
+
+    # Template user onboarding flow files with the dynamic system permission.
+    if [[ -d "$USER_ONBOARDING_FLOWS_DIR" ]] && [[ "$SYSTEM_PERMISSION" != "system" ]]; then
+        TEMPLATED_ONBOARDING_DIR=$(mktemp -d)
+        for f in "$USER_ONBOARDING_FLOWS_DIR"/*.json; do
+            [[ ! -f "$f" ]] && continue
+            sed "s/\[\"system\"\]/[\"${SYSTEM_PERMISSION}\"]/g" "$f" > "$TEMPLATED_ONBOARDING_DIR/$(basename "$f")"
+        done
+        USER_ONBOARDING_FLOWS_DIR="$TEMPLATED_ONBOARDING_DIR"
     fi
 
     # Process user onboarding flows
@@ -1366,5 +1388,5 @@ echo ""
 log_info "👤 Admin credentials:"
 log_info "   Username: admin"
 log_info "   Password: admin"
-log_info "   Role: Administrator (system permission via Administrators group)"
+log_info "   Role: Administrator (${SYSTEM_PERMISSION} permission via Administrators group)"
 echo ""
