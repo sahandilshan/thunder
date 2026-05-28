@@ -16,9 +16,9 @@
  * under the License.
  */
 
-import React, {ReactNode, useState, useEffect} from 'react';
-import {Box, Card, CardContent, Typography, Chip} from '@wso2/oxygen-ui';
 import Link from '@docusaurus/Link';
+import {Box, Card, CardContent, Typography, Chip} from '@wso2/oxygen-ui';
+import {ReactNode, useState, useEffect} from 'react';
 
 interface SDKCardProps {
   icon: ReactNode;
@@ -52,7 +52,7 @@ export default function SDKCard({
     if (!version && packageName && packageManager === 'npm' && !comingSoon) {
       fetch(`https://registry.npmjs.org/${packageName}/latest`)
         .then((res) => res.json())
-        .then((data) => {
+        .then((data: {version?: string}) => {
           if (data.version) {
             setFetchedVersion(`v${data.version}`);
           }

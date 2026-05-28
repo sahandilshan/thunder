@@ -21,21 +21,25 @@ package userinfo
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 
-	"github.com/asgardeo/thunder/internal/application"
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/attributecache"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/tokenservice"
-	oauth2utils "github.com/asgardeo/thunder/internal/oauth/oauth2/utils"
-	"github.com/asgardeo/thunder/internal/ou"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/attributecache"
+	"github.com/thunder-id/thunderid/internal/inboundclient"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/jwksresolver"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
+	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	"github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwe"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 const serviceLoggerComponentName = "UserInfoService"
@@ -43,40 +47,53 @@ const serviceLoggerComponentName = "UserInfoService"
 // userInfoServiceInterface defines the interface for OIDC UserInfo endpoint.
 type userInfoServiceInterface interface {
 	GetUserInfo(ctx context.Context, accessToken string) (*UserInfoResponse, *serviceerror.ServiceError)
+	GetUserInfoForDPoP(ctx context.Context, accessToken, proof, htm, htu string) (
+		*UserInfoResponse, *serviceerror.ServiceError)
 }
 
 // userInfoService implements the userInfoServiceInterface.
 type userInfoService struct {
-	jwtService         jwt.JWTServiceInterface
-	tokenValidator     tokenservice.TokenValidatorInterface
-	applicationService application.ApplicationServiceInterface
-	ouService          ou.OrganizationUnitServiceInterface
-	attributeCacheSvc  attributecache.AttributeCacheServiceInterface
-	transactioner      transaction.Transactioner
-	logger             *log.Logger
+	jwtService        jwt.JWTServiceInterface
+	jweService        jwe.JWEServiceInterface
+	jwksResolver      *jwksresolver.Resolver
+	tokenValidator    tokenservice.TokenValidatorInterface
+	inboundClient     inboundclient.InboundClientServiceInterface
+	ouService         ou.OrganizationUnitServiceInterface
+	attributeCacheSvc attributecache.AttributeCacheServiceInterface
+	transactioner     transaction.Transactioner
+	dpopVerifier      dpop.VerifierInterface
+	logger            *log.Logger
 }
 
 // newUserInfoService creates a new userInfoService instance.
 func newUserInfoService(
 	jwtService jwt.JWTServiceInterface,
+	jweService jwe.JWEServiceInterface,
+	resolver *jwksresolver.Resolver,
 	tokenValidator tokenservice.TokenValidatorInterface,
-	applicationService application.ApplicationServiceInterface,
+	inboundClient inboundclient.InboundClientServiceInterface,
 	ouService ou.OrganizationUnitServiceInterface,
 	attributeCacheSvc attributecache.AttributeCacheServiceInterface,
 	transactioner transaction.Transactioner,
+	dpopVerifier dpop.VerifierInterface,
 ) userInfoServiceInterface {
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, serviceLoggerComponentName))
 	return &userInfoService{
-		jwtService:         jwtService,
-		tokenValidator:     tokenValidator,
-		applicationService: applicationService,
-		ouService:          ouService,
-		attributeCacheSvc:  attributeCacheSvc,
-		transactioner:      transactioner,
-		logger:             log.GetLogger().With(log.String(log.LoggerKeyComponentName, serviceLoggerComponentName)),
+		jwtService:        jwtService,
+		jweService:        jweService,
+		jwksResolver:      resolver,
+		tokenValidator:    tokenValidator,
+		inboundClient:     inboundClient,
+		ouService:         ouService,
+		attributeCacheSvc: attributeCacheSvc,
+		transactioner:     transactioner,
+		dpopVerifier:      dpopVerifier,
+		logger:            logger,
 	}
 }
 
-// GetUserInfo validates the access token and returns user information based on authorized scopes.
+// GetUserInfo validates the access token under the Bearer scheme. A DPoP-bound
+// access token presented under Bearer is rejected as a downgrade.
 func (s *userInfoService) GetUserInfo(
 	ctx context.Context, accessToken string,
 ) (*UserInfoResponse, *serviceerror.ServiceError) {
@@ -89,6 +106,60 @@ func (s *userInfoService) GetUserInfo(
 		s.logger.Debug("Failed to verify access token", log.Error(err))
 		return nil, &errorInvalidAccessToken
 	}
+
+	boundJkt, _ := dpop.ExtractCnfJkt(accessTokenClaims.Claims)
+	if boundJkt != "" {
+		s.logger.Debug("DPoP-bound access token presented under Bearer scheme")
+		return nil, &errorBearerDowngrade
+	}
+
+	return s.buildResponseFromClaims(ctx, accessTokenClaims)
+}
+
+// GetUserInfoForDPoP validates the access token under the DPoP scheme. The access
+// token must be DPoP-bound and the proof must bind to the same key, htm, htu, and
+// access token (via ath).
+func (s *userInfoService) GetUserInfoForDPoP(
+	ctx context.Context, accessToken, proof, htm, htu string,
+) (*UserInfoResponse, *serviceerror.ServiceError) {
+	if accessToken == "" {
+		return nil, &errorInvalidAccessToken
+	}
+
+	accessTokenClaims, err := s.tokenValidator.ValidateAccessToken(accessToken)
+	if err != nil {
+		s.logger.Debug("Failed to verify access token", log.Error(err))
+		return nil, &errorInvalidAccessToken
+	}
+
+	expectedJkt, _ := dpop.ExtractCnfJkt(accessTokenClaims.Claims)
+	if expectedJkt == "" {
+		s.logger.Debug("DPoP scheme used with non-bound access token")
+		return nil, &errorDPoPProofInvalid
+	}
+
+	if s.dpopVerifier == nil {
+		s.logger.Error("DPoP verifier not configured")
+		return nil, &serviceerror.InternalServerError
+	}
+	if _, dpopErr := s.dpopVerifier.Verify(ctx, dpop.VerifyParams{
+		Proof:       proof,
+		HTM:         htm,
+		HTU:         htu,
+		AccessToken: accessToken,
+		ExpectedJkt: expectedJkt,
+	}); dpopErr != nil {
+		s.logger.Debug("DPoP proof verification failed", log.Error(dpopErr))
+		return nil, &errorDPoPProofInvalid
+	}
+
+	return s.buildResponseFromClaims(ctx, accessTokenClaims)
+}
+
+// buildResponseFromClaims builds the UserInfo response from validated access token claims.
+func (s *userInfoService) buildResponseFromClaims(
+	ctx context.Context, accessTokenClaims *tokenservice.AccessTokenClaims,
+) (*UserInfoResponse, *serviceerror.ServiceError) {
 	tokenClaims := accessTokenClaims.Claims
 	sub := accessTokenClaims.Sub
 
@@ -116,11 +187,10 @@ func (s *userInfoService) GetUserInfo(
 		attributeCacheID = val
 	}
 
-	// Fetch user attributes with groups and default claims
 	userAttributes, err := tokenservice.FetchUserAttributes(ctx, s.attributeCacheSvc,
 		allowedUserAttributes, attributeCacheID)
 	if err != nil {
-		s.logger.Error("Failed to fetch user attributes", log.String("userID", sub), log.Error(err))
+		s.logger.Error("Failed to fetch user attributes", log.MaskedString(log.LoggerKeyUserID, sub), log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 
@@ -129,54 +199,145 @@ func (s *userInfoService) GetUserInfo(
 		return nil, svcErr
 	}
 
-	// Decide response type
-	responseType := appmodel.UserInfoResponseTypeJSON
-	if oauthApp != nil && oauthApp.UserInfo != nil {
-		responseType = oauthApp.UserInfo.ResponseType
+	var userInfoCfg *inboundmodel.UserInfoConfig
+	var certificate *inboundmodel.Certificate
+	if oauthApp != nil {
+		userInfoCfg = oauthApp.UserInfo
+		certificate = oauthApp.Certificate
 	}
 
-	if responseType == appmodel.UserInfoResponseTypeJWS {
-		return s.generateJWSUserInfo(sub, tokenClaims, response)
+	responseType := inboundmodel.UserInfoResponseTypeJSON
+	if userInfoCfg != nil {
+		responseType = userInfoCfg.ResponseType
+	}
+	switch responseType {
+	case inboundmodel.UserInfoResponseTypeNESTEDJWT:
+		return s.generateNestedJWTUserInfo(ctx, sub, tokenClaims, response, userInfoCfg, certificate)
+	case inboundmodel.UserInfoResponseTypeJWE:
+		return s.generateJWEUserInfo(ctx, response, userInfoCfg, certificate)
+	case inboundmodel.UserInfoResponseTypeJWS:
+		return s.generateJWSUserInfo(ctx, sub, tokenClaims, response, userInfoCfg)
+	default:
+		return &UserInfoResponse{Type: inboundmodel.UserInfoResponseTypeJSON, JSONBody: response}, nil
+	}
+}
+
+// generateJWEUserInfo creates an encrypted JWE UserInfo response.
+func (s *userInfoService) generateJWEUserInfo(
+	ctx context.Context,
+	response map[string]interface{},
+	cfg *inboundmodel.UserInfoConfig,
+	certificate *inboundmodel.Certificate,
+) (*UserInfoResponse, *serviceerror.ServiceError) {
+	rpKey, rpKID, svcErr := s.jwksResolver.ResolveEncryptionKey(
+		ctx, certificate, cfg.EncryptionAlg, jwksresolver.KeyUseStrictEnc)
+	if svcErr != nil {
+		return nil, svcErr
 	}
 
-	return &UserInfoResponse{
-		Type:     appmodel.UserInfoResponseTypeJSON,
-		JSONBody: response,
-	}, nil
+	payload, err := json.Marshal(response)
+	if err != nil {
+		s.logger.Error("Failed to marshal userinfo claims for JWE")
+		return nil, &serviceerror.InternalServerError
+	}
+
+	compact, svcErr := s.jweService.Encrypt(
+		payload, rpKey,
+		jwe.KeyEncAlgorithm(cfg.EncryptionAlg),
+		jwe.ContentEncAlgorithm(cfg.EncryptionEnc),
+		"json",
+		rpKID,
+	)
+	if svcErr != nil {
+		s.logger.Error("Failed to encrypt userinfo JWE")
+		return nil, svcErr
+	}
+
+	return &UserInfoResponse{Type: inboundmodel.UserInfoResponseTypeJWE, JWTBody: compact}, nil
+}
+
+// generateNestedJWTUserInfo creates a sign-then-encrypt Nested JWT UserInfo response.
+func (s *userInfoService) generateNestedJWTUserInfo(
+	ctx context.Context,
+	sub string,
+	tokenClaims map[string]interface{},
+	response map[string]interface{},
+	cfg *inboundmodel.UserInfoConfig,
+	certificate *inboundmodel.Certificate,
+) (*UserInfoResponse, *serviceerror.ServiceError) {
+	jwsResp, svcErr := s.generateJWSUserInfo(ctx, sub, tokenClaims, response, cfg)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	rpKey, rpKID, svcErr := s.jwksResolver.ResolveEncryptionKey(
+		ctx, certificate, cfg.EncryptionAlg, jwksresolver.KeyUseStrictEnc)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	compact, svcErr := s.jweService.Encrypt(
+		[]byte(jwsResp.JWTBody), rpKey,
+		jwe.KeyEncAlgorithm(cfg.EncryptionAlg),
+		jwe.ContentEncAlgorithm(cfg.EncryptionEnc),
+		"JWT",
+		rpKID,
+	)
+	if svcErr != nil {
+		s.logger.Error("Failed to encrypt nested JWT userinfo JWE")
+		return nil, svcErr
+	}
+
+	return &UserInfoResponse{Type: inboundmodel.UserInfoResponseTypeNESTEDJWT, JWTBody: compact}, nil
 }
 
 // generateJWSUserInfo creates a signed JWT UserInfo response
 // based on the application configuration.
 func (s *userInfoService) generateJWSUserInfo(
+	ctx context.Context,
 	sub string,
 	tokenClaims map[string]interface{},
 	response map[string]interface{},
+	cfg *inboundmodel.UserInfoConfig,
 ) (*UserInfoResponse, *serviceerror.ServiceError) {
 	clientID := ""
 	if cid, ok := tokenClaims["client_id"].(string); ok {
 		clientID = cid
 	}
 
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 
 	issuer := runtime.Config.JWT.Issuer
 	validity := runtime.Config.JWT.ValidityPeriod
 
+	response["aud"] = clientID
+	signingAlg := ""
+	if cfg != nil {
+		signingAlg = cfg.SigningAlg
+	}
+
 	signedJWT, _, err := s.jwtService.GenerateJWT(
+		ctx,
 		sub,
-		clientID,
 		issuer,
 		validity,
 		response,
 		jwt.TokenTypeJWT,
+		signingAlg,
 	)
 	if err != nil {
-		s.logger.Error("Failed to generate signed UserInfo JWT")
+		if err.Code == jwt.ErrorUnsupportedJWSAlgorithm.Code {
+			s.logger.Error("UserInfo signing algorithm is not supported by the server key",
+				log.String("alg", signingAlg), log.String("error", err.Error.DefaultValue))
+		} else {
+			s.logger.Error("Failed to generate signed UserInfo JWT",
+				log.String("error", err.Error.DefaultValue))
+		}
 		return nil, &serviceerror.InternalServerError
 	}
 
 	return &UserInfoResponse{
-		Type:    appmodel.UserInfoResponseTypeJWS,
+		Type:    inboundmodel.UserInfoResponseTypeJWS,
 		JWTBody: signedJWT,
 	}, nil
 }
@@ -227,15 +388,17 @@ func (s *userInfoService) validateOpenIDScope(scopes []string) *serviceerror.Ser
 	return nil
 }
 
-// getOAuthApp retrieves the OAuth application configuration if client_id is present in claims.
+// getOAuthApp retrieves the OAuth client configuration if client_id is present in claims.
+// Returns nil when no client_id is present, on error, or when the app is not found.
 func (s *userInfoService) getOAuthApp(
-	ctx context.Context, claims map[string]interface{}) *appmodel.OAuthAppConfigProcessedDTO {
+	ctx context.Context, claims map[string]interface{},
+) *inboundmodel.OAuthClient {
 	clientID, ok := claims["client_id"].(string)
 	if !ok || clientID == "" {
 		return nil
 	}
 
-	app, err := s.applicationService.GetOAuthApplication(ctx, clientID)
+	app, err := s.inboundClient.GetOAuthClientByClientID(ctx, clientID)
 	if err != nil || app == nil {
 		return nil
 	}
@@ -249,7 +412,7 @@ func (s *userInfoService) buildUserInfoResponse(
 	sub string,
 	scopes []string,
 	userAttributes map[string]interface{},
-	oauthApp *appmodel.OAuthAppConfigProcessedDTO,
+	oauthApp *inboundmodel.OAuthClient,
 	tokenClaims map[string]interface{},
 ) (map[string]interface{}, *serviceerror.ServiceError) {
 	response := map[string]interface{}{

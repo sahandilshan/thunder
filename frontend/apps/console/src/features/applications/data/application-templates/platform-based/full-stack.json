@@ -1,0 +1,22 @@
+{
+  "id": "server",
+  "displayName": "Full-Stack",
+  "description": "Apps with both server and client code",
+  "defaults": {
+    "name": "Full-Stack Application",
+    "inboundAuthConfig": [
+      {
+        "type": "oauth2",
+        "config": {
+          "grantTypes": ["authorization_code", "refresh_token"],
+          "responseTypes": ["code"],
+          "redirectUris": [],
+          "pkceRequired": true,
+          "tokenEndpointAuthMethod": "client_secret_basic",
+          "publicClient": false
+        }
+      }
+    ],
+    "allowedUserTypes": []
+  }
+}

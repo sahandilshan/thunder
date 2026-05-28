@@ -1,15 +1,37 @@
 ---
 title: Development Pipeline
-description: Understand the development pipeline for contributing code to Thunder.
+description: Understand the development pipeline for contributing code.
 sidebar_position: 3
 hide_table_of_contents: false
 ---
 
 # Development Pipeline
 
+## Quick Reference
+
+| Purpose | macOS/Linux | Windows |
+|---------|-------------|---------|
+| Build everything | `make build` | `.\build.ps1 build` |
+| Build backend only | `make build_backend` | `.\build.ps1 build_backend` |
+| Build frontend only | `make build_frontend` | `.\build.ps1 build_frontend` |
+| Package for distribution | `./build.sh package` | `.\build.ps1 package` |
+| Run everything (development) | `make run` | `.\build.ps1 run` |
+| Run backend only | `make run_backend` | `.\build.ps1 run_backend` |
+| Run frontend only | `make run_frontend` | `.\build.ps1 run_frontend` |
+| Run all tests | `make test` | `.\build.ps1 test` |
+| Run unit tests | `make test_unit` | `.\build.ps1 test_unit` |
+| Clean build artifacts | `make clean` | `.\build.ps1 clean` |
+| Lint code | `make lint` | `.\build.ps1 lint` |
+| Lint documentation (Vale) | `make lint_docs` | — |
+| Run all PR checks | `make pr_checks` | — |
+
 ## Useful Commands
 
-This section provides a reference for all available make commands.
+This section provides a reference for the standard development commands. While the examples below use `make` for cross-platform simplicity, all commands map directly to the underlying build scripts for your OS:
+
+- **Make (Cross-platform):** `make <target>`
+- **Bash (Linux/macOS):** `./build.sh <target>`
+- **PowerShell (Windows):** `.\build.ps1 <target>`
 
 ### Building
 
@@ -35,6 +57,58 @@ make build_with_coverage
 
 This will run unit tests, build with coverage flags, run integration tests, and generate a combined coverage report.
 
+### Building without Consent Server
+
+By default, the build process downloads and packages the default consent server. If you want to skip this step, use the `WITHOUT_CONSENT` flag:
+
+**Using Make (Cross-platform)**
+```bash
+# Build and test bypassing consent
+make build WITHOUT_CONSENT=true
+make test_integration WITHOUT_CONSENT=true
+```
+
+**Using Bash (Linux/macOS)**
+```bash
+./build.sh build --without-consent
+```
+
+**Using PowerShell (Windows)**
+```powershell
+.\build.ps1 build --without-consent
+```
+
+**Using Docker**
+```bash
+docker build --build-arg WITH_CONSENT=false -t thunderid:latest .
+```
+
+:::note
+If you build without the consent server, you must also disable it when running setup and starting the server, as the scripts default to `WITH_CONSENT=true`. Run setup and start with the appropriate flag for your platform:
+
+**Bash (Linux/macOS)**
+```bash
+./setup.sh --without-consent
+./start.sh --without-consent
+```
+
+**PowerShell (Windows)**
+```powershell
+.\setup.ps1 --without-consent
+.\start.ps1 --without-consent
+```
+
+**Make**
+```bash
+make run WITHOUT_CONSENT=true
+```
+
+**Docker (environment variable)**
+```bash
+docker run -e WITH_CONSENT=false thunderid:latest
+```
+:::
+
 ### Running
 
 **Run everything (backend + frontend):**
@@ -43,6 +117,11 @@ make run
 ```
 
 This automatically sets up the complete development environment with backend, frontend apps, and seed data.
+
+If you built the project without the consent server, you must also run it with the flag to avoid startup errors:
+```bash
+make run WITHOUT_CONSENT=true
+```
 
 **Run only the backend:**
 ```bash
@@ -56,7 +135,7 @@ make run_frontend
 
 ### Testing
 
-**Run all tests (unit + integration):**
+**Run all backend tests (unit + integration):**
 ```bash
 make test
 ```
@@ -71,9 +150,139 @@ make test_unit
 make test_integration
 ```
 
+**Run a specific integration test:**
+```bash
+make test_integration RUN="TestName"
+```
+
+**Run tests for a specific package:**
+```bash
+make test_integration PACKAGE="pkg/path"
+```
+
+**Run frontend unit tests:**
+```bash
+cd frontend && pnpm test
+```
+
+:::note
+`make test` only runs backend tests. Frontend and E2E tests must be run separately.
+:::
+
 **Code Coverage Requirements:**
 - **Minimum**: at least 80% code coverage for new code
 - **Encouraged**: 100% coverage
+
+#### E2E Tests (Playwright)
+
+Use `make test_e2e` for a fully automated run. It starts the server, imports sample app resources, starts the sample app, and runs Playwright:
+
+```bash
+make test_e2e
+```
+
+:::note
+Stop any running <ProductName /> instance before using `make test_e2e`. The script manages the full server lifecycle.
+:::
+
+To run Playwright against an already-running server and sample app, run Playwright directly inside `tests/e2e/`:
+
+```bash
+cd tests/e2e
+npx playwright test
+```
+
+<details>
+<summary><strong>Click to expand - Manual E2E Setup</strong></summary>
+
+**1. Build the product**
+
+```bash
+make build
+```
+
+This produces the server distribution and sample app packages under `target/dist/`.
+
+**2. Start the server**
+
+Extract the server distribution and run setup, then start:
+
+```bash
+mkdir -p tests/e2e/server
+unzip "target/dist/{{productSlug}}-*.zip" -d tests/e2e/server
+cd tests/e2e/server && ./setup.sh
+./start.sh &
+```
+
+`setup.sh` starts the server temporarily with security disabled, runs the bootstrap scripts (which register default resources and sample app OAuth clients), and stops the server cleanly. `start.sh` then starts it with security enabled.
+
+**3. Extract sample apps and start the SDK sample**
+
+Extract the React Vanilla and React SDK sample packages and start the SDK sample app, which the e2e tests interact with:
+
+```bash
+cd <REPO_ROOT>
+mkdir -p tests/e2e/sample-app-vanilla tests/e2e/sample-app-sdk
+
+unzip "target/dist/sample-app-react-vanilla-*.zip" -d tests/e2e/sample-app-vanilla
+unzip "target/dist/sample-app-react-sdk-*.zip"    -d tests/e2e/sample-app-sdk
+
+cd tests/e2e/sample-app-sdk && ./start.sh &
+```
+
+**4. Install dependencies and browsers**
+
+```bash
+cd tests/e2e
+npm ci
+npx playwright install --with-deps
+```
+
+**5. Configure environment**
+
+Copy `.env.example` to `.env` and set your values:
+
+```bash
+cp .env.example .env
+```
+
+```env
+BASE_URL=https://localhost:8090
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin
+TEST_USER_USERNAME=testuser
+TEST_USER_PASSWORD=admin
+ENVIRONMENT=local
+
+# Sample app (used in social login / OAuth flow tests)
+SAMPLE_APP_URL=https://localhost:3000
+SAMPLE_APP_USERNAME=e2e-test-user
+SAMPLE_APP_PASSWORD=e2e-test-password
+
+# Mock SMS server port (used in MFA tests)
+MOCK_SMS_SERVER_PORT=8098
+```
+
+**6. Run the tests**
+
+```bash
+cd tests/e2e
+npx playwright test
+```
+
+</details>
+
+**E2E test options:**
+
+| Option | Command |
+|--------|---------|
+| All browsers | `npx playwright test` |
+| Chromium only | `npx playwright test --project=chromium` |
+| Accessibility tests only | `npx playwright test --grep @accessibility` |
+| Smoke tests only | `npx playwright test --grep @smoke` |
+| Watch in browser | `npx playwright test --headed` |
+| Step through interactively | `npx playwright test --debug` |
+| Interactive UI mode | `npx playwright test --ui` |
 
 ### Linting
 
@@ -89,14 +298,85 @@ This uses `golangci-lint` to check code quality and style.
 make lint_frontend
 ```
 
-**Lint both backend and frontend:**
+**Lint documentation (Vale):**
+```bash
+make lint_docs
+```
+
+Vale must be installed before running this command. On macOS, install it with:
+
+```bash
+brew install vale
+```
+
+For other platforms, download the binary from the [Vale releases page](https://github.com/errata-ai/vale/releases).
+
+This command runs Vale against the entire `docs/` directory and may surface pre-existing issues in files you did not change. CI only checks files changed in your pull request, so focus on issues in files you have edited.
+
+**Lint backend, frontend, and SDKs:**
 ```bash
 make lint
 ```
 
+### PR Checks
+
+Run all the checks that CI performs on pull requests in a single command:
+
+```bash
+make pr_checks
+```
+
+This runs the following checks in order:
+
+| Step | Command | What it checks |
+|------|---------|---------------|
+| Verify mocks | `make verify_mocks` | Mock files are in sync with interfaces |
+| Lint | `make lint` | Backend, frontend, and SDK code quality |
+| Format check | `make format_check` | Frontend code formatting |
+| Backend unit tests | `make test_unit` | Backend unit test suite |
+| Frontend unit tests | `make test_frontend` | Console and Gate app unit tests |
+| Integration tests | `make test_integration` | API and database integration tests |
+| Build backend | `make build_backend` | Backend compiles successfully |
+| Build frontend | `make build_frontend` | Frontend compiles successfully |
+| Build samples | `make build_samples` | Sample apps compile successfully |
+
+Each step can also be run independently:
+
+**Check mock files are in sync:**
+```bash
+make verify_mocks
+```
+
+This regenerates mocks from the current interfaces and fails if the result differs from what is committed.
+
+**Check frontend code formatting:**
+```bash
+make format_check
+```
+
+**Run frontend unit tests (console + gate):**
+```bash
+make test_frontend
+```
+
+**Run a security audit on dependencies:**
+```bash
+make security_audit
+```
+
+This runs `pnpm audit` and `npm audit` at the `high` severity level. Note that CI applies additional ignore rules from `.audit-ignore.json` for known advisories; this local command may surface entries that CI suppresses.
+
+**Run E2E tests:**
+
+```bash
+make test_e2e
+```
+
+This handles the full setup automatically. The script starts the server with security disabled, imports declarative resources for the sample apps, and restarts the server with security enabled. The script then builds and starts the sample app and runs Playwright. Stop any already-running <ProductName /> instance before using this command.
+
 ### Generating Mocks
 
-Thunder uses `mockery` to generate mocks for unit tests.
+<ProductName /> uses `mockery` to generate mocks for unit tests.
 
 **Generate mocks:**
 ```bash
@@ -108,6 +388,10 @@ This will generate mocks based on the configurations in:
 - `.mockery.private.yml` - For private interfaces
 
 Generated mocks are placed in `backend/tests/mocks/`.
+
+:::warning
+CI has a `verify-mocks` job that will fail your build if mocks are out of sync with the interfaces. Always run `make mockery` after changing any interface. Use `make verify_mocks` to confirm they are in sync before pushing.
+:::
 
 ### Other Commands
 
@@ -133,13 +417,13 @@ make help
 ## Advanced Setup (Manual Mode)
 
 <details>
-<summary><strong>📖 Click to expand - Manual Frontend Setup</strong></summary>
+<summary><strong>Click to expand - Manual Frontend Setup</strong></summary>
 
 For developers who want to run frontend components separately without using `make run` commands.
 
 ### Installing Dependencies
 
-1. Navigate to the Thunder frontend directory.
+1. Navigate to the <ProductName /> frontend directory.
 
 ```bash
 cd frontend
@@ -161,29 +445,29 @@ pnpm build
 
 ### Seed Data (Optional)
 
-💡 **Note**: This step is only necessary if you are running the backend server manually and have not yet set up the initial data.
+**Note**: This step is only necessary if you are running the backend server manually and have not yet set up the initial data.
 
 If you have not already created the `Console` application and the default admin user, you can do so by running the following command:
 
 ```bash
-THUNDER_API_BASE="https://localhost:8090" \
+API_BASE="https://localhost:8090" \
   backend/cmd/server/bootstrap/01-default-resources.sh \
   --console-redirect-uris "https://localhost:5191/console"
 ```
 
-### Setting up the Thunder Gate Application
+### Setting up the <ProductName /> Gate Application
 
-1. Point the `gate_client` in `deployment.yaml` to the local Thunder Gate application.
+1. Point the `gate_client` in `deployment.yaml` to the local <ProductName /> Gate application.
 
    - If you are running `make run`, change the `gate_client` section in `backend/cmd/server/repository/conf/deployment.yaml`
-   - If you are running the backend server manually, change the `gate_client` section in `<THUNDER_HOME>/repository/conf/deployment.yaml`
+   - If you are running the backend server manually, change the `gate_client` section in `<THUNDERID_HOME>/repository/conf/deployment.yaml`
 
 ```yaml
 gate_client:
   port: 5190
 ```
 
-2. Add the local development origin of the Thunder Gate application (https://localhost:5190) to the CORS allowed origins in `<THUNDER_HOME>/repository/conf/deployment.yaml`.
+2. Add the local development origin of the <ProductName /> Gate application (https://localhost:5190) to the CORS allowed origins in `<THUNDERID_HOME>/repository/conf/deployment.yaml`.
 
 ```yaml
 cors:
@@ -191,18 +475,18 @@ cors:
     - "https://localhost:5190"
 ```
 
-3. Run the Thunder Gate application.
+3. Run the <ProductName /> Gate application.
 
 ```bash
 cd frontend
-pnpm --filter @thunder/gate dev
+pnpm --filter @thunderid/gate dev
 ```
 
-### Setting up the Thunder Console Application
+### Setting up the <ProductName /> Console Application
 
-💡 **IMPORTANT**: This section assumes that you have already created the `Console` application using the initial data setup script. If not, please refer to the [Seed Data](#seed-data-optional) section above.
+**IMPORTANT**: This section assumes that you have already created the `Console` application using the initial data setup script. If not, please refer to the [Seed Data](#seed-data-optional) section above.
 
-1. First, retrieve the application ID of the **Console** application from the Thunder server. This will be the application with the `client_id` **CONSOLE**.
+1. First, retrieve the application ID of the **Console** application from the <ProductName /> server. This will be the application with the `client_id` **CONSOLE**.
 
 ```bash
 curl -k -X GET "https://localhost:8090/applications"
@@ -214,9 +498,9 @@ curl -k -X GET "https://localhost:8090/applications"
 curl -k -X GET "https://localhost:8090/applications/<console-application-id>"
 ```
 
-💡 **Note**: Replace `<console-application-id>` with the actual application ID (e.g., `6100bc91-ba99-4ce9-87dd-6d4d80178c38`) obtained from the previous step. The `-k` flag allows curl to work with self-signed SSL certificates in development.
+**Note**: Replace `<console-application-id>` with the actual application ID (e.g., `6100bc91-ba99-4ce9-87dd-6d4d80178c38`) obtained from the previous step. The `-k` flag allows curl to work with self-signed SSL certificates in development.
 
-3. Copy the response from step 2 and update the `redirectUris` in the JSON object to include the local development URL (ex: https://localhost:5191/console). Locate the `inboundAuthConfig > config` section and modify the `redirectUris` array:
+3. Copy the response from step 2 and update the `redirectUris` in the JSON object to include the local development URL (ex: https://localhost:5191/console). Locate the `inboundAuthConfig > config` section and update the `redirectUris` array:
 
 ```json
 "redirectUris": [
@@ -233,7 +517,7 @@ curl -k -X PUT "https://localhost:8090/applications/<console-application-id>" \
   -d '<paste-the-modified-json-here>'
 ```
 
-5. Add the local development origin of the console application (https://localhost:5191) to the CORS allowed origins in `<THUNDER_HOME>/repository/conf/deployment.yaml`.
+5. Add the local development origin of the console application (https://localhost:5191) to the CORS allowed origins in `<THUNDERID_HOME>/repository/conf/deployment.yaml`.
 
 ```yaml
 cors:
@@ -241,17 +525,19 @@ cors:
     - "https://localhost:5191"
 ```
 
-6. Run the Thunder Console application.
+6. Run the <ProductName /> Console application.
 
 ```bash
-pnpm --filter @thunder/console dev
+pnpm --filter @thunderid/console dev
 ```
 
-This will run the Thunder Console application on `https://localhost:5191/console`.
+This will run the <ProductName /> Console application on `https://localhost:5191/console`.
 
 </details>
 
 ## Development Workflow
+
+For area-specific coding standards, see the [Backend Development](backend-development/overview.mdx) and [Frontend Development](frontend-development/overview.mdx) guides.
 
 ### 1. Make Your Changes
 
@@ -269,40 +555,50 @@ Follow coding guidelines and best practices:
 
 ### 2. Test and Validate Your Changes
 
-Before committing, ensure code quality and correctness:
+Before committing, ensure code quality and correctness. Run everything CI will check with one command:
 
-**Run tests:**
 ```bash
-make test  # Run all tests (unit + integration)
+make pr_checks
 ```
 
-**Run linting:**
-```bash
-make lint_backend  # Backend only
-# or
-make lint  # Both backend and frontend
-```
+Or run individual checks:
+
+| Purpose | Command |
+|---------|---------|
+| All PR checks | `make pr_checks` |
+| Backend unit tests | `make test_unit` |
+| Backend integration tests | `make test_integration` |
+| Backend all tests | `make test` |
+| Frontend unit tests | `make test_frontend` |
+| E2E tests (Playwright) | `make test_e2e` |
+| Lint all code | `make lint` |
+| Lint backend | `make lint_backend` |
+| Lint frontend | `make lint_frontend` |
+| Lint documentation (Vale) | `make lint_docs` |
+| Check formatting | `make format_check` |
+| Verify mock files | `make verify_mocks` |
+| Security audit | `make security_audit` |
 
 **Requirements:**
-- ✅ All tests must pass
-- ✅ Code coverage: at least 80% (higher encouraged)
-- ✅ No linting errors
-- ✅ Unit tests for business logic
-- ✅ Integration tests for API endpoints
-- ✅ Test edge cases and error scenarios
-
-> **Tip**: See [Testing](#testing) and [Linting](#linting) sections for more command options.
+- All tests must pass
+- Code coverage: at least 80% (higher encouraged)
+- No linting errors
+- Unit tests for business logic
+- Integration tests for API endpoints
+- Test edge cases and error scenarios
 
 ### 3. Commit Your Changes
 
 Use clear, descriptive commit messages:
 
 ```bash
-git commit -m "<commit-message>"
+git commit -m "Fix token refresh failing after 30 minutes
+
+Fixes #123"
 ```
 
 **Best practices:**
-- Make atomic commits (one logical change per commit)
+- Make atomic commits (one logical change per commit) — ideally one commit per PR
 - Write commit messages that explain **why**, not just **what**
 - Reference the issue number using `Fixes #<number>` or `Closes #<number>`
 
@@ -314,7 +610,7 @@ Push your changes to your forked repository:
 git push origin <branch-name>
 ```
 
-Then create a Pull Request to the `thunder/main` branch on GitHub:
+Then create a Pull Request to the `upstream/main` branch on GitHub:
 
 1. Go to your fork on GitHub
 2. Click **"Compare & pull request"**
@@ -326,30 +622,10 @@ Then create a Pull Request to the `thunder/main` branch on GitHub:
 ### 5. Address Review Feedback
 
 - Respond to reviewer comments promptly
-- Make requested changes
-- Keep commit history clean by rebasing or squashing review fixes into the appropriate commit, rather than adding separate "fix review comments" commits.
-- If your PR has multiple commits, consolidate review feedback into a single meaningful commit
+- Keep commit history clean — rebase review fixes into the appropriate commit rather than adding separate "fix review comments" commits
 - Push updates to the same branch
 - Re-request review when ready
 
-**Tips:**
-- Ask questions if feedback is unclear
-- Explain your approach if you disagree (constructively)
-- Mark resolved conversations as resolved
-- Keep the discussion focused and professional
-
 ### 6. Merge
 
-Once approved by maintainers and all checks pass a maintainer will merge your PR.
-
-## 🎉 After Your PR is Merged
-
-Your contribution will be:
-
-* ✅ Included in the next release
-* ✅ Mentioned in release notes
-* ✅ Celebrated in the community! 🎊
-
-**Thank you for contributing to Thunder!** 🚀⚡
-
-**Ready to start coding?** Pick an issue, create a branch, and start building!
+Once approved by maintainers and all checks pass, a maintainer will merge your PR.

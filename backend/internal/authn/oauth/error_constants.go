@@ -18,64 +18,115 @@
 
 package oauth
 
-import "github.com/asgardeo/thunder/internal/system/error/serviceerror"
+import (
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+)
 
 // Client errors for OAuth authentication.
 var (
 	// ErrorEmptyIdpID is the error when the IDP identifier is empty.
 	ErrorEmptyIdpID = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "AUTH-OAUTH-1001",
-		Error:            "IDP id is empty",
-		ErrorDescription: "The identity provider id cannot be empty",
+		Type: serviceerror.ClientErrorType,
+		Code: "AUTH-OAUTH-1001",
+		Error: core.I18nMessage{
+			Key:          "error.authoauthservice.empty_idp_id",
+			DefaultValue: "IDP id is empty",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.authoauthservice.empty_idp_id_description",
+			DefaultValue: "The identity provider id cannot be empty",
+		},
 	}
 	// ErrorInvalidIDP is the error when the retrieved IDP is invalid.
 	ErrorInvalidIDP = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "AUTH-OAUTH-1002",
-		Error:            "Invalid identity provider",
-		ErrorDescription: "The retrieved identity provider is invalid or empty",
+		Type: serviceerror.ClientErrorType,
+		Code: "AUTH-OAUTH-1002",
+		Error: core.I18nMessage{
+			Key:          "error.authoauthservice.invalid_idp",
+			DefaultValue: "Invalid identity provider",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.authoauthservice.invalid_idp_description",
+			DefaultValue: "The retrieved identity provider is invalid or empty",
+		},
 	}
 	// ErrorEmptyAuthorizationCode is the error when the authorization code is empty.
 	ErrorEmptyAuthorizationCode = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "AUTH-OAUTH-1003",
-		Error:            "Empty authorization code",
-		ErrorDescription: "The authorization code cannot be empty",
+		Type: serviceerror.ClientErrorType,
+		Code: "AUTH-OAUTH-1003",
+		Error: core.I18nMessage{
+			Key:          "error.authoauthservice.empty_authorization_code",
+			DefaultValue: "Empty authorization code",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.authoauthservice.empty_authorization_code_description",
+			DefaultValue: "The authorization code cannot be empty",
+		},
 	}
 	// ErrorEmptyAccessToken is the error when the access token is empty.
 	ErrorEmptyAccessToken = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "AUTH-OAUTH-1004",
-		Error:            "Empty access token",
-		ErrorDescription: "The access token cannot be empty",
+		Type: serviceerror.ClientErrorType,
+		Code: "AUTH-OAUTH-1004",
+		Error: core.I18nMessage{
+			Key:          "error.authoauthservice.empty_access_token",
+			DefaultValue: "Empty access token",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.authoauthservice.empty_access_token_description",
+			DefaultValue: "The access token cannot be empty",
+		},
 	}
 	// ErrorClientErrorWhileRetrievingIDP is the error when there is a client error while retrieving the IDP.
 	ErrorClientErrorWhileRetrievingIDP = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "AUTH-OAUTH-1005",
-		Error:            "Failed to retrieve identity provider",
-		ErrorDescription: "A client error occurred while retrieving the identity provider configuration",
+		Type: serviceerror.ClientErrorType,
+		Code: "AUTH-OAUTH-1005",
+		Error: core.I18nMessage{
+			Key:          "error.authoauthservice.failed_to_retrieve_idp",
+			DefaultValue: "Failed to retrieve identity provider",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.authoauthservice.failed_to_retrieve_idp_description",
+			DefaultValue: "A client error occurred while retrieving the identity provider configuration",
+		},
 	}
 	// ErrorEmptySubClaim is the error when the sub claim is empty.
 	ErrorEmptySubClaim = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "AUTH-OAUTH-1006",
-		Error:            "Empty sub claim",
-		ErrorDescription: "The sub claim cannot be empty",
+		Type: serviceerror.ClientErrorType,
+		Code: "AUTH-OAUTH-1006",
+		Error: core.I18nMessage{
+			Key:          "error.authoauthservice.empty_sub_claim",
+			DefaultValue: "Empty sub claim",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.authoauthservice.empty_sub_claim_description",
+			DefaultValue: "The sub claim cannot be empty",
+		},
 	}
 	// ErrorClientErrorWhileRetrievingUser is the error when there is a client error while retrieving the user.
 	ErrorClientErrorWhileRetrievingUser = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "AUTH-OAUTH-1007",
-		Error:            "Failed to retrieve user",
-		ErrorDescription: "A client error occurred while retrieving the internal user",
+		Type: serviceerror.ClientErrorType,
+		Code: "AUTH-OAUTH-1007",
+		Error: core.I18nMessage{
+			Key:          "error.authoauthservice.failed_to_retrieve_user",
+			DefaultValue: "Failed to retrieve user",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.authoauthservice.failed_to_retrieve_user_description",
+			DefaultValue: "A client error occurred while retrieving the internal user",
+		},
 	}
 	// ErrorInvalidTokenResponse is the error when the token response is invalid.
 	ErrorInvalidTokenResponse = serviceerror.ServiceError{
-		Type:             serviceerror.ServerErrorType,
-		Code:             "AUTH-OAUTH-1008",
-		Error:            "Invalid token response",
-		ErrorDescription: "The token response received from the identity provider is invalid",
+		Type: serviceerror.ServerErrorType,
+		Code: "AUTH-OAUTH-1008",
+		Error: core.I18nMessage{
+			Key:          "error.authoauthservice.invalid_token_response",
+			DefaultValue: "Invalid token response",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.authoauthservice.invalid_token_response_description",
+			DefaultValue: "The token response received from the identity provider is invalid",
+		},
 	}
 )

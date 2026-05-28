@@ -1,0 +1,109 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+reviews:
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        Scan for hardcoded occurrences of the string literals `Thunder` or `ThunderID` in this file.
+        For each occurrence, flag it and ask: **"Is this hardcoded brand name intentional?"**
+        If it can be replaced, suggest using a named constant or a value sourced from runtime config
+        (e.g., an environment variable or a config struct field) rather than a raw string literal.
+        Do not flag occurrences inside comments or import paths.
+
+        Check whether this change introduces or modifies any of the following:
+        - Public REST/OAuth2/OIDC API endpoints (new routes, changed request/response schemas, new query/path/header parameters)
+        - Configuration options (YAML/TOML keys, environment variables, deployment settings)
+        - Authentication or authorization flows (new grant types, new authenticators, changed flow steps)
+        - User-facing behavior changes (new features, changed defaults, removed capabilities)
+        - SDK-impacting changes (new or changed client-facing interfaces, token formats, scopes)
+
+        If ANY of the above are detected and the PR does NOT include corresponding updates
+        under `docs/` (content pages in `docs/content/`, API references in `docs/content/apis.mdx`,
+        guide updates in `docs/content/guides/`, or SDK docs in `docs/content/sdks/`),
+        post a **single consolidated PR-level comment** (do NOT create separate inline comments for each gap).
+        Collect all missing documentation items across the entire PR and emit them together in one comment
+        using the following format:
+
+        "🔴 **Documentation Required**
+        This PR introduces user-facing changes that are not covered by documentation updates under `docs/`.
+        Please update the relevant documentation before merging.
+
+        **Missing documentation:**
+        - <item 1>: <what needs to be documented and which file to update or create>
+        - <item 2>: <what needs to be documented and which file to update or create>
+        - ..."
+
+    - path: "**/*.ts"
+      instructions: |
+        Scan for hardcoded occurrences of the string literals `Thunder` or `ThunderID` in this file.
+        For each occurrence, flag it and ask: **"Is this hardcoded brand name intentional?"**
+        If it can be replaced, suggest reading the value from the app's config system using the
+        `useConfig` hook (e.g., `const { productName } = useConfig();`) rather than a raw string literal.
+        Do not flag occurrences inside comments, type names, or import paths.
+
+    - path: "**/*.tsx"
+      instructions: |
+        Scan for hardcoded occurrences of the string literals `Thunder` or `ThunderID` in this file.
+        For each occurrence, flag it and ask: **"Is this hardcoded brand name intentional?"**
+        If it can be replaced, suggest reading the value from the app's config system using the
+        `useConfig` hook (e.g., `const { productName } = useConfig();`) rather than a raw string literal.
+        For JSX string content, prefer the `<ProductName />` component if it is available in this context.
+        Do not flag occurrences inside comments, type names, or import paths.
+
+    - path: "docs/**"
+      instructions: |
+        Scan for hardcoded occurrences of the string literals `Thunder` or `ThunderID`.
+        Flag every occurrence as a **major issue** and require it to be replaced using the
+        correct templating mechanism for the file type (described below).
+        Do not flag occurrences inside fenced code blocks that demonstrate real terminal output
+        or literal configuration values where the exact string is semantically required.
+
+        **Correct approach by file type:**
+
+        `.mdx` files — prose, headings, and JSX string content:
+        - Product name → `<ProductName />` (globally registered MDX component, no import needed).
+        - Repository URLs and GitHub links → `<RepoLink path="/issues">link text</RepoLink>`.
+
+        `.mdx` files — frontmatter fields (title, description, sidebar_label, etc.):
+        - Product name → `{{ProductName}}` placeholder (replaced at build time via `parseFrontMatter`).
+        - Product slug → `{{productSlug}}` placeholder.
+
+        `.mdx` files — fenced code blocks and inline code spans:
+        - Product name → `{{ProductName}}` placeholder (replaced at build time by the `rehypeProductName` plugin).
+        - Product slug → `{{productSlug}}` placeholder.
+
+        `.tsx` / `.ts` files under `docs/src/`:
+        - Read the product name and repo URL from Docusaurus site config:
+          ```ts
+          const { siteConfig } = useDocusaurusContext();
+          const { project } = siteConfig.customFields?.product as DocusaurusProductConfig;
+          const productName = project.name;          // product name string
+          const repoUrl = project.source.github.url; // repo URL string
+          ```
+        - Do not hardcode the product name as a string literal; always derive it from config.
+
+        Review documentation changes for:
+        - Technical accuracy: do code examples and parameter descriptions match the actual implementation in this PR?
+        - Completeness: are all new endpoints, config keys, and behavioral changes covered?
+        - Consistency: does the style match existing documentation?
+        - Broken links or references to renamed/removed entities.
+
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+    base_branches:
+      - main
+
+  path_filters:
+    - "!**/*_mock.go"
+    - "!**/mock_*.go"
+    - "!**/*.pb.go"
+    - "!**/node_modules/**"
+    - "!docs/__backup__/**"

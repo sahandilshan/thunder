@@ -22,9 +22,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // jwtAuthenticator handles authentication and authorization using JWT Bearer tokens.
@@ -59,9 +60,11 @@ func (h *jwtAuthenticator) Authenticate(r *http.Request) (*SecurityContext, erro
 		return nil, errInvalidToken
 	}
 
-	// Step 2: Verify JWT signature
-	if err := h.jwtService.VerifyJWTSignature(token); err != nil {
-		return nil, errInvalidToken
+	// Step 2: Verify the JWT, routing on its issuer. Tokens this server issued
+	// are verified with its own signing key; Additionally when a trusted issuer is
+	// configured, tokens from that issuer are verified against its JWKS.
+	if err := h.verifyToken(token); err != nil {
+		return nil, err
 	}
 
 	// Step 3: Decode JWT payload to extract attributes
@@ -85,6 +88,69 @@ func (h *jwtAuthenticator) Authenticate(r *http.Request) (*SecurityContext, erro
 	return newSecurityContext(subject, ouID, token, scopes, attributes), nil
 }
 
+// verifyToken verifies the bearer token by routing on its iss claim against
+// an explicit allowlist of accepted issuers. Tokens from the configured
+// trusted issuer (when set) are verified against its JWKS. Tokens whose iss
+// matches this server's own JWT issuer are verified with the local signing
+// key. Any other iss is rejected. There is no cross-issuer fallback.
+func (h *jwtAuthenticator) verifyToken(token string) error {
+	trustedIssuer := config.GetServerRuntime().Config.Server.SecurityConfig.TrustedIssuer
+	iss := extractIssuer(token)
+	switch {
+	case trustedIssuer.IsConfigured() && iss == trustedIssuer.Issuer:
+		if !h.verifyFederatedToken(token) {
+			return errInvalidToken
+		}
+	case iss == config.GetServerRuntime().Config.JWT.Issuer:
+		if err := h.jwtService.VerifyJWT(token, "", ""); err != nil {
+			return errInvalidToken
+		}
+	default:
+		return errInvalidToken
+	}
+	return nil
+}
+
+// verifyFederatedToken checks if the token is from a trusted external issuer and verifies it via JWKS.
+// Per RFC 9068 §2.2 and RFC 8707, this validates:
+//   - iss: matches the configured trusted issuer
+//   - aud: matches this server's own identifier (the resource server)
+//   - signature: verified via the auth server's JWKS endpoint
+//   - required_claims: each configured claim must match the expected value
+func (h *jwtAuthenticator) verifyFederatedToken(token string) (verified bool) {
+	trustedIssuer := config.GetServerRuntime().Config.Server.SecurityConfig.TrustedIssuer
+	if !trustedIssuer.IsConfigured() {
+		return false
+	}
+
+	attributes, err := jwt.DecodeJWTPayload(token)
+	if err != nil {
+		return false
+	}
+
+	iss, ok := attributes["iss"].(string)
+	if !ok || iss != trustedIssuer.Issuer {
+		return false
+	}
+
+	// VerifyJWTWithJWKS validates signature, aud (resource server identity), iss, and time claims.
+	if svcErr := h.jwtService.VerifyJWTWithJWKS(
+		token, trustedIssuer.JWKSURL, trustedIssuer.Audience, trustedIssuer.Issuer,
+	); svcErr != nil {
+		return false
+	}
+
+	// Validate required claims — each configured claim must be present with the expected value.
+	for _, rc := range trustedIssuer.RequiredClaims {
+		val, ok := attributes[rc.Claim].(string)
+		if !ok || val != rc.Value {
+			return false
+		}
+	}
+
+	return true
+}
+
 // extractToken extracts the Bearer token from the Authorization header.
 func extractToken(authHeader string) (string, error) {
 	if !utils.HasPrefixFold(authHeader, constants.AuthSchemeBearer) {
@@ -94,9 +160,20 @@ func extractToken(authHeader string) (string, error) {
 	return token, nil
 }
 
+// extractIssuer returns the iss claim of the token, or an empty string if the
+// token payload cannot be decoded or carries no string iss claim.
+func extractIssuer(token string) string {
+	attributes, err := jwt.DecodeJWTPayload(token)
+	if err != nil {
+		return ""
+	}
+	iss, _ := attributes["iss"].(string)
+	return iss
+}
+
 // extractScopes extracts permissions from JWT claims.
 // Permissions can be in "scope" (string with space-separated values), "scopes" (array) claim,
-// or "authorized_permissions" (Thunder-specific) claim.
+// or "authorized_permissions" (server-specific) claim.
 func extractScopes(attributes map[string]interface{}) []string {
 	// Try "scope" claim (OAuth2 standard - space-separated string)
 	if scopeStr, ok := attributes["scope"].(string); ok && scopeStr != "" {
@@ -119,7 +196,7 @@ func extractScopes(attributes map[string]interface{}) []string {
 		}
 	}
 
-	// Try "authorized_permissions" from the Thunder assertion
+	// Try "authorized_permissions" from the server assertion
 	if permsStr, ok := attributes["authorized_permissions"].(string); ok && permsStr != "" {
 		return strings.Fields(permsStr)
 	}

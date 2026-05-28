@@ -1,31 +1,27 @@
 ---
 title: Use Case Overview
-description: Choose the Thunder identity pattern that matches your product architecture.
+description: Choose the identity pattern that matches your product architecture.
 sidebar_position: 1
+hide_title: true
 ---
 
-# Use Cases
+import UseCaseBranchCards from '../../src/components/UseCaseBranchCards';
 
-Thunder supports multiple identity patterns, from consumer applications to enterprise SaaS and AI agents. This section helps you choose a starting point and then move to implementation guides.
+<div className="uc-overview-wrap">
 
-## Available Patterns
+  {/* Root node */}
+  <div className="uc-root uc-overview-root">
+    <div className="uc-overview-root-title">What are you building?</div>
+    <div className="uc-overview-root-description">Pick the identity pattern that matches your product. Each path has its own flows, policies, and SDK setup.</div>
+  </div>
 
-- **[Consumer Applications (B2C)](/docs/use-cases/b2c/customer-identity)**: Build low-friction sign-up and sign-in journeys for public users.
-- **[SaaS Applications (B2B)](/docs/use-cases/b2b/multi-tenant-saas)**: Add organizations, invitations, and enterprise single sign-on (SSO).
-- **[AI Agents and MCP](/docs/use-cases/ai-agents/agent-authentication)**: Secure agent-to-platform and user-to-agent access.
+  {/* Connector */}
+  <svg className="uc-line uc-overview-connector" width="660" height="52" viewBox="0 0 660 52">
+    <path d="M330 0 C330 26, 110 26, 110 52" stroke="var(--ifm-color-emphasis-300)" strokeWidth="1.5" fill="none" strokeDasharray="4 3"/>
+    <path d="M330 0 L330 52" stroke="var(--ifm-color-emphasis-300)" strokeWidth="1.5" fill="none" strokeDasharray="4 3"/>
+    <path d="M330 0 C330 26, 550 26, 550 52" stroke="var(--ifm-color-emphasis-300)" strokeWidth="1.5" fill="none" strokeDasharray="4 3"/>
+  </svg>
 
-## Shared Building Blocks
-
-Most use cases reuse these Thunder capabilities:
-
-- Flow orchestration for sign-in, sign-up, and recovery.
-- Passwordless methods such as passkeys and magic links.
-- OAuth 2.0 and OpenID Connect (OIDC) for app and API access.
-- SDKs and APIs for both hosted and custom user interfaces.
-
-## Next Step
-
-1. Select the use case that matches your product model.
-2. Follow the recommended baseline flow in that page.
-3. Continue with [Installation](/docs/guides/installation).
-4. Integrate with [React Quick Start](/docs/guides/quick-start/react) or the [React SDK Overview](/docs/sdks/react/overview).
+  {/* Branch cards */}
+  <UseCaseBranchCards />
+</div>

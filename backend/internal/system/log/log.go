@@ -27,8 +27,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/asgardeo/thunder/internal/system/constants"
-	sysContext "github.com/asgardeo/thunder/internal/system/context"
+	"github.com/thunder-id/thunderid/internal/system/constants"
+	sysContext "github.com/thunder-id/thunderid/internal/system/context"
 )
 
 var (
@@ -153,8 +153,8 @@ func convertFields(fields []Field) []any {
 	return attrs
 }
 
-// MaskString masks characters in a string except for the first and last characters.
-func MaskString(s string) string {
+// maskString masks characters in a string except for the first and last characters.
+func maskString(s string) string {
 	if len(s) <= 3 {
 		return strings.Repeat("*", len(s))
 	}

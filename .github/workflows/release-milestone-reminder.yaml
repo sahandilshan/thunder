@@ -2,9 +2,12 @@ name: 🚨 Release Milestone Reminder
 
 on:
   schedule:
-    # This cron expression represents 12:00 PM IST/SLST (6:30 AM UTC) every Thursday
-    - cron: '30 6 * * 4'
+    # This cron expression represents 6:00 AM IST/SLST (12:30 AM UTC) every Thursday
+    - cron: '30 0 * * 4'
   workflow_dispatch: # Allows you to trigger it manually for testing
+
+env:
+  PRODUCT_NAME: "ThunderID"
 
 jobs:
   notify-chat:
@@ -14,6 +17,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WEBHOOK_URL: ${{ secrets.RELEASE_REMINDER }}
+          PRODUCT_NAME: ${{ env.PRODUCT_NAME }}
         run: |
           # Apply shell hardening: exit on error, undefined vars, and pipe failures
           set -euo pipefail
@@ -33,7 +37,7 @@ jobs:
           
           # 2. Fetch open milestones from the repo
           MILESTONES=$(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" \
-            "https://api.github.com/repos/asgardeo/thunder/milestones?state=open")
+            "https://api.github.com/repos/thunder-id/thunderid/milestones?state=open")
           
           # 3. Filter for milestones due on that specific target date
           DUE_MILESTONES=$(echo "$MILESTONES" | jq "[.[] | select(.due_on != null and (.due_on | startswith(\"$TARGET_DATE\")))]")
@@ -57,7 +61,7 @@ jobs:
             ITEMS="[]"
             while true; do
               PAGE_ITEMS=$(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" \
-                "https://api.github.com/repos/asgardeo/thunder/issues?milestone=$MILESTONE_NUMBER&state=open&per_page=100&page=$ITEM_PAGE")
+                "https://api.github.com/repos/thunder-id/thunderid/issues?milestone=$MILESTONE_NUMBER&state=open&per_page=100&page=$ITEM_PAGE")
               
               PAGE_COUNT=$(echo "$PAGE_ITEMS" | jq 'length')
               
@@ -86,7 +90,7 @@ jobs:
             fi
             
             # 8. Construct the dynamic message with exact formatting and indents
-            BODY="*Preparing for the Thunder Release %s ⚡️*\n\nThunder %s release build is scheduled to run tomorrow at 12:00 PM.\n\n📊 *Current milestone status*\n  • Open Issues: *%s*"
+            BODY="*Preparing for the ${PRODUCT_NAME} Release %s ⚡️*\n\n${PRODUCT_NAME} %s release build is scheduled to run tomorrow at 12:00 PM.\n\n📊 *Current milestone status*\n  • Open Issues: *%s*"
             
             if [ "$PR_COUNT" -gt 0 ]; then
               BODY="$BODY\n  • Open PRs: *%s*"

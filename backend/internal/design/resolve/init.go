@@ -21,10 +21,10 @@ package resolve
 import (
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/application"
-	layoutmgt "github.com/asgardeo/thunder/internal/design/layout/mgt"
-	thememgt "github.com/asgardeo/thunder/internal/design/theme/mgt"
-	"github.com/asgardeo/thunder/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/application"
+	layoutmgt "github.com/thunder-id/thunderid/internal/design/layout/mgt"
+	thememgt "github.com/thunder-id/thunderid/internal/design/theme/mgt"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
 )
 
 // Initialize initializes the design resolve service and registers its routes.
@@ -43,9 +43,10 @@ func Initialize(
 // registerRoutes registers the routes for design resolve operations.
 func registerRoutes(mux *http.ServeMux, resolveHandler *designResolveHandler) {
 	opts := middleware.CORSOptions{
-		AllowedMethods:   "GET",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("GET /design/resolve", resolveHandler.HandleResolveRequest, opts))
 	mux.HandleFunc(middleware.WithCORS("OPTIONS /design/resolve", func(w http.ResponseWriter, r *http.Request) {

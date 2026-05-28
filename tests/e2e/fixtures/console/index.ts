@@ -40,3 +40,4 @@ export { routes, ConsoleRoutes };
 // Re-export page objects
 export { ConsoleSigninPage } from "../../pages/authentication";
 export { UsersPage, type UserFormData } from "../../pages/user-management";
+export { ApplicationsPage, type ApplicationFormData } from "../../pages/applications";

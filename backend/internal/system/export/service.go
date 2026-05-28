@@ -20,13 +20,23 @@ package export
 
 import (
 	"context"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
+
+// templateVariablePattern matches only uppercase-only parameter names in the exact forms
+// "{{.NAME}}" and "{{- range .NAME}}". This relies on the parameterizer normalizing names
+// via toSnakeCase() (which calls strings.ToUpper()) and only emitting those two template
+// forms in parameterizer.go. Adding lowercase names or new actions like "if"/"with" will
+// require updating this regex.
+var templateVariablePattern = regexp.MustCompile(`\{\{\.([A-Z0-9_]+)\}\}|\{\{\-\s*range\s+\.([A-Z0-9_]+)\s*\}\}`)
 
 const (
 	formatYAML = "yaml"
@@ -35,18 +45,24 @@ const (
 	resourceTypeApplication        = "application"
 	resourceTypeIdentityProvider   = "identity_provider"
 	resourceTypeNotificationSender = "notification_sender"
-	resourceTypeUserSchema         = "user_schema"
+	resourceTypeUserType           = "user_type"
 	resourceTypeOU                 = "organization_unit"
+	resourceTypeUser               = "user"
+	resourceTypeGroup              = "group"
+	resourceTypeResourceServer     = "resource_server"
+	resourceTypeRole               = "role"
 	resourceTypeFlow               = "flow"
 	resourceTypeTranslation        = "translation"
 	resourceTypeLayout             = "layout"
 	resourceTypeTheme              = "theme"
+	resourceTypeAgent              = "agent"
 )
 
 // parameterizerInterface defines the interface for template parameterization.
 type parameterizerInterface interface {
 	ToParameterizedYAML(obj interface{},
-		resourceType string, resourceName string, rules *declarativeresource.ResourceRules) (string, error)
+		resourceType string, resourceName string,
+		rules *declarativeresource.ResourceRules) (string, map[string]string, error)
 }
 
 // ExportServiceInterface defines the interface for the export service.
@@ -81,10 +97,10 @@ func (es *exportService) ExportResources(
 	ctx context.Context, request *ExportRequest,
 ) (*ExportResponse, *serviceerror.ServiceError) {
 	if request == nil {
-		return nil, serviceerror.CustomServiceError(
-			ErrorInvalidRequest,
-			"Export request cannot be nil",
-		)
+		return nil, serviceerror.CustomServiceError(ErrorInvalidRequest, core.I18nMessage{
+			Key:          "error.exportservice.nil_request_description",
+			DefaultValue: "Export request cannot be nil",
+		})
 	}
 
 	// Set default options if not provided
@@ -100,6 +116,7 @@ func (es *exportService) ExportResources(
 
 	var exportFiles []ExportFile
 	var exportErrors []declarativeresource.ExportError
+	allVariables := make(map[string]string)
 	resourceCounts := make(map[string]int)
 
 	// Map resource types to their IDs from the request
@@ -107,16 +124,28 @@ func (es *exportService) ExportResources(
 		resourceTypeApplication:        request.Applications,
 		resourceTypeIdentityProvider:   request.IdentityProviders,
 		resourceTypeNotificationSender: request.NotificationSenders,
-		resourceTypeUserSchema:         request.UserSchemas,
+		resourceTypeUserType:           request.UserTypes,
 		resourceTypeOU:                 request.OrganizationUnits,
+		resourceTypeUser:               request.Users,
+		resourceTypeGroup:              request.Groups,
+		resourceTypeResourceServer:     request.ResourceServers,
+		resourceTypeRole:               request.Roles,
 		resourceTypeFlow:               request.Flows,
 		resourceTypeTranslation:        request.Translations,
 		resourceTypeLayout:             request.Layouts,
 		resourceTypeTheme:              request.Themes,
+		resourceTypeAgent:              request.Agents,
 	}
 
 	// Export resources using the registry
-	for resourceType, resourceIDs := range resourceMap {
+	resourceTypes := make([]string, 0, len(resourceMap))
+	for k := range resourceMap {
+		resourceTypes = append(resourceTypes, k)
+	}
+	sort.Strings(resourceTypes)
+
+	for _, resourceType := range resourceTypes {
+		resourceIDs := resourceMap[resourceType]
 		if len(resourceIDs) == 0 {
 			continue
 		}
@@ -128,17 +157,20 @@ func (es *exportService) ExportResources(
 			continue
 		}
 
-		files, errors := es.exportResourcesWithExporter(ctx, exporter, resourceIDs, options)
+		files, vars, errors := es.exportResourcesWithExporter(ctx, exporter, resourceIDs, options)
 		exportFiles = append(exportFiles, files...)
+		for k, v := range vars {
+			allVariables[k] = v
+		}
 		exportErrors = append(exportErrors, errors...)
 		resourceCounts[resourceType] = len(files)
 	}
 
 	if len(exportFiles) == 0 {
-		return nil, serviceerror.CustomServiceError(
-			ErrorNoResourcesFound,
-			"No valid resources found for export",
-		)
+		return nil, serviceerror.CustomServiceError(ErrorNoResourcesFound, core.I18nMessage{
+			Key:          "error.exportservice.no_valid_resources_for_export_description",
+			DefaultValue: "No valid resources found for export",
+		})
 	}
 
 	// Calculate total size
@@ -148,8 +180,16 @@ func (es *exportService) ExportResources(
 		totalSize += exportFiles[i].Size
 	}
 
+	envFile := es.generateEnvFile(exportFiles, allVariables)
+
+	totalFilesCount := len(exportFiles)
+	if envFile != nil {
+		totalFilesCount++
+		totalSize += envFile.Size
+	}
+
 	summary := &ExportSummary{
-		TotalFiles:    len(exportFiles),
+		TotalFiles:    totalFilesCount,
 		TotalSize:     totalSize,
 		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
 		ResourceTypes: resourceCounts,
@@ -158,8 +198,52 @@ func (es *exportService) ExportResources(
 
 	return &ExportResponse{
 		Files:   exportFiles,
+		EnvFile: envFile,
 		Summary: summary,
 	}, nil
+}
+
+// generateEnvFile extracts template variable names from exported files and builds a .env
+// payload, populating each entry with its original value where available.
+func (es *exportService) generateEnvFile(files []ExportFile, variables map[string]string) *EnvironmentFile {
+	variablesSet := make(map[string]struct{})
+
+	for _, file := range files {
+		matches := templateVariablePattern.FindAllStringSubmatch(file.Content, -1)
+		for _, match := range matches {
+			for i := 1; i < len(match); i++ {
+				if match[i] == "" {
+					continue
+				}
+				variablesSet[match[i]] = struct{}{}
+			}
+		}
+	}
+
+	if len(variablesSet) == 0 {
+		return nil
+	}
+
+	varNames := make([]string, 0, len(variablesSet))
+	for varName := range variablesSet {
+		varNames = append(varNames, varName)
+	}
+	sort.Strings(varNames)
+
+	var contentBuilder strings.Builder
+	for _, varName := range varNames {
+		contentBuilder.WriteString(varName)
+		contentBuilder.WriteString("=")
+		contentBuilder.WriteString(variables[varName])
+		contentBuilder.WriteString("\n")
+	}
+
+	content := contentBuilder.String()
+	return &EnvironmentFile{
+		FileName: ".env",
+		Content:  content,
+		Size:     int64(len(content)),
+	}
 }
 
 // exportResourcesWithExporter exports resources using a registered exporter.
@@ -168,11 +252,12 @@ func (es *exportService) exportResourcesWithExporter(
 	exporter declarativeresource.ResourceExporter,
 	resourceIDs []string,
 	options *ExportOptions,
-) ([]ExportFile, []declarativeresource.ExportError) {
+) ([]ExportFile, map[string]string, []declarativeresource.ExportError) {
 	logger := log.GetLogger().With(log.String("component", "ExportService"))
 	resourceType := exporter.GetResourceType()
 	exportFiles := make([]ExportFile, 0, len(resourceIDs))
 	exportErrors := make([]declarativeresource.ExportError, 0, len(resourceIDs))
+	variableValues := make(map[string]string)
 	var resourceIDList []string
 	if len(resourceIDs) == 1 && resourceIDs[0] == "*" {
 		// Export all resources
@@ -180,7 +265,7 @@ func (es *exportService) exportResourcesWithExporter(
 		if err != nil {
 			logger.Warn("Failed to get all resources",
 				log.String("resourceType", resourceType), log.Any("error", err))
-			return []ExportFile{}, []declarativeresource.ExportError{}
+			return []ExportFile{}, variableValues, []declarativeresource.ExportError{}
 		}
 		resourceIDList = ids
 	} else {
@@ -194,11 +279,11 @@ func (es *exportService) exportResourcesWithExporter(
 			logger.Warn("Failed to get resource for export",
 				log.String("resourceType", resourceType),
 				log.String("resourceID", resourceID),
-				log.String("error", svcErr.Error))
+				log.String("error", svcErr.Error.DefaultValue))
 			exportErrors = append(exportErrors, declarativeresource.ExportError{
 				ResourceType: resourceType,
 				ResourceID:   resourceID,
-				Error:        svcErr.Error,
+				Error:        svcErr.Error.DefaultValue,
 				Code:         svcErr.Code,
 			})
 			continue
@@ -221,7 +306,7 @@ func (es *exportService) exportResourcesWithExporter(
 			options.Format = formatYAML
 		}
 
-		templateContent, err := es.generateTemplateFromStruct(
+		templateContent, vars, err := es.generateTemplateFromStruct(
 			resource, exporter.GetParameterizerType(), validatedName, exporter)
 		if err != nil {
 			logger.Warn("Failed to generate template from struct",
@@ -236,7 +321,10 @@ func (es *exportService) exportResourcesWithExporter(
 			})
 			continue
 		}
-		content = templateContent
+		for k, v := range vars {
+			variableValues[k] = v
+		}
+		content = addResourceTypeComment(templateContent, resourceType)
 
 		// Determine file name and folder path based on options
 		fileName = es.generateFileName(validatedName, resourceType, resourceID, options)
@@ -253,17 +341,32 @@ func (es *exportService) exportResourcesWithExporter(
 		exportFiles = append(exportFiles, exportFile)
 	}
 
-	return exportFiles, exportErrors
+	return exportFiles, variableValues, exportErrors
 }
 
 func (es *exportService) generateTemplateFromStruct(data interface{},
-	paramResourceType string, resourceName string, exporter declarativeresource.ResourceExporter) (string, error) {
-	template, err := es.parameterizer.ToParameterizedYAML(
-		data, paramResourceType, resourceName, exporter.GetResourceRules())
-	if err != nil {
-		return "", err
+	paramResourceType string, resourceName string,
+	exporter declarativeresource.ResourceExporter) (string, map[string]string, error) {
+	var rules *declarativeresource.ResourceRules
+	if pr, ok := exporter.(declarativeresource.PerResourceRuler); ok {
+		rules = pr.GetResourceRulesForResource(data)
+	} else {
+		rules = exporter.GetResourceRules()
 	}
-	return template, nil
+	template, vars, err := es.parameterizer.ToParameterizedYAML(
+		data, paramResourceType, resourceName, rules)
+	if err != nil {
+		return "", nil, err
+	}
+	return template, vars, nil
+}
+
+func addResourceTypeComment(content, resourceType string) string {
+	commentLine := "# resource_type: " + resourceType
+	if strings.HasPrefix(content, commentLine+"\n") || content == commentLine {
+		return content
+	}
+	return commentLine + "\n" + content
 }
 
 // sanitizeFileName sanitizes a filename by removing invalid characters.

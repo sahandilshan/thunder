@@ -28,7 +28,7 @@ import {
   TextField,
   Typography,
 } from "@wso2/oxygen-ui";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "react-router";
 import { getConfig } from "../config";
 
 interface AuthResponse {
@@ -40,8 +40,8 @@ interface AuthResponse {
 
 interface ApiError {
   code: string;
-  message: string;
-  description?: string;
+  message: { defaultValue?: string };
+  description?: { defaultValue?: string };
 }
 
 function SignInPage() {
@@ -67,27 +67,26 @@ function SignInPage() {
     try {
       const { baseUrl } = getConfig();
 
-      const response = await fetch(
-        `${baseUrl}/auth/credentials/authenticate`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+      const response = await fetch(`${baseUrl}/auth/credentials/authenticate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          identifiers: {
+            username: formData.username,
           },
-          body: JSON.stringify({
-            identifiers: {
-              username: formData.username,
-            },
-            credentials: {
-              password: formData.password,
-            },
-          }),
-        }
-      );
+          credentials: {
+            password: formData.password,
+          },
+        }),
+      });
 
       if (!response.ok) {
         const errorData: ApiError = await response.json();
-        throw new Error(errorData.message || "Authentication failed");
+        throw new Error(
+          errorData.message?.defaultValue || "Authentication failed"
+        );
       }
 
       const authResponse: AuthResponse = await response.json();
@@ -98,7 +97,7 @@ function SignInPage() {
       }
 
       // Navigate to dashboard
-      navigate({ to: "/dashboard" });
+      navigate("/dashboard");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Sign in failed. Please try again."

@@ -5,9 +5,11 @@
 package mgtmock
 
 import (
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/i18n/mgt"
+	"context"
+
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/mgt"
 )
 
 // NewI18nServiceInterfaceMock creates a new instance of I18nServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -38,19 +40,19 @@ func (_m *I18nServiceInterfaceMock) EXPECT() *I18nServiceInterfaceMock_Expecter 
 }
 
 // ClearTranslationOverrideForKey provides a mock function for the type I18nServiceInterfaceMock
-func (_mock *I18nServiceInterfaceMock) ClearTranslationOverrideForKey(language string, namespace string, key string) *serviceerror.I18nServiceError {
+func (_mock *I18nServiceInterfaceMock) ClearTranslationOverrideForKey(language string, namespace string, key string) *serviceerror.ServiceError {
 	ret := _mock.Called(language, namespace, key)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ClearTranslationOverrideForKey")
 	}
 
-	var r0 *serviceerror.I18nServiceError
-	if returnFunc, ok := ret.Get(0).(func(string, string, string) *serviceerror.I18nServiceError); ok {
+	var r0 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(string, string, string) *serviceerror.ServiceError); ok {
 		r0 = returnFunc(language, namespace, key)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*serviceerror.I18nServiceError)
+			r0 = ret.Get(0).(*serviceerror.ServiceError)
 		}
 	}
 	return r0
@@ -92,30 +94,30 @@ func (_c *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call) Run(run 
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call) Return(i18nServiceError *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call {
-	_c.Call.Return(i18nServiceError)
+func (_c *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call) Return(serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call {
+	_c.Call.Return(serviceError)
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call) RunAndReturn(run func(language string, namespace string, key string) *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call {
+func (_c *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call) RunAndReturn(run func(language string, namespace string, key string) *serviceerror.ServiceError) *I18nServiceInterfaceMock_ClearTranslationOverrideForKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ClearTranslationOverrides provides a mock function for the type I18nServiceInterfaceMock
-func (_mock *I18nServiceInterfaceMock) ClearTranslationOverrides(language string) *serviceerror.I18nServiceError {
+func (_mock *I18nServiceInterfaceMock) ClearTranslationOverrides(language string) *serviceerror.ServiceError {
 	ret := _mock.Called(language)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ClearTranslationOverrides")
 	}
 
-	var r0 *serviceerror.I18nServiceError
-	if returnFunc, ok := ret.Get(0).(func(string) *serviceerror.I18nServiceError); ok {
+	var r0 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(string) *serviceerror.ServiceError); ok {
 		r0 = returnFunc(language)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*serviceerror.I18nServiceError)
+			r0 = ret.Get(0).(*serviceerror.ServiceError)
 		}
 	}
 	return r0
@@ -145,18 +147,206 @@ func (_c *I18nServiceInterfaceMock_ClearTranslationOverrides_Call) Run(run func(
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ClearTranslationOverrides_Call) Return(i18nServiceError *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_ClearTranslationOverrides_Call {
-	_c.Call.Return(i18nServiceError)
+func (_c *I18nServiceInterfaceMock_ClearTranslationOverrides_Call) Return(serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_ClearTranslationOverrides_Call {
+	_c.Call.Return(serviceError)
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ClearTranslationOverrides_Call) RunAndReturn(run func(language string) *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_ClearTranslationOverrides_Call {
+func (_c *I18nServiceInterfaceMock_ClearTranslationOverrides_Call) RunAndReturn(run func(language string) *serviceerror.ServiceError) *I18nServiceInterfaceMock_ClearTranslationOverrides_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteTranslationsByKey provides a mock function for the type I18nServiceInterfaceMock
+func (_mock *I18nServiceInterfaceMock) DeleteTranslationsByKey(ctx context.Context, namespace string, key string) *serviceerror.ServiceError {
+	ret := _mock.Called(ctx, namespace, key)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteTranslationsByKey")
+	}
+
+	var r0 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *serviceerror.ServiceError); ok {
+		r0 = returnFunc(ctx, namespace, key)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*serviceerror.ServiceError)
+		}
+	}
+	return r0
+}
+
+// I18nServiceInterfaceMock_DeleteTranslationsByKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteTranslationsByKey'
+type I18nServiceInterfaceMock_DeleteTranslationsByKey_Call struct {
+	*mock.Call
+}
+
+// DeleteTranslationsByKey is a helper method to define mock.On call
+//   - ctx context.Context
+//   - namespace string
+//   - key string
+func (_e *I18nServiceInterfaceMock_Expecter) DeleteTranslationsByKey(ctx interface{}, namespace interface{}, key interface{}) *I18nServiceInterfaceMock_DeleteTranslationsByKey_Call {
+	return &I18nServiceInterfaceMock_DeleteTranslationsByKey_Call{Call: _e.mock.On("DeleteTranslationsByKey", ctx, namespace, key)}
+}
+
+func (_c *I18nServiceInterfaceMock_DeleteTranslationsByKey_Call) Run(run func(ctx context.Context, namespace string, key string)) *I18nServiceInterfaceMock_DeleteTranslationsByKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *I18nServiceInterfaceMock_DeleteTranslationsByKey_Call) Return(serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_DeleteTranslationsByKey_Call {
+	_c.Call.Return(serviceError)
+	return _c
+}
+
+func (_c *I18nServiceInterfaceMock_DeleteTranslationsByKey_Call) RunAndReturn(run func(ctx context.Context, namespace string, key string) *serviceerror.ServiceError) *I18nServiceInterfaceMock_DeleteTranslationsByKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteTranslationsByNamespace provides a mock function for the type I18nServiceInterfaceMock
+func (_mock *I18nServiceInterfaceMock) DeleteTranslationsByNamespace(ctx context.Context, namespace string) *serviceerror.ServiceError {
+	ret := _mock.Called(ctx, namespace)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteTranslationsByNamespace")
+	}
+
+	var r0 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *serviceerror.ServiceError); ok {
+		r0 = returnFunc(ctx, namespace)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*serviceerror.ServiceError)
+		}
+	}
+	return r0
+}
+
+// I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteTranslationsByNamespace'
+type I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call struct {
+	*mock.Call
+}
+
+// DeleteTranslationsByNamespace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - namespace string
+func (_e *I18nServiceInterfaceMock_Expecter) DeleteTranslationsByNamespace(ctx interface{}, namespace interface{}) *I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call {
+	return &I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call{Call: _e.mock.On("DeleteTranslationsByNamespace", ctx, namespace)}
+}
+
+func (_c *I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call) Run(run func(ctx context.Context, namespace string)) *I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call) Return(serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call {
+	_c.Call.Return(serviceError)
+	return _c
+}
+
+func (_c *I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call) RunAndReturn(run func(ctx context.Context, namespace string) *serviceerror.ServiceError) *I18nServiceInterfaceMock_DeleteTranslationsByNamespace_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetTranslationsByNamespace provides a mock function for the type I18nServiceInterfaceMock
+func (_mock *I18nServiceInterfaceMock) GetTranslationsByNamespace(namespace string) (map[string]map[string]string, *serviceerror.ServiceError) {
+	ret := _mock.Called(namespace)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTranslationsByNamespace")
+	}
+
+	var r0 map[string]map[string]string
+	var r1 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(string) (map[string]map[string]string, *serviceerror.ServiceError)); ok {
+		return returnFunc(namespace)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string) map[string]map[string]string); ok {
+		r0 = returnFunc(namespace)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]map[string]string)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(string) *serviceerror.ServiceError); ok {
+		r1 = returnFunc(namespace)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*serviceerror.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// I18nServiceInterfaceMock_GetTranslationsByNamespace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTranslationsByNamespace'
+type I18nServiceInterfaceMock_GetTranslationsByNamespace_Call struct {
+	*mock.Call
+}
+
+// GetTranslationsByNamespace is a helper method to define mock.On call
+//   - namespace string
+func (_e *I18nServiceInterfaceMock_Expecter) GetTranslationsByNamespace(namespace interface{}) *I18nServiceInterfaceMock_GetTranslationsByNamespace_Call {
+	return &I18nServiceInterfaceMock_GetTranslationsByNamespace_Call{Call: _e.mock.On("GetTranslationsByNamespace", namespace)}
+}
+
+func (_c *I18nServiceInterfaceMock_GetTranslationsByNamespace_Call) Run(run func(namespace string)) *I18nServiceInterfaceMock_GetTranslationsByNamespace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *I18nServiceInterfaceMock_GetTranslationsByNamespace_Call) Return(stringToStringToString map[string]map[string]string, serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_GetTranslationsByNamespace_Call {
+	_c.Call.Return(stringToStringToString, serviceError)
+	return _c
+}
+
+func (_c *I18nServiceInterfaceMock_GetTranslationsByNamespace_Call) RunAndReturn(run func(namespace string) (map[string]map[string]string, *serviceerror.ServiceError)) *I18nServiceInterfaceMock_GetTranslationsByNamespace_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ListLanguages provides a mock function for the type I18nServiceInterfaceMock
-func (_mock *I18nServiceInterfaceMock) ListLanguages() ([]string, *serviceerror.I18nServiceError) {
+func (_mock *I18nServiceInterfaceMock) ListLanguages() ([]string, *serviceerror.ServiceError) {
 	ret := _mock.Called()
 
 	if len(ret) == 0 {
@@ -164,8 +354,8 @@ func (_mock *I18nServiceInterfaceMock) ListLanguages() ([]string, *serviceerror.
 	}
 
 	var r0 []string
-	var r1 *serviceerror.I18nServiceError
-	if returnFunc, ok := ret.Get(0).(func() ([]string, *serviceerror.I18nServiceError)); ok {
+	var r1 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func() ([]string, *serviceerror.ServiceError)); ok {
 		return returnFunc()
 	}
 	if returnFunc, ok := ret.Get(0).(func() []string); ok {
@@ -175,11 +365,11 @@ func (_mock *I18nServiceInterfaceMock) ListLanguages() ([]string, *serviceerror.
 			r0 = ret.Get(0).([]string)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func() *serviceerror.I18nServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func() *serviceerror.ServiceError); ok {
 		r1 = returnFunc()
 	} else {
 		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*serviceerror.I18nServiceError)
+			r1 = ret.Get(1).(*serviceerror.ServiceError)
 		}
 	}
 	return r0, r1
@@ -202,18 +392,18 @@ func (_c *I18nServiceInterfaceMock_ListLanguages_Call) Run(run func()) *I18nServ
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ListLanguages_Call) Return(strings []string, i18nServiceError *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_ListLanguages_Call {
-	_c.Call.Return(strings, i18nServiceError)
+func (_c *I18nServiceInterfaceMock_ListLanguages_Call) Return(strings []string, serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_ListLanguages_Call {
+	_c.Call.Return(strings, serviceError)
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ListLanguages_Call) RunAndReturn(run func() ([]string, *serviceerror.I18nServiceError)) *I18nServiceInterfaceMock_ListLanguages_Call {
+func (_c *I18nServiceInterfaceMock_ListLanguages_Call) RunAndReturn(run func() ([]string, *serviceerror.ServiceError)) *I18nServiceInterfaceMock_ListLanguages_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ResolveTranslations provides a mock function for the type I18nServiceInterfaceMock
-func (_mock *I18nServiceInterfaceMock) ResolveTranslations(language string, namespace string) (*mgt.LanguageTranslationsResponse, *serviceerror.I18nServiceError) {
+func (_mock *I18nServiceInterfaceMock) ResolveTranslations(language string, namespace string) (*mgt.LanguageTranslationsResponse, *serviceerror.ServiceError) {
 	ret := _mock.Called(language, namespace)
 
 	if len(ret) == 0 {
@@ -221,8 +411,8 @@ func (_mock *I18nServiceInterfaceMock) ResolveTranslations(language string, name
 	}
 
 	var r0 *mgt.LanguageTranslationsResponse
-	var r1 *serviceerror.I18nServiceError
-	if returnFunc, ok := ret.Get(0).(func(string, string) (*mgt.LanguageTranslationsResponse, *serviceerror.I18nServiceError)); ok {
+	var r1 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(string, string) (*mgt.LanguageTranslationsResponse, *serviceerror.ServiceError)); ok {
 		return returnFunc(language, namespace)
 	}
 	if returnFunc, ok := ret.Get(0).(func(string, string) *mgt.LanguageTranslationsResponse); ok {
@@ -232,11 +422,11 @@ func (_mock *I18nServiceInterfaceMock) ResolveTranslations(language string, name
 			r0 = ret.Get(0).(*mgt.LanguageTranslationsResponse)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(string, string) *serviceerror.I18nServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(string, string) *serviceerror.ServiceError); ok {
 		r1 = returnFunc(language, namespace)
 	} else {
 		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*serviceerror.I18nServiceError)
+			r1 = ret.Get(1).(*serviceerror.ServiceError)
 		}
 	}
 	return r0, r1
@@ -272,18 +462,18 @@ func (_c *I18nServiceInterfaceMock_ResolveTranslations_Call) Run(run func(langua
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ResolveTranslations_Call) Return(languageTranslationsResponse *mgt.LanguageTranslationsResponse, i18nServiceError *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_ResolveTranslations_Call {
-	_c.Call.Return(languageTranslationsResponse, i18nServiceError)
+func (_c *I18nServiceInterfaceMock_ResolveTranslations_Call) Return(languageTranslationsResponse *mgt.LanguageTranslationsResponse, serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_ResolveTranslations_Call {
+	_c.Call.Return(languageTranslationsResponse, serviceError)
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ResolveTranslations_Call) RunAndReturn(run func(language string, namespace string) (*mgt.LanguageTranslationsResponse, *serviceerror.I18nServiceError)) *I18nServiceInterfaceMock_ResolveTranslations_Call {
+func (_c *I18nServiceInterfaceMock_ResolveTranslations_Call) RunAndReturn(run func(language string, namespace string) (*mgt.LanguageTranslationsResponse, *serviceerror.ServiceError)) *I18nServiceInterfaceMock_ResolveTranslations_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ResolveTranslationsForKey provides a mock function for the type I18nServiceInterfaceMock
-func (_mock *I18nServiceInterfaceMock) ResolveTranslationsForKey(language string, namespace string, key string) (*mgt.TranslationResponse, *serviceerror.I18nServiceError) {
+func (_mock *I18nServiceInterfaceMock) ResolveTranslationsForKey(language string, namespace string, key string) (*mgt.TranslationResponse, *serviceerror.ServiceError) {
 	ret := _mock.Called(language, namespace, key)
 
 	if len(ret) == 0 {
@@ -291,8 +481,8 @@ func (_mock *I18nServiceInterfaceMock) ResolveTranslationsForKey(language string
 	}
 
 	var r0 *mgt.TranslationResponse
-	var r1 *serviceerror.I18nServiceError
-	if returnFunc, ok := ret.Get(0).(func(string, string, string) (*mgt.TranslationResponse, *serviceerror.I18nServiceError)); ok {
+	var r1 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(string, string, string) (*mgt.TranslationResponse, *serviceerror.ServiceError)); ok {
 		return returnFunc(language, namespace, key)
 	}
 	if returnFunc, ok := ret.Get(0).(func(string, string, string) *mgt.TranslationResponse); ok {
@@ -302,11 +492,11 @@ func (_mock *I18nServiceInterfaceMock) ResolveTranslationsForKey(language string
 			r0 = ret.Get(0).(*mgt.TranslationResponse)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(string, string, string) *serviceerror.I18nServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(string, string, string) *serviceerror.ServiceError); ok {
 		r1 = returnFunc(language, namespace, key)
 	} else {
 		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*serviceerror.I18nServiceError)
+			r1 = ret.Get(1).(*serviceerror.ServiceError)
 		}
 	}
 	return r0, r1
@@ -348,18 +538,18 @@ func (_c *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call) Run(run func(
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call) Return(translationResponse *mgt.TranslationResponse, i18nServiceError *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call {
-	_c.Call.Return(translationResponse, i18nServiceError)
+func (_c *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call) Return(translationResponse *mgt.TranslationResponse, serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call {
+	_c.Call.Return(translationResponse, serviceError)
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call) RunAndReturn(run func(language string, namespace string, key string) (*mgt.TranslationResponse, *serviceerror.I18nServiceError)) *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call {
+func (_c *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call) RunAndReturn(run func(language string, namespace string, key string) (*mgt.TranslationResponse, *serviceerror.ServiceError)) *I18nServiceInterfaceMock_ResolveTranslationsForKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SetTranslationOverrideForKey provides a mock function for the type I18nServiceInterfaceMock
-func (_mock *I18nServiceInterfaceMock) SetTranslationOverrideForKey(language string, namespace string, key string, value string) (*mgt.TranslationResponse, *serviceerror.I18nServiceError) {
+func (_mock *I18nServiceInterfaceMock) SetTranslationOverrideForKey(language string, namespace string, key string, value string) (*mgt.TranslationResponse, *serviceerror.ServiceError) {
 	ret := _mock.Called(language, namespace, key, value)
 
 	if len(ret) == 0 {
@@ -367,8 +557,8 @@ func (_mock *I18nServiceInterfaceMock) SetTranslationOverrideForKey(language str
 	}
 
 	var r0 *mgt.TranslationResponse
-	var r1 *serviceerror.I18nServiceError
-	if returnFunc, ok := ret.Get(0).(func(string, string, string, string) (*mgt.TranslationResponse, *serviceerror.I18nServiceError)); ok {
+	var r1 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(string, string, string, string) (*mgt.TranslationResponse, *serviceerror.ServiceError)); ok {
 		return returnFunc(language, namespace, key, value)
 	}
 	if returnFunc, ok := ret.Get(0).(func(string, string, string, string) *mgt.TranslationResponse); ok {
@@ -378,11 +568,11 @@ func (_mock *I18nServiceInterfaceMock) SetTranslationOverrideForKey(language str
 			r0 = ret.Get(0).(*mgt.TranslationResponse)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(string, string, string, string) *serviceerror.I18nServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(string, string, string, string) *serviceerror.ServiceError); ok {
 		r1 = returnFunc(language, namespace, key, value)
 	} else {
 		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*serviceerror.I18nServiceError)
+			r1 = ret.Get(1).(*serviceerror.ServiceError)
 		}
 	}
 	return r0, r1
@@ -430,18 +620,18 @@ func (_c *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call) Run(run fu
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call) Return(translationResponse *mgt.TranslationResponse, i18nServiceError *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call {
-	_c.Call.Return(translationResponse, i18nServiceError)
+func (_c *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call) Return(translationResponse *mgt.TranslationResponse, serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call {
+	_c.Call.Return(translationResponse, serviceError)
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call) RunAndReturn(run func(language string, namespace string, key string, value string) (*mgt.TranslationResponse, *serviceerror.I18nServiceError)) *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call {
+func (_c *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call) RunAndReturn(run func(language string, namespace string, key string, value string) (*mgt.TranslationResponse, *serviceerror.ServiceError)) *I18nServiceInterfaceMock_SetTranslationOverrideForKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SetTranslationOverrides provides a mock function for the type I18nServiceInterfaceMock
-func (_mock *I18nServiceInterfaceMock) SetTranslationOverrides(language string, translations map[string]map[string]string) (*mgt.LanguageTranslationsResponse, *serviceerror.I18nServiceError) {
+func (_mock *I18nServiceInterfaceMock) SetTranslationOverrides(language string, translations map[string]map[string]string) (*mgt.LanguageTranslationsResponse, *serviceerror.ServiceError) {
 	ret := _mock.Called(language, translations)
 
 	if len(ret) == 0 {
@@ -449,8 +639,8 @@ func (_mock *I18nServiceInterfaceMock) SetTranslationOverrides(language string, 
 	}
 
 	var r0 *mgt.LanguageTranslationsResponse
-	var r1 *serviceerror.I18nServiceError
-	if returnFunc, ok := ret.Get(0).(func(string, map[string]map[string]string) (*mgt.LanguageTranslationsResponse, *serviceerror.I18nServiceError)); ok {
+	var r1 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(string, map[string]map[string]string) (*mgt.LanguageTranslationsResponse, *serviceerror.ServiceError)); ok {
 		return returnFunc(language, translations)
 	}
 	if returnFunc, ok := ret.Get(0).(func(string, map[string]map[string]string) *mgt.LanguageTranslationsResponse); ok {
@@ -460,11 +650,11 @@ func (_mock *I18nServiceInterfaceMock) SetTranslationOverrides(language string, 
 			r0 = ret.Get(0).(*mgt.LanguageTranslationsResponse)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(string, map[string]map[string]string) *serviceerror.I18nServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(string, map[string]map[string]string) *serviceerror.ServiceError); ok {
 		r1 = returnFunc(language, translations)
 	} else {
 		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*serviceerror.I18nServiceError)
+			r1 = ret.Get(1).(*serviceerror.ServiceError)
 		}
 	}
 	return r0, r1
@@ -500,12 +690,77 @@ func (_c *I18nServiceInterfaceMock_SetTranslationOverrides_Call) Run(run func(la
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_SetTranslationOverrides_Call) Return(languageTranslationsResponse *mgt.LanguageTranslationsResponse, i18nServiceError *serviceerror.I18nServiceError) *I18nServiceInterfaceMock_SetTranslationOverrides_Call {
-	_c.Call.Return(languageTranslationsResponse, i18nServiceError)
+func (_c *I18nServiceInterfaceMock_SetTranslationOverrides_Call) Return(languageTranslationsResponse *mgt.LanguageTranslationsResponse, serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_SetTranslationOverrides_Call {
+	_c.Call.Return(languageTranslationsResponse, serviceError)
 	return _c
 }
 
-func (_c *I18nServiceInterfaceMock_SetTranslationOverrides_Call) RunAndReturn(run func(language string, translations map[string]map[string]string) (*mgt.LanguageTranslationsResponse, *serviceerror.I18nServiceError)) *I18nServiceInterfaceMock_SetTranslationOverrides_Call {
+func (_c *I18nServiceInterfaceMock_SetTranslationOverrides_Call) RunAndReturn(run func(language string, translations map[string]map[string]string) (*mgt.LanguageTranslationsResponse, *serviceerror.ServiceError)) *I18nServiceInterfaceMock_SetTranslationOverrides_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetTranslationOverridesForNamespace provides a mock function for the type I18nServiceInterfaceMock
+func (_mock *I18nServiceInterfaceMock) SetTranslationOverridesForNamespace(ctx context.Context, namespace string, entries map[string]map[string]string) *serviceerror.ServiceError {
+	ret := _mock.Called(ctx, namespace, entries)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetTranslationOverridesForNamespace")
+	}
+
+	var r0 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, map[string]map[string]string) *serviceerror.ServiceError); ok {
+		r0 = returnFunc(ctx, namespace, entries)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*serviceerror.ServiceError)
+		}
+	}
+	return r0
+}
+
+// I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetTranslationOverridesForNamespace'
+type I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call struct {
+	*mock.Call
+}
+
+// SetTranslationOverridesForNamespace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - namespace string
+//   - entries map[string]map[string]string
+func (_e *I18nServiceInterfaceMock_Expecter) SetTranslationOverridesForNamespace(ctx interface{}, namespace interface{}, entries interface{}) *I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call {
+	return &I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call{Call: _e.mock.On("SetTranslationOverridesForNamespace", ctx, namespace, entries)}
+}
+
+func (_c *I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call) Run(run func(ctx context.Context, namespace string, entries map[string]map[string]string)) *I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 map[string]map[string]string
+		if args[2] != nil {
+			arg2 = args[2].(map[string]map[string]string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call) Return(serviceError *serviceerror.ServiceError) *I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call {
+	_c.Call.Return(serviceError)
+	return _c
+}
+
+func (_c *I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call) RunAndReturn(run func(ctx context.Context, namespace string, entries map[string]map[string]string) *serviceerror.ServiceError) *I18nServiceInterfaceMock_SetTranslationOverridesForNamespace_Call {
 	_c.Call.Return(run)
 	return _c
 }

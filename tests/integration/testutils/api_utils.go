@@ -22,10 +22,12 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 const (
@@ -37,18 +39,31 @@ func GetHTTPClient() *http.Client {
 	return NewHTTPClientWithTokenProvider(GetAccessToken)
 }
 
+// GetNoRedirectHTTPClient returns an HTTP client that does not follow redirects.
+func GetNoRedirectHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Timeout: 30 * time.Second,
+	}
+}
+
 // CreateUserType creates a user type via API and returns the schema ID
-func CreateUserType(schema UserSchema) (string, error) {
+func CreateUserType(schema UserType) (string, error) {
 	if !schema.AllowSelfRegistration {
 		schema.AllowSelfRegistration = true
 	}
 
 	payload, err := json.Marshal(schema)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal user schema: %w", err)
+		return "", fmt.Errorf("failed to marshal user type: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", TestServerURL+"/user-schemas", bytes.NewReader(payload))
+	req, err := http.NewRequest("POST", TestServerURL+"/user-types", bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -81,6 +96,139 @@ func CreateUserType(schema UserSchema) (string, error) {
 		return "", fmt.Errorf("response does not contain id or id is not a string. Response: %s", string(bodyBytes))
 	}
 	return schemaID, nil
+}
+
+// CreateAgentType ensures the single allowed `default` agent type exists with the given schema
+// and returns its ID. The server restricts agent types to one `default` schema and rejects
+// deletion, so suites share the singleton: this helper creates it on first call and updates
+// it (PUT) on subsequent calls so each suite's schema fixture takes effect. The caller's
+// `Name` is ignored — it is always coerced to `default`.
+func CreateAgentType(schema UserType) (string, error) {
+	schema.Name = "default"
+
+	id, err := postAgentType(schema)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, errAgentTypeNameConflict) {
+		return "", err
+	}
+
+	existingID, lookupErr := findDefaultAgentTypeID()
+	if lookupErr != nil {
+		return "", lookupErr
+	}
+	if updateErr := putAgentType(existingID, schema); updateErr != nil {
+		return "", updateErr
+	}
+	return existingID, nil
+}
+
+// DeleteAgentType is a no-op. The server rejects agent type deletion (USRS-1015) — see
+// CreateAgentType for how suites share the singleton `default` schema.
+func DeleteAgentType(_ string) error {
+	return nil
+}
+
+var errAgentTypeNameConflict = errors.New("agent type name conflict")
+
+func postAgentType(schema UserType) (string, error) {
+	payload, err := json.Marshal(schema)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal agent type: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", TestServerURL+"/agent-types", bytes.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := GetHTTPClient().Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusConflict {
+		return "", errAgentTypeNameConflict
+	}
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("expected status 201, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var createdSchema map[string]interface{}
+	if err = json.Unmarshal(bodyBytes, &createdSchema); err != nil {
+		return "", fmt.Errorf("failed to parse response body: %w. Response: %s", err, string(bodyBytes))
+	}
+	id, ok := createdSchema["id"].(string)
+	if !ok {
+		return "", fmt.Errorf("response does not contain id or id is not a string. Response: %s", string(bodyBytes))
+	}
+	return id, nil
+}
+
+func putAgentType(schemaID string, schema UserType) error {
+	payload, err := json.Marshal(schema)
+	if err != nil {
+		return fmt.Errorf("failed to marshal agent type: %w", err)
+	}
+	req, err := http.NewRequest("PUT",
+		fmt.Sprintf("%s/agent-types/%s", TestServerURL, schemaID), bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := GetHTTPClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+func findDefaultAgentTypeID() (string, error) {
+	req, err := http.NewRequest("GET", TestServerURL+"/agent-types?limit=100", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := GetHTTPClient().Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to list agent types: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(body))
+	}
+
+	var list struct {
+		Types []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"types"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		return "", fmt.Errorf("failed to parse list response: %w. Response: %s", err, string(body))
+	}
+	for _, s := range list.Types {
+		if s.Name == "default" {
+			return s.ID, nil
+		}
+	}
+	return "", fmt.Errorf("default agent type not found in list. Response: %s", string(body))
 }
 
 // CreateUser creates a user via API and returns the user ID
@@ -127,7 +275,7 @@ func CreateUser(user User) (string, error) {
 
 // DeleteUserType deletes a user type by ID
 func DeleteUserType(schemaID string) error {
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/user-schemas/%s", TestServerURL, schemaID), nil)
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/user-types/%s", TestServerURL, schemaID), nil)
 	if err != nil {
 		return fmt.Errorf("failed to create delete request: %w", err)
 	}
@@ -135,7 +283,7 @@ func DeleteUserType(schemaID string) error {
 	client := GetHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to delete user schema: %w", err)
+		return fmt.Errorf("failed to delete user type: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -213,18 +361,9 @@ func CreateApplication(app Application) (string, error) {
 		redirectURIs = []string{"http://localhost:8080/callback"}
 	}
 
-	// Convert Application to the format expected by the application API
-	appData := map[string]interface{}{
-		"name":                      app.Name,
-		"description":               app.Description,
-		"isRegistrationFlowEnabled": app.IsRegistrationFlowEnabled,
-		"authFlowId":                app.AuthFlowID,
-		"registrationFlowId":        app.RegistrationFlowID,
-		"certificate": map[string]interface{}{
-			"type":  "NONE",
-			"value": "",
-		},
-		"inboundAuthConfig": []map[string]interface{}{
+	inboundAuthConfig := app.InboundAuthConfig
+	if len(inboundAuthConfig) == 0 {
+		inboundAuthConfig = []map[string]interface{}{
 			{
 				"type": "oauth2",
 				"config": map[string]interface{}{
@@ -233,7 +372,19 @@ func CreateApplication(app Application) (string, error) {
 					"redirectUris": redirectURIs,
 				},
 			},
-		},
+		}
+	}
+
+	appData := map[string]interface{}{
+		"name":                      app.Name,
+		"description":               app.Description,
+		"ouId":                      app.OUID,
+		"isRegistrationFlowEnabled": app.IsRegistrationFlowEnabled,
+		"isRecoveryFlowEnabled":     app.IsRecoveryFlowEnabled,
+		"authFlowId":                app.AuthFlowID,
+		"registrationFlowId":        app.RegistrationFlowID,
+		"recoveryFlowId":            app.RecoveryFlowID,
+		"inboundAuthConfig":         inboundAuthConfig,
 	}
 
 	// Add allowed_user_types if provided
@@ -841,8 +992,8 @@ func removeRoleAssignments(roleID string, assignments []Assignment, client *http
 }
 
 // SimulateFederatedOAuthFlow simulates a federated OAuth flow (Google, GitHub, etc.) by
-// following the redirect URL and extracting the authorization code.
-func SimulateFederatedOAuthFlow(redirectURL string) (string, error) {
+// following the redirect URL and extracting the authorization code and state parameter.
+func SimulateFederatedOAuthFlow(redirectURL string) (string, string, error) {
 	// Create HTTP client that doesn't follow redirects automatically
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -856,7 +1007,7 @@ func SimulateFederatedOAuthFlow(redirectURL string) (string, error) {
 	// Make request to the authorization endpoint
 	resp, err := client.Get(redirectURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to make authorization request: %w", err)
+		return "", "", fmt.Errorf("failed to make authorization request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -864,29 +1015,42 @@ func SimulateFederatedOAuthFlow(redirectURL string) (string, error) {
 	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther &&
 		resp.StatusCode != http.StatusTemporaryRedirect {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("expected redirect response, got status %d: %s",
+		return "", "", fmt.Errorf("expected redirect response, got status %d: %s",
 			resp.StatusCode, string(bodyBytes))
 	}
 
 	// Extract the Location header which contains the callback URL with the code
 	location := resp.Header.Get("Location")
 	if location == "" {
-		return "", fmt.Errorf("no Location header in redirect response")
+		return "", "", fmt.Errorf("no Location header in redirect response")
 	}
 
 	// Parse the location URL to extract the authorization code
 	locationURL, err := url.Parse(location)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse location URL: %w", err)
+		return "", "", fmt.Errorf("failed to parse location URL: %w", err)
 	}
 
 	// Extract the code parameter
 	code := locationURL.Query().Get("code")
 	if code == "" {
-		return "", fmt.Errorf("no authorization code found in callback URL")
+		return "", "", fmt.Errorf("no authorization code found in callback URL")
 	}
 
-	return code, nil
+	// Extract the state parameter
+	state := locationURL.Query().Get("state")
+
+	return code, state, nil
+}
+
+// ExtractStateFromRedirectURL extracts the OAuth state parameter from a redirect URL.
+func ExtractStateFromRedirectURL(redirectURL string) string {
+	parsedURL, err := url.Parse(redirectURL)
+	if err != nil {
+		return ""
+	}
+
+	return parsedURL.Query().Get("state")
 }
 
 // CreateResourceServerWithActions creates a resource server and multiple actions, returning the resource server ID
@@ -983,6 +1147,47 @@ func GetResourceServerByIdentifier(identifier string) (string, error) {
 	}
 
 	return "", fmt.Errorf("resource server with identifier %q not found", identifier)
+}
+
+// GetResourceServerByName lists all resource servers and returns the ID of
+// the first one whose name field matches the given name string.
+func GetResourceServerByName(name string) (string, error) {
+	client := GetHTTPClient()
+
+	req, err := http.NewRequest("GET", TestServerURL+"/resource-servers", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to build list-resource-servers request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to list resource servers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("list resource servers returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Minimal struct to extract from the paginated response
+	var listResp struct {
+		ResourceServers []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"resourceServers"`
+	}
+	if err := json.Unmarshal(body, &listResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal resource servers response: %w", err)
+	}
+
+	for _, rs := range listResp.ResourceServers {
+		if rs.Name == name {
+			return rs.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("resource server with name %q not found", name)
 }
 
 func DeleteResourceServer(rsID string) error {
@@ -1214,4 +1419,132 @@ func DeleteNotificationSender(senderID string) error {
 	}
 
 	return nil
+}
+
+// AuthenticateWithCredential authenticates a user via the credentials endpoint.
+// Returns (true, nil) on success, (false, nil) on auth failure, (false, err) on request error.
+func AuthenticateWithCredential(identifierKey, identifierValue, credentialKey, credentialValue string) (bool, error) {
+	reqBody := map[string]interface{}{
+		"identifiers": map[string]interface{}{
+			identifierKey: identifierValue,
+		},
+		"credentials": map[string]interface{}{
+			credentialKey: credentialValue,
+		},
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal auth request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", TestServerURL+"/auth/credentials/authenticate", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return false, fmt.Errorf("failed to create auth request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := GetHTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("auth request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusBadRequest {
+		return false, nil
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return false, fmt.Errorf("unexpected auth status %d: %s", resp.StatusCode, string(body))
+}
+
+// CreateAgent creates an agent via API and returns its ID.
+func CreateAgent(a Agent) (string, error) {
+	payload, err := json.Marshal(a)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal agent: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", TestServerURL+"/agents", bytes.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("failed to create agent request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := GetHTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("create agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read create agent response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("create agent failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var created Agent
+	if err := json.Unmarshal(body, &created); err != nil {
+		return "", fmt.Errorf("failed to decode create agent response: %w", err)
+	}
+	return created.ID, nil
+}
+
+// DeleteAgent deletes an agent by ID via API.
+func DeleteAgent(agentID string) error {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/agents/%s", TestServerURL, agentID), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete agent request: %w", err)
+	}
+
+	client := GetHTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("delete agent failed with status %d (failed to read body: %w)", resp.StatusCode, err)
+		}
+		return fmt.Errorf("delete agent failed with status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+// GetAgent retrieves an agent by ID via API.
+func GetAgent(agentID string) (*Agent, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/agents/%s", TestServerURL, agentID), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get agent request: %w", err)
+	}
+
+	client := GetHTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read get agent response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get agent failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var a Agent
+	if err := json.Unmarshal(body, &a); err != nil {
+		return nil, fmt.Errorf("failed to decode get agent response: %w", err)
+	}
+	return &a, nil
 }

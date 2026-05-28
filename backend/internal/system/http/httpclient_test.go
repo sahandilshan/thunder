@@ -19,6 +19,7 @@
 package http
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -49,7 +50,7 @@ func (suite *HTTPClientTestSuite) SetupSuite() {
 			MinVersion: "1.3",
 		},
 	}
-	err := config.InitializeThunderRuntime("", thunderConfig)
+	err := config.InitializeServerRuntime("", thunderConfig)
 	assert.NoError(suite.T(), err)
 }
 
@@ -234,6 +235,34 @@ func (suite *HTTPClientTestSuite) TestPost() {
 	assert.Equal(suite.T(), http.StatusCreated, resp.StatusCode)
 
 	_ = resp.Body.Close()
+}
+
+func (suite *HTTPClientTestSuite) TestSSRFSafeDialContext() {
+	// IP literals — LookupIPAddr returns them directly without DNS, so this exercises
+	// the same validation path as a hostname that DNS-resolves to a private address.
+	blockedAddrs := []string{
+		"127.0.0.1:443",       // IPv4 loopback
+		"169.254.169.254:443", // IPv4 link-local (cloud metadata)
+		"10.0.0.1:443",        // RFC1918
+		"172.16.0.1:443",      // RFC1918
+		"192.168.1.1:443",     // RFC1918
+		"[::1]:443",           // IPv6 loopback
+		"[fc00::1]:443",       // IPv6 unique-local (ULA)
+		"[fe80::1]:443",       // IPv6 link-local
+	}
+	for _, addr := range blockedAddrs {
+		_, err := ssrfSafeDialContext(context.Background(), "tcp", addr)
+		assert.ErrorContains(suite.T(), err, "private address", "addr %s should be blocked", addr)
+	}
+
+	// Public IP: SSRF check passes; use an already-canceled context so the dial fails
+	// immediately and deterministically with context.Canceled.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ssrfSafeDialContext(ctx, "tcp", "1.1.1.1:443")
+	assert.Error(suite.T(), err)
+	assert.NotContains(suite.T(), err.Error(), "private address")
+	assert.NotContains(suite.T(), err.Error(), "resolved to no usable")
 }
 
 func (suite *HTTPClientTestSuite) TestPostForm() {

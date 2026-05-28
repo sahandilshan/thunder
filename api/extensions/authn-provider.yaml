@@ -309,12 +309,14 @@ components:
         - AUP-0003: User Not Found
         - AUP-0004: Invalid Token
         - AUP-0005: Not Implemented
+        - AUP-0006: Invalid Request
       enum:
         - AUP-0001
         - AUP-0002
         - AUP-0003
         - AUP-0004
         - AUP-0005
+        - AUP-0006
 
     AuthnProviderError:
       type: object
@@ -322,11 +324,23 @@ components:
         code:
           $ref: '#/components/schemas/ErrorCode'
         message:
-          type: string
-          description: Error message
+          $ref: '#/components/schemas/I18nMessage'
         description:
-          type: string
-          description: Detailed error description
+          $ref: '#/components/schemas/I18nMessage'
       required:
         - code
         - message
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
+          type: string
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

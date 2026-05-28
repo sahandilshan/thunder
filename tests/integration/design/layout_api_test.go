@@ -27,7 +27,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -137,7 +137,7 @@ func (suite *LayoutAPITestSuite) createLayout(request CreateLayoutRequest) (*Lay
 	if resp.StatusCode != http.StatusCreated {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, fmt.Errorf("expected status 201, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, fmt.Errorf("expected status 201, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, fmt.Errorf("expected status 201, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -171,7 +171,7 @@ func (suite *LayoutAPITestSuite) getLayout(id string) (*LayoutResponse, error) {
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -218,7 +218,7 @@ func (suite *LayoutAPITestSuite) listLayouts(limit, offset int) (*LayoutListResp
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -258,7 +258,7 @@ func (suite *LayoutAPITestSuite) updateLayout(id string, request UpdateLayoutReq
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -288,7 +288,7 @@ func (suite *LayoutAPITestSuite) deleteLayout(id string) error {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return fmt.Errorf("expected status 204 or 404, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return fmt.Errorf("expected status 204 or 404, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return fmt.Errorf("expected status 204 or 404, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}

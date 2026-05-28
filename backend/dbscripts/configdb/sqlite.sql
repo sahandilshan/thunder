@@ -1,7 +1,8 @@
--- Table to store User Schemas
-CREATE TABLE USER_SCHEMAS (
+-- Table to store Entity Schemas (user/agent categories)
+CREATE TABLE "ENTITY_TYPES" (
     DEPLOYMENT_ID   VARCHAR(255) NOT NULL,
     ID          VARCHAR(36) PRIMARY KEY,
+    CATEGORY    VARCHAR(50) NOT NULL,
     NAME        VARCHAR(100) NOT NULL,
     OU_ID       VARCHAR(36) NOT NULL,
     ALLOW_SELF_REGISTRATION INTEGER NOT NULL DEFAULT 0,
@@ -9,11 +10,11 @@ CREATE TABLE USER_SCHEMAS (
     SYSTEM_ATTRIBUTES TEXT,
     CREATED_AT  TEXT DEFAULT (datetime('now')),
     UPDATED_AT  TEXT DEFAULT (datetime('now')),
-    UNIQUE (NAME, DEPLOYMENT_ID)
+    UNIQUE (NAME, CATEGORY, DEPLOYMENT_ID)
 );
 
--- Composite index for deployment + OU-based user schema lookups
-CREATE INDEX idx_user_schemas_deployment_ou ON USER_SCHEMAS (DEPLOYMENT_ID, OU_ID);
+-- Composite index for deployment + category + OU-based entity type lookups
+CREATE INDEX idx_entity_schemas_deployment_category_ou ON "ENTITY_TYPES" (DEPLOYMENT_ID, CATEGORY, OU_ID);
 
 -- Table to store Roles
 CREATE TABLE "ROLE" (
@@ -31,7 +32,7 @@ CREATE TABLE "ROLE" (
 CREATE INDEX idx_role_ou_deployment ON "ROLE" (DEPLOYMENT_ID, OU_ID);
 
 -- Table to store Role permissions
-CREATE TABLE ROLE_PERMISSION (
+CREATE TABLE "ROLE_PERMISSION" (
     DEPLOYMENT_ID       VARCHAR(255) NOT NULL,
     ROLE_ID             VARCHAR(36) NOT NULL,
     RESOURCE_SERVER_ID  VARCHAR(36) NOT NULL,
@@ -42,22 +43,21 @@ CREATE TABLE ROLE_PERMISSION (
 );
 
 -- Index for resource server queries with deployment isolation on ROLE_PERMISSION
-CREATE INDEX idx_role_permission_resource_server ON ROLE_PERMISSION (RESOURCE_SERVER_ID, DEPLOYMENT_ID);
+CREATE INDEX idx_role_permission_resource_server ON "ROLE_PERMISSION" (RESOURCE_SERVER_ID, DEPLOYMENT_ID);
 
--- Table to store Role assignments (to users and groups)
-CREATE TABLE ROLE_ASSIGNMENT (
+-- Table to store Role assignments (to entities and groups)
+CREATE TABLE "ROLE_ASSIGNMENT" (
     DEPLOYMENT_ID       VARCHAR(255) NOT NULL,
     ROLE_ID         VARCHAR(36) NOT NULL,
-    ASSIGNEE_TYPE   VARCHAR(5)  NOT NULL CHECK (ASSIGNEE_TYPE IN ('user', 'group')),
+    ASSIGNEE_TYPE   VARCHAR(6)  NOT NULL CHECK (ASSIGNEE_TYPE IN ('entity', 'group')),
     ASSIGNEE_ID     VARCHAR(36) NOT NULL,
     CREATED_AT      TEXT DEFAULT (datetime('now')),
     UPDATED_AT      TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (ROLE_ID, DEPLOYMENT_ID, ASSIGNEE_TYPE, ASSIGNEE_ID),
-    FOREIGN KEY (ROLE_ID) REFERENCES "ROLE" (ID) ON DELETE CASCADE
+    PRIMARY KEY (ROLE_ID, DEPLOYMENT_ID, ASSIGNEE_TYPE, ASSIGNEE_ID)
 );
 
 -- Table to store theme configurations.
-CREATE TABLE THEME (
+CREATE TABLE "THEME" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
     DISPLAY_NAME VARCHAR(255) NOT NULL,
@@ -70,13 +70,13 @@ CREATE TABLE THEME (
 );
 
 -- Index for deployment isolation on THEME
-CREATE INDEX idx_theme_deployment_id ON THEME (DEPLOYMENT_ID);
+CREATE INDEX idx_theme_deployment_id ON "THEME" (DEPLOYMENT_ID);
 
 -- Unique index for theme handle per deployment
-CREATE UNIQUE INDEX idx_theme_handle_deployment ON THEME (HANDLE, DEPLOYMENT_ID);
+CREATE UNIQUE INDEX idx_theme_handle_deployment ON "THEME" (HANDLE, DEPLOYMENT_ID);
 
 -- Table to store layout configurations.
-CREATE TABLE LAYOUT (
+CREATE TABLE "LAYOUT" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
     DISPLAY_NAME VARCHAR(255) NOT NULL,
@@ -89,52 +89,44 @@ CREATE TABLE LAYOUT (
 );
 
 -- Index for deployment isolation on LAYOUT
-CREATE INDEX idx_layout_deployment_id ON LAYOUT (DEPLOYMENT_ID);
+CREATE INDEX idx_layout_deployment_id ON "LAYOUT" (DEPLOYMENT_ID);
 
 -- Unique index for layout handle per deployment
-CREATE UNIQUE INDEX idx_layout_handle_deployment ON LAYOUT (HANDLE, DEPLOYMENT_ID);
+CREATE UNIQUE INDEX idx_layout_handle_deployment ON "LAYOUT" (HANDLE, DEPLOYMENT_ID);
 
--- Table to store application details.
-CREATE TABLE APPLICATION (
+-- Table to store inbound client configurations for an entity.
+CREATE TABLE "INBOUND_CLIENT" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
-    ID VARCHAR(36) PRIMARY KEY,
-    APP_NAME VARCHAR(255) NOT NULL,
-    DESCRIPTION VARCHAR(255) NOT NULL,
+    ENTITY_ID VARCHAR(36) PRIMARY KEY,
     AUTH_FLOW_ID VARCHAR(100) NOT NULL,
-    REGISTRATION_FLOW_ID VARCHAR(100) NOT NULL,
+    REGISTRATION_FLOW_ID VARCHAR(100),
     IS_REGISTRATION_FLOW_ENABLED CHAR(1) DEFAULT '1',
+    RECOVERY_FLOW_ID VARCHAR(100),
+    IS_RECOVERY_FLOW_ENABLED CHAR(1) DEFAULT '0',
     THEME_ID VARCHAR(36),
     LAYOUT_ID VARCHAR(36),
-    APP_JSON TEXT,
-    FOREIGN KEY (THEME_ID) REFERENCES THEME(ID) ON DELETE RESTRICT,
-    FOREIGN KEY (LAYOUT_ID) REFERENCES LAYOUT(ID) ON DELETE RESTRICT
+    PROPERTIES TEXT,
+    FOREIGN KEY (THEME_ID) REFERENCES "THEME"(ID) ON DELETE RESTRICT,
+    FOREIGN KEY (LAYOUT_ID) REFERENCES "LAYOUT"(ID) ON DELETE RESTRICT
 );
 
--- Composite index for name-based application lookups
-CREATE INDEX idx_application_name_deployment ON APPLICATION (DEPLOYMENT_ID, APP_NAME);
+-- Index for efficient lookups by theme.
+CREATE INDEX idx_inbound_client_theme_id ON "INBOUND_CLIENT"(THEME_ID);
 
--- Index for efficient lookups of applications by theme.
-CREATE INDEX idx_application_theme_id ON APPLICATION(THEME_ID);
+-- Index for efficient lookups by layout.
+CREATE INDEX idx_inbound_client_layout_id ON "INBOUND_CLIENT"(LAYOUT_ID);
 
--- Index for efficient lookups of applications by layout.
-CREATE INDEX idx_application_layout_id ON APPLICATION(LAYOUT_ID);
-
--- Table to store OAuth configurations for applications.
-CREATE TABLE APP_OAUTH_INBOUND_CONFIG (
+-- Table to store OAuth inbound profile for an entity.
+CREATE TABLE "OAUTH_INBOUND_PROFILE" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
-    CLIENT_ID VARCHAR(255) NOT NULL,
-    CLIENT_SECRET VARCHAR(255) NOT NULL,
-    APP_ID VARCHAR(36) NOT NULL,
-    OAUTH_CONFIG_JSON TEXT,
-    PRIMARY KEY (CLIENT_ID, DEPLOYMENT_ID),
-    FOREIGN KEY (APP_ID) REFERENCES APPLICATION(ID) ON DELETE CASCADE
+    ENTITY_ID VARCHAR(36) NOT NULL,
+    OAUTH_CONFIG TEXT,
+    PRIMARY KEY (ENTITY_ID, DEPLOYMENT_ID),
+    FOREIGN KEY (ENTITY_ID) REFERENCES "INBOUND_CLIENT"(ENTITY_ID) ON DELETE CASCADE
 );
-
--- Index for APP_ID lookups on APP_OAUTH_INBOUND_CONFIG (UPDATE/DELETE by app ID, and JOIN in application list)
-CREATE INDEX idx_app_oauth_app_id ON APP_OAUTH_INBOUND_CONFIG (APP_ID);
 
 -- Table to store identity providers.
-CREATE TABLE IDP (
+CREATE TABLE "IDP" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
     NAME VARCHAR(255) NOT NULL,
@@ -146,10 +138,13 @@ CREATE TABLE IDP (
 );
 
 -- Composite index for name-based IDP lookups
-CREATE INDEX idx_idp_name_deployment ON IDP (DEPLOYMENT_ID, NAME);
+CREATE INDEX idx_idp_name_deployment ON "IDP" (DEPLOYMENT_ID, NAME);
+
+-- Expression index for issuer-based IDP lookups
+CREATE INDEX idx_idp_issuer ON "IDP" (DEPLOYMENT_ID, json_extract(PROPERTIES, '$.issuer.value'));
 
 -- Table to store notification senders.
-CREATE TABLE NOTIFICATION_SENDER (
+CREATE TABLE "NOTIFICATION_SENDER" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     NAME VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
@@ -162,10 +157,10 @@ CREATE TABLE NOTIFICATION_SENDER (
 );
 
 -- Composite index for name-based notification sender lookups
-CREATE INDEX idx_notification_sender_name_deployment ON NOTIFICATION_SENDER (DEPLOYMENT_ID, NAME);
+CREATE INDEX idx_notification_sender_name_deployment ON "NOTIFICATION_SENDER" (DEPLOYMENT_ID, NAME);
 
 -- Table to store certificates associated with various entities.
-CREATE TABLE CERTIFICATE (
+CREATE TABLE "CERTIFICATE" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
     REF_TYPE VARCHAR(20) NOT NULL,
@@ -178,13 +173,14 @@ CREATE TABLE CERTIFICATE (
 );
 
 -- Table to store resource servers.
-CREATE TABLE RESOURCE_SERVER (
+CREATE TABLE "RESOURCE_SERVER" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
     OU_ID VARCHAR(36) NOT NULL,
     NAME VARCHAR(100) NOT NULL,
     DESCRIPTION TEXT,
-    IDENTIFIER VARCHAR(100),
+    HANDLE VARCHAR(100),
+    IDENTIFIER VARCHAR(2048),
     PROPERTIES TEXT,
     CREATED_AT TEXT DEFAULT (datetime('now')),
     UPDATED_AT TEXT DEFAULT (datetime('now')),
@@ -192,15 +188,20 @@ CREATE TABLE RESOURCE_SERVER (
 );
 
 -- Composite index for name-based resource server lookups
-CREATE INDEX idx_resource_server_name_deployment ON RESOURCE_SERVER (DEPLOYMENT_ID, NAME);
+CREATE INDEX idx_resource_server_name_deployment ON "RESOURCE_SERVER" (DEPLOYMENT_ID, NAME);
+
+-- Unique constraint: Resource server handle must be unique per deployment (when not null)
+CREATE UNIQUE INDEX uq_resource_server_handle
+    ON "RESOURCE_SERVER"(HANDLE, DEPLOYMENT_ID)
+    WHERE HANDLE IS NOT NULL;
 
 -- Unique constraint: Resource server identifier must be unique per deployment (when not null)
 CREATE UNIQUE INDEX uq_resource_server_identifier
-    ON RESOURCE_SERVER(IDENTIFIER, DEPLOYMENT_ID)
+    ON "RESOURCE_SERVER"(IDENTIFIER, DEPLOYMENT_ID)
     WHERE IDENTIFIER IS NOT NULL;
 
 -- Table to store resources within resource servers.
-CREATE TABLE RESOURCE (
+CREATE TABLE "RESOURCE" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
     RESOURCE_SERVER_ID VARCHAR(36) NOT NULL,
@@ -214,30 +215,30 @@ CREATE TABLE RESOURCE (
     UPDATED_AT TEXT DEFAULT (datetime('now')),
 
     FOREIGN KEY (RESOURCE_SERVER_ID)
-        REFERENCES RESOURCE_SERVER(ID)
+        REFERENCES "RESOURCE_SERVER"(ID)
         ON DELETE RESTRICT
         ON UPDATE CASCADE,
     FOREIGN KEY (PARENT_RESOURCE_ID)
-        REFERENCES RESOURCE(ID)
+        REFERENCES "RESOURCE"(ID)
         ON DELETE RESTRICT
         ON UPDATE CASCADE
 );
 
 -- Composite index for resource server + deployment queries (list, count, and handle checks)
-CREATE INDEX idx_resource_server_deployment ON RESOURCE (RESOURCE_SERVER_ID, DEPLOYMENT_ID);
+CREATE INDEX idx_resource_server_deployment ON "RESOURCE" (RESOURCE_SERVER_ID, DEPLOYMENT_ID);
 
 -- Unique constraint: Resource handle must be unique under the same parent per deployment
 CREATE UNIQUE INDEX uq_resource_handle_with_parent
-    ON RESOURCE(RESOURCE_SERVER_ID, PARENT_RESOURCE_ID, HANDLE, DEPLOYMENT_ID)
+    ON "RESOURCE"(RESOURCE_SERVER_ID, PARENT_RESOURCE_ID, HANDLE, DEPLOYMENT_ID)
     WHERE PARENT_RESOURCE_ID IS NOT NULL;
 
 -- Unique constraint: Root-level resource handles must be unique per resource server per deployment
 CREATE UNIQUE INDEX uq_resource_handle_null_parent
-    ON RESOURCE(RESOURCE_SERVER_ID, HANDLE, DEPLOYMENT_ID)
+    ON "RESOURCE"(RESOURCE_SERVER_ID, HANDLE, DEPLOYMENT_ID)
     WHERE PARENT_RESOURCE_ID IS NULL;
 
 -- Table to store actions at resource server or resource level.
-CREATE TABLE ACTION (
+CREATE TABLE "ACTION" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
     RESOURCE_SERVER_ID VARCHAR(36) NOT NULL,
@@ -251,30 +252,30 @@ CREATE TABLE ACTION (
     UPDATED_AT TEXT DEFAULT (datetime('now')),
 
     FOREIGN KEY (RESOURCE_SERVER_ID)
-        REFERENCES RESOURCE_SERVER(ID)
+        REFERENCES "RESOURCE_SERVER"(ID)
         ON DELETE RESTRICT
         ON UPDATE CASCADE,
     FOREIGN KEY (RESOURCE_ID)
-        REFERENCES RESOURCE(ID)
+        REFERENCES "RESOURCE"(ID)
         ON DELETE RESTRICT
         ON UPDATE CASCADE
 );
 
 -- Composite index for action list/count queries filtered by resource server + deployment + resource
-CREATE INDEX idx_action_server_deployment ON ACTION (RESOURCE_SERVER_ID, DEPLOYMENT_ID, RESOURCE_ID);
+CREATE INDEX idx_action_server_deployment ON "ACTION" (RESOURCE_SERVER_ID, DEPLOYMENT_ID, RESOURCE_ID);
 
 -- Unique constraint: Server-level action handles must be unique per resource server per deployment
 CREATE UNIQUE INDEX uq_action_server_handle
-    ON ACTION(RESOURCE_SERVER_ID, HANDLE, DEPLOYMENT_ID)
+    ON "ACTION"(RESOURCE_SERVER_ID, HANDLE, DEPLOYMENT_ID)
     WHERE RESOURCE_ID IS NULL;
 
 -- Unique constraint: Resource-level action handles must be unique per resource per deployment
 CREATE UNIQUE INDEX uq_action_resource_handle
-    ON ACTION(RESOURCE_ID, HANDLE, DEPLOYMENT_ID)
+    ON "ACTION"(RESOURCE_ID, HANDLE, DEPLOYMENT_ID)
     WHERE RESOURCE_ID IS NOT NULL;
 
 -- Table to store active flow definitions
-CREATE TABLE FLOW (
+CREATE TABLE "FLOW" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     ID VARCHAR(36) PRIMARY KEY,
     HANDLE VARCHAR(100) NOT NULL,
@@ -287,10 +288,10 @@ CREATE TABLE FLOW (
 );
 
 -- Composite index for flow type + deployment queries
-CREATE INDEX idx_flow_type_deployment ON FLOW (DEPLOYMENT_ID, FLOW_TYPE);
+CREATE INDEX idx_flow_type_deployment ON "FLOW" (DEPLOYMENT_ID, FLOW_TYPE);
 
 -- Table to store flow version history
-CREATE TABLE FLOW_VERSION (
+CREATE TABLE "FLOW_VERSION" (
     DEPLOYMENT_ID VARCHAR(255) NOT NULL,
     FLOW_ID VARCHAR(36) NOT NULL,
     VERSION INTEGER NOT NULL,
@@ -298,12 +299,12 @@ CREATE TABLE FLOW_VERSION (
     CREATED_AT TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (FLOW_ID, VERSION, DEPLOYMENT_ID),
     FOREIGN KEY (FLOW_ID)
-        REFERENCES FLOW(ID)
+        REFERENCES "FLOW"(ID)
         ON DELETE CASCADE
 );
 
 -- Table to store i18n translations
-CREATE TABLE TRANSLATION (
+CREATE TABLE "TRANSLATION" (
     DEPLOYMENT_ID   VARCHAR(255) NOT NULL,
     MESSAGE_KEY     VARCHAR(255) NOT NULL,
     LANGUAGE_CODE   VARCHAR(10) NOT NULL,
@@ -315,4 +316,4 @@ CREATE TABLE TRANSLATION (
 );
 
 -- Index for efficient language and namespace combination lookups
-CREATE INDEX idx_translation_lang_namespace ON TRANSLATION (DEPLOYMENT_ID, LANGUAGE_CODE, NAMESPACE);
+CREATE INDEX idx_translation_lang_namespace ON "TRANSLATION" (DEPLOYMENT_ID, LANGUAGE_CODE, NAMESPACE);

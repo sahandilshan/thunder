@@ -19,6 +19,8 @@
 package executor
 
 import (
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"context"
 	"testing"
 
@@ -26,13 +28,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/ou"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/security"
-	"github.com/asgardeo/thunder/tests/mocks/flow/coremock"
-	"github.com/asgardeo/thunder/tests/mocks/oumock"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/security"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
+	"github.com/thunder-id/thunderid/tests/mocks/oumock"
 )
 
 const testParentOUID = "parent-ou-123"
@@ -80,8 +82,8 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_ResolveFromCaller_Success(
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromCaller,
 		},
@@ -107,8 +109,8 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_ResolveFromCaller_CallerOU
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromCaller,
 		},
@@ -130,7 +132,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_ResolveFromNotConfigured()
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:         "test-flow",
+		ExecutionID:    "test-flow",
 		Context:        httpCtx,
 		NodeProperties: map[string]interface{}{},
 		RuntimeData: map[string]string{
@@ -149,8 +151,8 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_UnsupportedResolveFrom() {
 	httpCtx := context.Background()
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: "unsupported",
 		},
@@ -167,7 +169,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_PropertyMissing() {
 	httpCtx := context.Background()
 
 	ctx := &core.NodeContext{
-		FlowID:         "test-flow",
+		ExecutionID:    "test-flow",
 		Context:        httpCtx,
 		NodeProperties: map[string]interface{}{},
 		RuntimeData: map[string]string{
@@ -186,7 +188,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_NilNodeProperties() {
 	httpCtx := context.Background()
 
 	ctx := &core.NodeContext{
-		FlowID:         "test-flow",
+		ExecutionID:    "test-flow",
 		Context:        httpCtx,
 		NodeProperties: nil,
 		RuntimeData: map[string]string{
@@ -210,8 +212,8 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_PropertyWrongType() {
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: 123, // Not a string.
 		},
@@ -226,8 +228,8 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_PropertyWrongType() {
 
 func (suite *OUResolverExecutorTestSuite) TestExecute_NilContext() {
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: nil,
+		ExecutionID: "test-flow",
+		Context:     nil,
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromCaller,
 		},
@@ -244,7 +246,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_NilContext() {
 
 func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_NoDefaultOUID_ReturnsError() {
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromPrompt,
 		},
@@ -267,7 +269,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_UserSelectedOU_Vali
 	selectedOUID := testChildOUID
 
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromPrompt,
 		},
@@ -295,7 +297,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_UserSelectedOU_NotI
 	selectedOUID := "unrelated-ou-789"
 
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromPrompt,
 		},
@@ -313,7 +315,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_UserSelectedOU_NotI
 	result, err := suite.executor.Execute(ctx)
 
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), common.ExecFailure, result.Status)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, result.Status)
 	assert.Contains(suite.T(), result.FailureReason, "not valid for the chosen user type")
 	suite.mockOUService.AssertExpectations(suite.T())
 }
@@ -323,7 +325,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_UserSelectedOU_Serv
 	selectedOUID := testChildOUID
 
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromPrompt,
 		},
@@ -338,7 +340,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_UserSelectedOU_Serv
 	svcErr := &serviceerror.ServiceError{
 		Type:  serviceerror.ServerErrorType,
 		Code:  "OU-50001",
-		Error: "internal error",
+		Error: i18ncore.I18nMessage{Key: "error.test.internal_error", DefaultValue: "internal error"},
 	}
 	suite.mockOUService.On("IsParent", mock.Anything, parentOUID, selectedOUID).
 		Return(false, svcErr)
@@ -356,7 +358,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_UserSelectedOU_Clie
 	selectedOUID := testChildOUID
 
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromPrompt,
 		},
@@ -371,7 +373,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_UserSelectedOU_Clie
 	svcErr := &serviceerror.ServiceError{
 		Type:  serviceerror.ClientErrorType,
 		Code:  "OU-40001",
-		Error: "not found",
+		Error: i18ncore.I18nMessage{Key: "error.test.not_found", DefaultValue: "not found"},
 	}
 	suite.mockOUService.On("IsParent", mock.Anything, parentOUID, selectedOUID).
 		Return(false, svcErr)
@@ -379,7 +381,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_UserSelectedOU_Clie
 	result, err := suite.executor.Execute(ctx)
 
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), common.ExecFailure, result.Status)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, result.Status)
 	assert.Contains(suite.T(), result.FailureReason, "not valid")
 	suite.mockOUService.AssertExpectations(suite.T())
 }
@@ -388,7 +390,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_NoChildOUs_Skips() 
 	parentOUID := testParentOUID
 
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromPrompt,
 		},
@@ -398,7 +400,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_NoChildOUs_Skips() 
 		UserInputs: map[string]string{},
 	}
 
-	suite.mockOUService.On("GetOrganizationUnitChildren", mock.Anything, parentOUID, 1, 0).
+	suite.mockOUService.On("GetOrganizationUnitChildren", mock.Anything, parentOUID, 1, 0, mock.Anything).
 		Return(&ou.OrganizationUnitListResponse{TotalResults: 0}, (*serviceerror.ServiceError)(nil))
 
 	result, err := suite.executor.Execute(ctx)
@@ -412,7 +414,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_HasChildOUs_Request
 	parentOUID := testParentOUID
 
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromPrompt,
 		},
@@ -422,7 +424,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_HasChildOUs_Request
 		UserInputs: map[string]string{},
 	}
 
-	suite.mockOUService.On("GetOrganizationUnitChildren", mock.Anything, parentOUID, 1, 0).
+	suite.mockOUService.On("GetOrganizationUnitChildren", mock.Anything, parentOUID, 1, 0, mock.Anything).
 		Return(&ou.OrganizationUnitListResponse{TotalResults: 3}, (*serviceerror.ServiceError)(nil))
 
 	result, err := suite.executor.Execute(ctx)
@@ -440,7 +442,7 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_GetChildrenError_Re
 	parentOUID := testParentOUID
 
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		NodeProperties: map[string]interface{}{
 			common.NodePropertyOUResolveFrom: ouResolveFromPrompt,
 		},
@@ -453,9 +455,9 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_GetChildrenError_Re
 	svcErr := &serviceerror.ServiceError{
 		Type:  serviceerror.ServerErrorType,
 		Code:  "OU-50001",
-		Error: "internal error",
+		Error: i18ncore.I18nMessage{Key: "error.test.internal_error", DefaultValue: "internal error"},
 	}
-	suite.mockOUService.On("GetOrganizationUnitChildren", mock.Anything, parentOUID, 1, 0).
+	suite.mockOUService.On("GetOrganizationUnitChildren", mock.Anything, parentOUID, 1, 0, mock.Anything).
 		Return((*ou.OrganizationUnitListResponse)(nil), svcErr)
 
 	result, err := suite.executor.Execute(ctx)
@@ -464,6 +466,130 @@ func (suite *OUResolverExecutorTestSuite) TestExecute_Prompt_GetChildrenError_Re
 	assert.Nil(suite.T(), result)
 	assert.Contains(suite.T(), err.Error(), "failed to check child organization units")
 	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+// --- PromptAll strategy tests ---
+
+func (suite *OUResolverExecutorTestSuite) TestExecute_PromptAll_FirstInvocation_RequestsInput() {
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		NodeProperties: map[string]interface{}{
+			common.NodePropertyOUResolveFrom: ouResolveFromPromptAll,
+		},
+		RuntimeData: map[string]string{},
+		UserInputs:  map[string]string{},
+	}
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, result.Status)
+	assert.NotEmpty(suite.T(), result.Inputs)
+	assert.Equal(suite.T(), ouIDKey, result.Inputs[0].Identifier)
+	assert.Equal(suite.T(), "OU_SELECT", result.Inputs[0].Type)
+	// PromptAll should NOT set DataRootOUID (frontend shows full tree)
+	assert.Empty(suite.T(), result.AdditionalData[common.DataRootOUID])
+	suite.mockOUService.AssertNotCalled(suite.T(), "IsOrganizationUnitExists", mock.Anything, mock.Anything)
+}
+
+func (suite *OUResolverExecutorTestSuite) TestExecute_PromptAll_ValidOUSelection() {
+	selectedOUID := "valid-ou-123"
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		NodeProperties: map[string]interface{}{
+			common.NodePropertyOUResolveFrom: ouResolveFromPromptAll,
+		},
+		RuntimeData: map[string]string{},
+		UserInputs: map[string]string{
+			ouIDKey: selectedOUID,
+		},
+	}
+
+	suite.mockOUService.On("IsOrganizationUnitExists", mock.Anything, selectedOUID).
+		Return(true, (*serviceerror.ServiceError)(nil))
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecComplete, result.Status)
+	assert.Equal(suite.T(), selectedOUID, result.RuntimeData[ouIDKey])
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *OUResolverExecutorTestSuite) TestExecute_PromptAll_NonExistentOU() {
+	selectedOUID := "nonexistent-ou-999"
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		NodeProperties: map[string]interface{}{
+			common.NodePropertyOUResolveFrom: ouResolveFromPromptAll,
+		},
+		RuntimeData: map[string]string{},
+		UserInputs: map[string]string{
+			ouIDKey: selectedOUID,
+		},
+	}
+
+	suite.mockOUService.On("IsOrganizationUnitExists", mock.Anything, selectedOUID).
+		Return(false, (*serviceerror.ServiceError)(nil))
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, result.Status)
+	assert.Equal(suite.T(), "The selected organization unit does not exist.", result.FailureReason)
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *OUResolverExecutorTestSuite) TestExecute_PromptAll_ServiceError() {
+	selectedOUID := "some-ou-123"
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		NodeProperties: map[string]interface{}{
+			common.NodePropertyOUResolveFrom: ouResolveFromPromptAll,
+		},
+		RuntimeData: map[string]string{},
+		UserInputs: map[string]string{
+			ouIDKey: selectedOUID,
+		},
+	}
+
+	svcErr := &serviceerror.ServiceError{
+		Type:  serviceerror.ServerErrorType,
+		Code:  "OU-50001",
+		Error: i18ncore.I18nMessage{Key: "error.test.internal_error", DefaultValue: "internal error"},
+	}
+	suite.mockOUService.On("IsOrganizationUnitExists", mock.Anything, selectedOUID).
+		Return(false, svcErr)
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), result)
+	assert.Contains(suite.T(), err.Error(), "failed to validate selected organization unit")
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *OUResolverExecutorTestSuite) TestExecute_PromptAll_EmptyOUInput_RequestsInput() {
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		NodeProperties: map[string]interface{}{
+			common.NodePropertyOUResolveFrom: ouResolveFromPromptAll,
+		},
+		RuntimeData: map[string]string{},
+		UserInputs: map[string]string{
+			ouIDKey: "",
+		},
+	}
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, result.Status)
+	assert.NotEmpty(suite.T(), result.Inputs)
+	suite.mockOUService.AssertNotCalled(suite.T(), "IsOrganizationUnitExists", mock.Anything, mock.Anything)
 }
 
 func TestOUResolverExecutorSuite(t *testing.T) {

@@ -25,10 +25,10 @@ import "context"
 // Different engines can be plugged in (RBAC, ABAC, ReBAC, Custom) by implementing this interface.
 type AuthorizationEngine interface {
 	// GetAuthorizedPermissions returns the subset of requested permissions
-	// that the user (directly or through groups) is authorized for.
+	// that the entity (directly or through groups) is authorized for.
 	GetAuthorizedPermissions(
 		ctx context.Context,
-		userID string,
+		entityID string,
 		groupIDs []string,
 		requestedPermissions []string,
 	) ([]string, error)

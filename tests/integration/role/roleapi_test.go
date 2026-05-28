@@ -26,8 +26,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 )
 
 const (
@@ -43,7 +43,7 @@ var (
 		Parent:      nil,
 	}
 
-	testUserSchema = testutils.UserSchema{
+	testUserType = testutils.UserType{
 		Name: "role-person",
 		Schema: map[string]interface{}{
 			"email": map[string]interface{}{
@@ -93,8 +93,9 @@ var (
 	testUserID1  string
 	testUserID2  string
 	testGroupID  string
+	testAppID    string
 	sharedRoleID string // Shared role created in SetupSuite for tests that need a pre-existing role
-	userSchemaID string
+	entityTypeID string
 
 	// Resource servers for permission testing
 	testResourceServer1ID string
@@ -123,12 +124,12 @@ func (suite *RoleAPITestSuite) SetupSuite() {
 	ouID, err := testutils.CreateOrganizationUnit(testOU)
 	suite.Require().NoError(err, "Failed to create test organization unit")
 	testOUID = ouID
-	testUserSchema.OUID = testOUID
+	testUserType.OUID = testOUID
 
-	// Create user schema
-	schemaID, err := testutils.CreateUserType(testUserSchema)
-	suite.Require().NoError(err, "Failed to create user schema")
-	userSchemaID = schemaID
+	// Create user type
+	schemaID, err := testutils.CreateUserType(testUserType)
+	suite.Require().NoError(err, "Failed to create user type")
+	entityTypeID = schemaID
 
 	// Create test users
 	user1 := testUser1
@@ -149,6 +150,17 @@ func (suite *RoleAPITestSuite) SetupSuite() {
 	groupID, err := testutils.CreateGroup(groupToCreate)
 	suite.Require().NoError(err, "Failed to create test group")
 	testGroupID = groupID
+
+	// Create test application (app entity)
+	appID, err := testutils.CreateApplication(testutils.Application{
+		Name:         "Role Test App",
+		Description:  "Application for role assignment testing",
+		OUID:         testOUID,
+		ClientID:     "role-test-app-client",
+		ClientSecret: "role-test-app-secret",
+	})
+	suite.Require().NoError(err, "Failed to create test application")
+	testAppID = appID
 
 	// Create test resource servers
 	rs1 := testutils.ResourceServer{
@@ -214,6 +226,9 @@ func (suite *RoleAPITestSuite) TearDownSuite() {
 	if testGroupID != "" {
 		_ = testutils.DeleteGroup(testGroupID)
 	}
+	if testAppID != "" {
+		_ = testutils.DeleteApplication(testAppID)
+	}
 	if testUserID2 != "" {
 		_ = testutils.DeleteUser(testUserID2)
 	}
@@ -230,8 +245,8 @@ func (suite *RoleAPITestSuite) TearDownSuite() {
 	}
 
 	// Finally schema and OU
-	if userSchemaID != "" {
-		_ = testutils.DeleteUserType(userSchemaID)
+	if entityTypeID != "" {
+		_ = testutils.DeleteUserType(entityTypeID)
 	}
 	if testOUID != "" {
 		_ = testutils.DeleteOrganizationUnit(testOUID)
@@ -779,23 +794,13 @@ func (suite *RoleAPITestSuite) TestDeleteRole_WithAssignments() {
 	role, err := suite.createRole(roleRequest)
 	suite.Require().NoError(err)
 
-	// Try to delete - should fail because it has assignments
+	// Delete should succeed - assignments are cascade deleted automatically
 	err = suite.deleteRole(role.ID)
-	suite.Require().Error(err, "Delete should fail when role has assignments")
-	suite.Contains(err.Error(), "ROL-1006", "Should return cannot delete role error")
+	suite.NoError(err, "Delete should succeed and cascade delete assignments")
 
-	// Remove assignments first
-	removeRequest := AssignmentsRequest{
-		Assignments: []Assignment{
-			{ID: testUserID1, Type: AssigneeTypeUser},
-		},
-	}
-	err = suite.removeAssignments(role.ID, removeRequest)
-	suite.Require().NoError(err)
-
-	// Now delete should succeed
-	err = suite.deleteRole(role.ID)
-	suite.NoError(err)
+	// Verify the role is gone
+	_, err = suite.getRole(role.ID)
+	suite.Require().Error(err, "Role should no longer exist after deletion")
 }
 
 // Test 19: Delete Role - Success
@@ -1128,6 +1133,368 @@ func (suite *RoleAPITestSuite) TestCreateRole_MissingResourceServerID() {
 	// May return ROL-1012 or ROL-1001 depending on validation
 }
 
+// Test 31: Get Role Assignments - Filter by Type
+func (suite *RoleAPITestSuite) TestGetRoleAssignments_FilterByType() {
+	// Create a role with both user and group assignments
+	roleRequest := CreateRoleRequest{
+		Name: "Test Role for Type Filtering",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+		Assignments: []Assignment{
+			{ID: testUserID1, Type: AssigneeTypeUser},
+			{ID: testUserID2, Type: AssigneeTypeUser},
+			{ID: testGroupID, Type: AssigneeTypeGroup},
+		},
+	}
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	defer suite.deleteRole(role.ID)
+
+	// Verify no filter returns all assignments
+	allAssignments, err := suite.getRoleAssignments(role.ID, 0, 30)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(allAssignments)
+	suite.Equal(3, allAssignments.TotalResults, "Should return all 3 assignments without type filter")
+	suite.Equal(3, allAssignments.Count)
+
+	// Filter by user type
+	userAssignments, err := suite.getRoleAssignmentsByType(role.ID, 0, 30, "user")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(userAssignments)
+	suite.Equal(2, userAssignments.TotalResults, "Should return 2 user assignments")
+	suite.Equal(2, userAssignments.Count)
+	for _, assignment := range userAssignments.Assignments {
+		suite.Equal(AssigneeTypeUser, assignment.Type, "All assignments should be of type 'user'")
+	}
+
+	// Filter by group type
+	groupAssignments, err := suite.getRoleAssignmentsByType(role.ID, 0, 30, "group")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(groupAssignments)
+	suite.Equal(1, groupAssignments.TotalResults, "Should return 1 group assignment")
+	suite.Equal(1, groupAssignments.Count)
+	for _, assignment := range groupAssignments.Assignments {
+		suite.Equal(AssigneeTypeGroup, assignment.Type, "All assignments should be of type 'group'")
+	}
+	suite.Equal(testGroupID, groupAssignments.Assignments[0].ID)
+}
+
+// Test 32: Get Role Assignments - Filter by Type with Pagination
+func (suite *RoleAPITestSuite) TestGetRoleAssignments_FilterByTypeWithPagination() {
+	// Interleave group between users so a "paginate-then-filter" bug is caught.
+	// Wrong impl: offset=1,limit=1 on the raw list [user1, group, user2] gives [group] → filter → []
+	// Correct impl: filter first → [user1, user2], then offset=1,limit=1 → [user2]
+	roleRequest := CreateRoleRequest{
+		Name: "Test Role for Type Filter Pagination",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+		Assignments: []Assignment{
+			{ID: testUserID1, Type: AssigneeTypeUser},
+			{ID: testGroupID, Type: AssigneeTypeGroup},
+			{ID: testUserID2, Type: AssigneeTypeUser},
+		},
+	}
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	defer suite.deleteRole(role.ID)
+
+	// Get first page of user assignments (limit=1)
+	page1, err := suite.getRoleAssignmentsByType(role.ID, 0, 1, "user")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(page1)
+	suite.Equal(2, page1.TotalResults, "TotalResults should reflect filtered count")
+	suite.Require().Equal(1, page1.Count, "Should return only 1 assignment per page")
+
+	// Get second page — must return a different user than page 1
+	page2, err := suite.getRoleAssignmentsByType(role.ID, 1, 1, "user")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(page2)
+	suite.Equal(2, page2.TotalResults, "TotalResults should still be 2")
+	suite.Require().Equal(1, page2.Count, "Should return 1 assignment on second page")
+	suite.NotEqual(page1.Assignments[0].ID, page2.Assignments[0].ID,
+		"Page 1 and page 2 must return different user assignments")
+}
+
+// Test 33: Get Role Assignments - Invalid Type Parameter
+func (suite *RoleAPITestSuite) TestGetRoleAssignments_InvalidType() {
+	// Create a role
+	roleRequest := CreateRoleRequest{
+		Name: "Test Role for Invalid Type",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+	}
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	defer suite.deleteRole(role.ID)
+
+	// Request with invalid type should return error
+	_, err = suite.getRoleAssignmentsByType(role.ID, 0, 30, "invalid")
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "ROL-1016", "Should return invalid assignee type error")
+}
+
+// Test 34: Create Role with App Assignment
+func (suite *RoleAPITestSuite) TestCreateRole_WithAppAssignment() {
+	roleRequest := CreateRoleRequest{
+		Name: "Test Role With App Assignment",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+		Assignments: []Assignment{
+			{ID: testAppID, Type: AssigneeTypeApp},
+		},
+	}
+
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(role)
+	defer suite.deleteRole(role.ID)
+
+	suite.Equal(1, len(role.Assignments))
+	suite.Equal(testAppID, role.Assignments[0].ID)
+	suite.Equal(AssigneeTypeApp, role.Assignments[0].Type)
+}
+
+// Test 35: Add App Assignment to Role
+func (suite *RoleAPITestSuite) TestAddAssignments_App() {
+	roleRequest := CreateRoleRequest{
+		Name: "Test Role for App Assignment",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+	}
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	defer suite.deleteRole(role.ID)
+
+	assignmentsRequest := AssignmentsRequest{
+		Assignments: []Assignment{
+			{ID: testAppID, Type: AssigneeTypeApp},
+		},
+	}
+
+	err = suite.addAssignments(role.ID, assignmentsRequest)
+	suite.Require().NoError(err)
+
+	// Verify assignments were added
+	assignments, err := suite.getRoleAssignments(role.ID, 0, 30)
+	suite.Require().NoError(err)
+	suite.Equal(1, assignments.TotalResults)
+	suite.Equal(testAppID, assignments.Assignments[0].ID)
+	suite.Equal(AssigneeTypeApp, assignments.Assignments[0].Type)
+}
+
+// Test 36: Mixed User, Group, and App Assignments
+func (suite *RoleAPITestSuite) TestAddAssignments_MixedUserGroupApp() {
+	roleRequest := CreateRoleRequest{
+		Name: "Mixed Assignment Role",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+	}
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	defer suite.deleteRole(role.ID)
+
+	assignmentsRequest := AssignmentsRequest{
+		Assignments: []Assignment{
+			{ID: testUserID1, Type: AssigneeTypeUser},
+			{ID: testGroupID, Type: AssigneeTypeGroup},
+			{ID: testAppID, Type: AssigneeTypeApp},
+		},
+	}
+
+	err = suite.addAssignments(role.ID, assignmentsRequest)
+	suite.Require().NoError(err)
+
+	// Verify all assignments
+	assignments, err := suite.getRoleAssignments(role.ID, 0, 30)
+	suite.Require().NoError(err)
+	suite.Equal(3, assignments.TotalResults)
+
+	// Verify each type exists
+	typeFound := map[AssigneeType]bool{}
+	for _, a := range assignments.Assignments {
+		typeFound[a.Type] = true
+	}
+	suite.True(typeFound[AssigneeTypeUser], "User assignment should exist")
+	suite.True(typeFound[AssigneeTypeGroup], "Group assignment should exist")
+	suite.True(typeFound[AssigneeTypeApp], "App assignment should exist")
+}
+
+// Test 37: Filter Assignments by App Type
+func (suite *RoleAPITestSuite) TestGetRoleAssignments_FilterByAppType() {
+	roleRequest := CreateRoleRequest{
+		Name: "Test Role for App Type Filter",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+		Assignments: []Assignment{
+			{ID: testUserID1, Type: AssigneeTypeUser},
+			{ID: testAppID, Type: AssigneeTypeApp},
+		},
+	}
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	defer suite.deleteRole(role.ID)
+
+	// Filter by app type
+	appAssignments, err := suite.getRoleAssignmentsByType(role.ID, 0, 30, "app")
+	suite.Require().NoError(err)
+	suite.Equal(1, appAssignments.TotalResults)
+	suite.Equal(AssigneeTypeApp, appAssignments.Assignments[0].Type)
+	suite.Equal(testAppID, appAssignments.Assignments[0].ID)
+}
+
+// Test 38: Remove App Assignment
+func (suite *RoleAPITestSuite) TestRemoveAssignments_App() {
+	roleRequest := CreateRoleRequest{
+		Name: "Test Role for App Removal",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+		Assignments: []Assignment{
+			{ID: testAppID, Type: AssigneeTypeApp},
+		},
+	}
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	defer suite.deleteRole(role.ID)
+
+	// Verify the assignment exists
+	assignments, err := suite.getRoleAssignments(role.ID, 0, 30)
+	suite.Require().NoError(err)
+	suite.Equal(1, assignments.TotalResults)
+
+	// Remove the app assignment
+	err = suite.removeAssignments(role.ID, AssignmentsRequest{
+		Assignments: []Assignment{
+			{ID: testAppID, Type: AssigneeTypeApp},
+		},
+	})
+	suite.Require().NoError(err)
+
+	// Verify it was removed
+	assignments, err = suite.getRoleAssignments(role.ID, 0, 30)
+	suite.Require().NoError(err)
+	suite.Equal(0, assignments.TotalResults)
+}
+
+// Test 39: Add App Assignment with Invalid App ID
+func (suite *RoleAPITestSuite) TestAddAssignments_InvalidApp() {
+	roleRequest := CreateRoleRequest{
+		Name: "Test Role for Invalid App Assignment",
+		OUID: testOUID,
+		Permissions: []ResourcePermissions{
+			{
+				ResourceServerID: testResourceServer1ID,
+				Permissions:      []string{testPermission1},
+			},
+		},
+	}
+	role, err := suite.createRole(roleRequest)
+	suite.Require().NoError(err)
+	defer suite.deleteRole(role.ID)
+
+	assignmentsRequest := AssignmentsRequest{
+		Assignments: []Assignment{
+			{ID: "nonexistent-app-id", Type: AssigneeTypeApp},
+		},
+	}
+
+	err = suite.addAssignments(role.ID, assignmentsRequest)
+	suite.Error(err)
+	suite.Contains(err.Error(), "ROL-1007")
+}
+
+// Test 20: Add Assignment to Declarative Role
+func (suite *RoleAPITestSuite) TestAddAssignments_DeclarativeRole() {
+	// The declarative role 'decl-role-1' is loaded from the file store.
+	// Create a user via API, assign them to the declarative role, then verify and clean up.
+	const declRoleID = "decl-role-1"
+	const declOUID = "decl-ou-1"
+
+	// Step 1: Verify the declarative role is accessible via the API.
+	declRole, err := suite.getRole(declRoleID)
+	suite.Require().NoError(err, "Declarative role should be accessible via API")
+	suite.Require().NotNil(declRole)
+	suite.Equal(declRoleID, declRole.ID)
+
+	// Step 2: Create a user in the declarative OU via API.
+	user := testutils.User{
+		OUID: declOUID,
+		Type: "Declarative Test Schema",
+		Attributes: json.RawMessage(`{
+			"email": "decl-role-assign-user@example.com",
+			"username": "declroleassignuser"
+		}`),
+	}
+	userID, err := testutils.CreateUser(user)
+	suite.Require().NoError(err, "Failed to create user for declarative role assignment test")
+	defer testutils.DeleteUser(userID)
+
+	// Step 3: Assign the user to the declarative role via API.
+	assignmentsRequest := AssignmentsRequest{
+		Assignments: []Assignment{
+			{ID: userID, Type: AssigneeTypeUser},
+		},
+	}
+	err = suite.addAssignments(declRoleID, assignmentsRequest)
+	suite.Require().NoError(err, "Should be able to assign a user to a declarative role")
+	defer func() {
+		_ = suite.removeAssignments(declRoleID, assignmentsRequest)
+	}()
+
+	// Step 4: Verify the assignment appears in the role's assignment list.
+	assignments, err := suite.getRoleAssignments(declRoleID, 0, 10)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(assignments)
+
+	var found bool
+	for _, a := range assignments.Assignments {
+		if a.ID == userID {
+			found = true
+			break
+		}
+	}
+	suite.True(found, "Assigned user should appear in the declarative role's assignment list")
+}
+
 // Helper methods
 
 func (suite *RoleAPITestSuite) createRole(request CreateRoleRequest) (*Role, error) {
@@ -1342,9 +1709,22 @@ func (suite *RoleAPITestSuite) getRoleAssignments(roleID string, offset, limit i
 
 func (suite *RoleAPITestSuite) getRoleAssignmentsWithInclude(roleID string, offset, limit int,
 	include string) (*AssignmentListResponse, error) {
+	return suite.getRoleAssignmentsWithParams(roleID, offset, limit, include, "")
+}
+
+func (suite *RoleAPITestSuite) getRoleAssignmentsByType(roleID string, offset, limit int,
+	assigneeType string) (*AssignmentListResponse, error) {
+	return suite.getRoleAssignmentsWithParams(roleID, offset, limit, "", assigneeType)
+}
+
+func (suite *RoleAPITestSuite) getRoleAssignmentsWithParams(roleID string, offset, limit int,
+	include, assigneeType string) (*AssignmentListResponse, error) {
 	url := fmt.Sprintf("%s%s/%s/assignments?offset=%d&limit=%d", testServerURL, rolesBasePath, roleID, offset, limit)
 	if include != "" {
 		url = fmt.Sprintf("%s&include=%s", url, include)
+	}
+	if assigneeType != "" {
+		url = fmt.Sprintf("%s&type=%s", url, assigneeType)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)

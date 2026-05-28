@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 type RedisCacheTestSuite struct {
@@ -51,15 +51,15 @@ func (suite *RedisCacheTestSuite) SetupSuite() {
 			},
 		},
 	}
-	config.ResetThunderRuntime()
-	err := config.InitializeThunderRuntime("/test/thunder/home", mockConfig)
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime("/test/thunderid/home", mockConfig)
 	if err != nil {
-		suite.T().Fatal("Failed to initialize ThunderRuntime:", err)
+		suite.T().Fatal("Failed to initialize server runtime:", err)
 	}
 }
 
 func (suite *RedisCacheTestSuite) TearDownSuite() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func (suite *RedisCacheTestSuite) TestNewRedisCacheDisabled() {
@@ -139,11 +139,11 @@ func (suite *RedisCacheTestSuite) TestBuildKey() {
 	cache := &redisCache[string]{
 		enabled:   true,
 		name:      "TestCache",
-		keyPrefix: "thunder",
+		keyPrefix: "thunderid",
 	}
 
 	key := cache.buildKey(CacheKey{Key: "myKey"})
-	assert.Equal(t, "thunder:TestCache:myKey", key)
+	assert.Equal(t, "thunderid:TestCache:myKey", key)
 }
 
 func (suite *RedisCacheTestSuite) TestBuildKeyWithEmptyPrefix() {

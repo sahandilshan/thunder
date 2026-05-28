@@ -461,7 +461,7 @@ func (suite *SecurityServiceTestSuite) TestNewSecurityService_Error() {
 		{
 			name:        "invalid API permission entry pattern",
 			publicPaths: []string{},
-			apiPerms:    []apiPermissionEntry{{"GET /invalid/**/middle/**", PermissionUser}},
+			apiPerms:    []apiPermissionEntry{{"GET /invalid/**/middle/**", "system:user"}},
 			errContains: "invalid pattern",
 		},
 	}
@@ -519,7 +519,7 @@ func (suite *SecurityServiceTestSuite) TestProcess_PublicPath_WithInvalidToken()
 }
 
 // TestProcess_SkipSecurity verifies the behavior of the service when
-// THUNDER_SKIP_SECURITY is set to "true". Each case exercises a distinct
+// SKIP_SECURITY is set to "true". Each case exercises a distinct
 // combination of token presence, authentication outcome, and authorization
 // outcome to confirm that the skip-security flag either enriches the context
 // normally (when the full flow succeeds) or falls back to the skipped marker
@@ -581,8 +581,8 @@ func (suite *SecurityServiceTestSuite) TestProcess_SkipSecurity() {
 
 	for _, tt := range tests {
 		suite.Run(tt.name, func() {
-			_ = os.Setenv("THUNDER_SKIP_SECURITY", "true")
-			suite.T().Cleanup(func() { _ = os.Unsetenv("THUNDER_SKIP_SECURITY") })
+			_ = os.Setenv("SKIP_SECURITY", "true")
+			suite.T().Cleanup(func() { _ = os.Unsetenv("SKIP_SECURITY") })
 
 			mockAuth := &AuthenticatorInterfaceMock{}
 			service, err := newSecurityService(

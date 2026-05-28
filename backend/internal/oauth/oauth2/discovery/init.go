@@ -21,12 +21,13 @@ package discovery
 import (
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/system/middleware"
+	kmprovider "github.com/thunder-id/thunderid/internal/system/kmprovider/common"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
 )
 
 // Initialize initializes the discovery service and registers its routes
-func Initialize(mux *http.ServeMux) DiscoveryServiceInterface {
-	discoveryService := newDiscoveryService()
+func Initialize(mux *http.ServeMux, cryptoProvider kmprovider.RuntimeCryptoProvider) DiscoveryServiceInterface {
+	discoveryService := newDiscoveryService(cryptoProvider)
 	discoveryHandler := newDiscoveryHandler(discoveryService)
 	registerRoutes(mux, discoveryHandler)
 	return discoveryService
@@ -35,9 +36,10 @@ func Initialize(mux *http.ServeMux) DiscoveryServiceInterface {
 // registerRoutes registers the routes for discovery endpoints
 func registerRoutes(mux *http.ServeMux, handler discoveryHandlerInterface) {
 	opts := middleware.CORSOptions{
-		AllowedMethods:   "GET, OPTIONS",
-		AllowedHeaders:   "Content-Type",
+		AllowedMethods:   []string{"GET", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type"},
 		AllowCredentials: false,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /.well-known/oauth-authorization-server",

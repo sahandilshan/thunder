@@ -19,14 +19,25 @@
 package tokenservice
 
 import (
+	"context"
 	"fmt"
 
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	oauth2model "github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	oauth2utils "github.com/asgardeo/thunder/internal/oauth/oauth2/utils"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/jwksresolver"
+	oauth2model "github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwe"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
 )
+
+func resolveContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
 
 // TokenBuilderInterface defines the interface for building OAuth2 tokens.
 type TokenBuilderInterface interface {
@@ -37,13 +48,21 @@ type TokenBuilderInterface interface {
 
 // TokenBuilder implements TokenBuilderInterface.
 type tokenBuilder struct {
-	jwtService jwt.JWTServiceInterface
+	jwtService   jwt.JWTServiceInterface
+	jweService   jwe.JWEServiceInterface
+	jwksResolver *jwksresolver.Resolver
 }
 
-// NewTokenBuilder creates a new TokenBuilder instance.
-func newTokenBuilder(jwtService jwt.JWTServiceInterface) TokenBuilderInterface {
+// newTokenBuilder creates a new TokenBuilder instance.
+func newTokenBuilder(
+	jwtService jwt.JWTServiceInterface,
+	jweService jwe.JWEServiceInterface,
+	resolver *jwksresolver.Resolver,
+) TokenBuilderInterface {
 	return &tokenBuilder{
-		jwtService: jwtService,
+		jwtService:   jwtService,
+		jweService:   jweService,
+		jwksResolver: resolver,
 	}
 }
 
@@ -61,26 +80,32 @@ func (tb *tokenBuilder) BuildAccessToken(ctx *AccessTokenBuildContext) (*oauth2m
 		return nil, fmt.Errorf("failed to build access token claims: %w", claimsErr)
 	}
 
+	tokenType := constants.TokenTypeBearer
+	if ctx.DPoPJkt != "" {
+		tokenType = constants.TokenTypeDPoP
+	}
+
 	tokenDTO := &oauth2model.TokenDTO{
-		TokenType:        constants.TokenTypeBearer,
+		TokenType:        tokenType,
 		ExpiresIn:        tokenConfig.ValidityPeriod,
 		Scopes:           ctx.Scopes,
 		ClientID:         ctx.ClientID,
 		UserAttributes:   userAttributes,
 		AttributeCacheID: ctx.AttributeCacheID,
 		Subject:          ctx.Subject,
-		Audience:         ctx.Audience,
+		Audiences:        ctx.Audiences,
 		ClaimsRequest:    ctx.ClaimsRequest,
 		ClaimsLocales:    ctx.ClaimsLocales,
 	}
 
 	token, iat, err := tb.jwtService.GenerateJWT(
+		resolveContext(ctx.Context),
 		ctx.Subject,
-		ctx.Audience,
 		tokenConfig.Issuer,
 		tokenConfig.ValidityPeriod,
 		jwtClaims,
 		jwt.TokenTypeAccessToken,
+		"",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %v", err.Error)
@@ -117,6 +142,11 @@ func (tb *tokenBuilder) buildAccessTokenClaims(
 		claims[key] = value
 	}
 
+	// Merge OAuth client/application-scoped attributes.
+	for key, value := range ctx.ClientAttributes {
+		claims[key] = value
+	}
+
 	// Set after merging user attributes to prevent user attributes from overwriting this system claim.
 	if ctx.AttributeCacheID != "" {
 		claims["aci"] = ctx.AttributeCacheID
@@ -146,13 +176,21 @@ func (tb *tokenBuilder) buildAccessTokenClaims(
 		claims[constants.ClaimClaimsLocales] = ctx.ClaimsLocales
 	}
 
+	if len(ctx.Audiences) > 1 {
+		claims["aud"] = ctx.Audiences
+	} else if len(ctx.Audiences) == 1 {
+		claims["aud"] = ctx.Audiences[0]
+	}
+
+	dpop.SetCnfJkt(claims, ctx.DPoPJkt)
+
 	return claims, nil
 }
 
 // buildAccessTokenUserAttributes builds user attributes for the access token based on app configuration.
 func (tb *tokenBuilder) buildAccessTokenUserAttributes(
 	attrs map[string]interface{},
-	oauthApp *appmodel.OAuthAppConfigProcessedDTO,
+	oauthApp *inboundmodel.OAuthClient,
 ) map[string]interface{} {
 	accessTokenAttributes := make(map[string]interface{})
 
@@ -218,17 +256,20 @@ func (tb *tokenBuilder) BuildRefreshToken(ctx *RefreshTokenBuildContext) (*oauth
 		Scopes:        ctx.Scopes,
 		ClientID:      ctx.ClientID,
 		Subject:       ctx.AccessTokenSubject,
-		Audience:      tokenConfig.Issuer,
+		Audiences:     []string{tokenConfig.Issuer},
 		ClaimsLocales: ctx.ClaimsLocales,
 	}
 
+	claims["aud"] = tokenConfig.Issuer
+
 	token, iat, err := tb.jwtService.GenerateJWT(
+		resolveContext(ctx.Context),
 		ctx.ClientID,
-		tokenConfig.Issuer,
 		tokenConfig.Issuer,
 		tokenConfig.ValidityPeriod,
 		claims,
 		jwt.TokenTypeJWT,
+		"",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %v", err.Error)
@@ -250,7 +291,7 @@ func (tb *tokenBuilder) buildRefreshTokenClaims(ctx *RefreshTokenBuildContext) (
 	}
 
 	claims["access_token_sub"] = ctx.AccessTokenSubject
-	claims["access_token_aud"] = ctx.AccessTokenAudience
+	claims["access_token_aud"] = ctx.AccessTokenAudiences
 	claims["grant_type"] = ctx.GrantType
 
 	if ctx.AttributeCacheID != "" {
@@ -273,6 +314,10 @@ func (tb *tokenBuilder) buildRefreshTokenClaims(ctx *RefreshTokenBuildContext) (
 		claims["access_token_claims_locales"] = ctx.ClaimsLocales
 	}
 
+	if ctx.DPoPJkt != "" {
+		claims[constants.ClaimDPoPJkt] = ctx.DPoPJkt
+	}
+
 	return claims, nil
 }
 
@@ -291,19 +336,53 @@ func (tb *tokenBuilder) BuildIDToken(ctx *IDTokenBuildContext) (*oauth2model.Tok
 		Scopes:    ctx.Scopes,
 		ClientID:  ctx.Audience,
 		Subject:   ctx.Subject,
-		Audience:  ctx.Audience,
+		Audiences: []string{ctx.Audience},
 	}
 
+	jwtClaims["aud"] = ctx.Audience
+
 	token, iat, err := tb.jwtService.GenerateJWT(
+		resolveContext(ctx.Context),
 		ctx.Subject,
-		ctx.Audience,
 		tokenConfig.Issuer,
 		tokenConfig.ValidityPeriod,
 		jwtClaims,
 		jwt.TokenTypeJWT,
+		"",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate ID token: %v", err.Error)
+	}
+
+	// Optionally encrypt the signed ID token when responseType is JWE or NESTED_JWT.
+	if ctx.OAuthApp != nil && ctx.OAuthApp.Token != nil && ctx.OAuthApp.Token.IDToken != nil {
+		idTokenCfg := ctx.OAuthApp.Token.IDToken
+		rt := idTokenCfg.ResponseType
+		if rt == inboundmodel.IDTokenResponseTypeJWE || rt == inboundmodel.IDTokenResponseTypeNESTEDJWT {
+			if tb.jweService == nil {
+				return nil, fmt.Errorf("JWE service is not configured")
+			}
+			rpKey, rpKID, svcErr := tb.jwksResolver.ResolveEncryptionKey(
+				resolveContext(ctx.Context),
+				ctx.OAuthApp.Certificate,
+				idTokenCfg.EncryptionAlg,
+				jwksresolver.KeyUseLenientEnc,
+			)
+			if svcErr != nil {
+				return nil, fmt.Errorf("failed to resolve ID token encryption key: %v", svcErr)
+			}
+			// cty="JWT" indicates a nested JWT (signed JWS payload encrypted as JWE per OIDC spec)
+			encrypted, svcErr := tb.jweService.Encrypt(
+				[]byte(token), rpKey,
+				jwe.KeyEncAlgorithm(idTokenCfg.EncryptionAlg),
+				jwe.ContentEncAlgorithm(idTokenCfg.EncryptionEnc),
+				"JWT", rpKID,
+			)
+			if svcErr != nil {
+				return nil, fmt.Errorf("failed to encrypt ID token: %v", svcErr)
+			}
+			token = encrypted
+		}
 	}
 
 	// Assign generated token and issued at time
@@ -323,6 +402,10 @@ func (tb *tokenBuilder) buildIDTokenClaims(ctx *IDTokenBuildContext) map[string]
 
 	if ctx.Nonce != "" {
 		claims[constants.RequestParamNonce] = ctx.Nonce
+	}
+
+	if ctx.CompletedACR != "" {
+		claims["acr"] = ctx.CompletedACR
 	}
 
 	userAttributes := ctx.UserAttributes

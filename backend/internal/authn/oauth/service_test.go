@@ -19,6 +19,8 @@
 package oauth
 
 import (
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -30,14 +32,14 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/userprovider"
-	"github.com/asgardeo/thunder/tests/mocks/httpmock"
-	"github.com/asgardeo/thunder/tests/mocks/idp/idpmock"
-	"github.com/asgardeo/thunder/tests/mocks/userprovidermock"
+	"github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/idp"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/tests/mocks/entityprovidermock"
+	"github.com/thunder-id/thunderid/tests/mocks/httpmock"
+	"github.com/thunder-id/thunderid/tests/mocks/idp/idpmock"
 )
 
 const (
@@ -48,11 +50,11 @@ const (
 
 type OAuthAuthnServiceTestSuite struct {
 	suite.Suite
-	mockHTTPClient   *httpmock.HTTPClientInterfaceMock
-	mockIDPService   *idpmock.IDPServiceInterfaceMock
-	mockUserProvider *userprovidermock.UserProviderInterfaceMock
-	service          OAuthAuthnServiceInterface
-	endpoints        OAuthEndpoints
+	mockHTTPClient     *httpmock.HTTPClientInterfaceMock
+	mockIDPService     *idpmock.IDPServiceInterfaceMock
+	mockEntityProvider *entityprovidermock.EntityProviderInterfaceMock
+	service            OAuthAuthnServiceInterface
+	endpoints          OAuthEndpoints
 }
 
 func TestOAuthAuthnServiceTestSuite(t *testing.T) {
@@ -62,14 +64,14 @@ func TestOAuthAuthnServiceTestSuite(t *testing.T) {
 func (suite *OAuthAuthnServiceTestSuite) SetupTest() {
 	suite.mockHTTPClient = httpmock.NewHTTPClientInterfaceMock(suite.T())
 	suite.mockIDPService = idpmock.NewIDPServiceInterfaceMock(suite.T())
-	suite.mockUserProvider = userprovidermock.NewUserProviderInterfaceMock(suite.T())
+	suite.mockEntityProvider = entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
 	suite.endpoints = OAuthEndpoints{
 		AuthorizationEndpoint: "https://localhost:8090/oauth/authorize",
 		TokenEndpoint:         "https://localhost:8090/oauth/token",
 		UserInfoEndpoint:      "https://localhost:8090/oauth/userinfo",
 	}
 	// Use the constructor to properly initialize the service including logger
-	suite.service = newOAuthAuthnService(suite.mockHTTPClient, suite.mockIDPService, suite.mockUserProvider)
+	suite.service = newOAuthAuthnService(suite.mockHTTPClient, suite.mockIDPService, suite.mockEntityProvider)
 }
 
 func createTestIDPDTO(idpID string) *idp.IDPDTO {
@@ -141,9 +143,11 @@ func (suite *OAuthAuthnServiceTestSuite) TestGetOAuthClientConfigWithError() {
 			idpID: testIDPID,
 			mockSetup: func(m *idpmock.IDPServiceInterfaceMock) {
 				clientErr := &serviceerror.ServiceError{
-					Type:             serviceerror.ClientErrorType,
-					Code:             "IDP_NOT_FOUND",
-					ErrorDescription: "Identity provider not found",
+					Type: serviceerror.ClientErrorType,
+					Code: "IDP_NOT_FOUND",
+					ErrorDescription: core.I18nMessage{
+						Key: "error.test.identity_provider_not_found", DefaultValue: "Identity provider not found",
+					},
 				}
 				m.On("GetIdentityProvider", mock.Anything, testIDPID).Return(nil, clientErr)
 			},
@@ -154,9 +158,11 @@ func (suite *OAuthAuthnServiceTestSuite) TestGetOAuthClientConfigWithError() {
 			idpID: testIDPID,
 			mockSetup: func(m *idpmock.IDPServiceInterfaceMock) {
 				serverErr := &serviceerror.ServiceError{
-					Type:             serviceerror.ServerErrorType,
-					Code:             "INTERNAL_ERROR",
-					ErrorDescription: "Database unavailable",
+					Type: serviceerror.ServerErrorType,
+					Code: "INTERNAL_ERROR",
+					ErrorDescription: core.I18nMessage{
+						Key: "error.test.database_unavailable", DefaultValue: "Database unavailable",
+					},
 				}
 				m.On("GetIdentityProvider", mock.Anything, testIDPID).Return(nil, serverErr)
 			},
@@ -281,9 +287,11 @@ func (suite *OAuthAuthnServiceTestSuite) TestBuildAuthorizeURLWithError() {
 	}
 
 	serverErr := &serviceerror.ServiceError{
-		Type:             serviceerror.ServerErrorType,
-		Code:             "INTERNAL_ERROR",
-		ErrorDescription: "Database unavailable",
+		Type: serviceerror.ServerErrorType,
+		Code: "INTERNAL_ERROR",
+		ErrorDescription: core.I18nMessage{
+			Key: "error.test.database_unavailable", DefaultValue: "Database unavailable",
+		},
 	}
 	suite.mockIDPService.On("GetIdentityProvider", mock.Anything, testIDPID).Return(nil, serverErr)
 
@@ -510,23 +518,23 @@ func (suite *OAuthAuthnServiceTestSuite) TestFetchUserInfoWithClientConfigEmptyA
 
 func (suite *OAuthAuthnServiceTestSuite) TestGetInternalUserSuccess() {
 	userID := "user123"
-	user := &userprovider.User{
-		UserID:   userID,
-		UserType: "person",
-		OUID:     "test-ou",
+	user := &entityprovider.Entity{
+		ID:   userID,
+		Type: "person",
+		OUID: "test-ou",
 	}
 
-	suite.mockUserProvider.On("IdentifyUser", mock.MatchedBy(
+	suite.mockEntityProvider.On("IdentifyEntity", mock.MatchedBy(
 		func(filters map[string]interface{}) bool {
 			return filters["sub"] == testSub
 		}),
 	).Return(&userID, nil)
-	suite.mockUserProvider.On("GetUser", userID).Return(user, nil)
+	suite.mockEntityProvider.On("GetEntity", userID).Return(user, nil)
 
 	result, err := suite.service.GetInternalUser(testSub)
 	suite.Nil(err)
 	suite.NotNil(result)
-	suite.Equal(userID, result.UserID)
+	suite.Equal(userID, result.ID)
 }
 
 func (suite *OAuthAuthnServiceTestSuite) TestGetInternalUserWithError_EmptySub() {
@@ -537,8 +545,8 @@ func (suite *OAuthAuthnServiceTestSuite) TestGetInternalUserWithError_EmptySub()
 }
 
 func (suite *OAuthAuthnServiceTestSuite) TestGetInternalUserWithError_UserNotFound() {
-	upErr := &userprovider.UserProviderError{Code: userprovider.ErrorCodeUserNotFound}
-	suite.mockUserProvider.On("IdentifyUser", mock.Anything).Return(nil, upErr)
+	upErr := &entityprovider.EntityProviderError{Code: entityprovider.ErrorCodeEntityNotFound}
+	suite.mockEntityProvider.On("IdentifyEntity", mock.Anything).Return(nil, upErr)
 
 	result, err := suite.service.GetInternalUser(testSub)
 	suite.Nil(result)
@@ -549,37 +557,37 @@ func (suite *OAuthAuthnServiceTestSuite) TestGetInternalUserWithError_UserNotFou
 func (suite *OAuthAuthnServiceTestSuite) TestGetInternalUserWithServiceError() {
 	tests := []struct {
 		name            string
-		mockSetup       func(m *userprovidermock.UserProviderInterfaceMock)
+		mockSetup       func(m *entityprovidermock.EntityProviderInterfaceMock)
 		expectedErrCode string
 	}{
 		{
 			name: "IdentifyServerError",
-			mockSetup: func(m *userprovidermock.UserProviderInterfaceMock) {
-				serverErr := &userprovider.UserProviderError{
-					Code:    userprovider.ErrorCodeSystemError,
+			mockSetup: func(m *entityprovidermock.EntityProviderInterfaceMock) {
+				serverErr := &entityprovider.EntityProviderError{
+					Code:    entityprovider.ErrorCodeSystemError,
 					Message: "Database unavailable",
 				}
-				m.On("IdentifyUser", mock.Anything).Return(nil, serverErr)
+				m.On("IdentifyEntity", mock.Anything).Return(nil, serverErr)
 			},
 			expectedErrCode: serviceerror.InternalServerError.Code,
 		},
 		{
 			name: "GetUserServerError",
-			mockSetup: func(m *userprovidermock.UserProviderInterfaceMock) {
+			mockSetup: func(m *entityprovidermock.EntityProviderInterfaceMock) {
 				userID := "user123"
-				serverErr := &userprovider.UserProviderError{
-					Code:    userprovider.ErrorCodeSystemError,
+				serverErr := &entityprovider.EntityProviderError{
+					Code:    entityprovider.ErrorCodeSystemError,
 					Message: "Database unavailable",
 				}
-				m.On("IdentifyUser", mock.Anything).Return(&userID, nil)
-				m.On("GetUser", userID).Return(nil, serverErr)
+				m.On("IdentifyEntity", mock.Anything).Return(&userID, nil)
+				m.On("GetEntity", userID).Return(nil, serverErr)
 			},
 			expectedErrCode: serviceerror.InternalServerError.Code,
 		},
 		{
 			name: "IdentifyNilUserID",
-			mockSetup: func(m *userprovidermock.UserProviderInterfaceMock) {
-				m.On("IdentifyUser", mock.Anything).Return(nil, (*userprovider.UserProviderError)(nil))
+			mockSetup: func(m *entityprovidermock.EntityProviderInterfaceMock) {
+				m.On("IdentifyEntity", mock.Anything).Return(nil, (*entityprovider.EntityProviderError)(nil))
 			},
 			expectedErrCode: common.ErrorUserNotFound.Code,
 		},
@@ -587,9 +595,9 @@ func (suite *OAuthAuthnServiceTestSuite) TestGetInternalUserWithServiceError() {
 
 	for _, tc := range tests {
 		suite.Run(tc.name, func() {
-			freshUserMock := userprovidermock.NewUserProviderInterfaceMock(suite.T())
+			freshUserMock := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
 			if svcImpl, ok := suite.service.(*oAuthAuthnService); ok {
-				svcImpl.userProvider = freshUserMock
+				svcImpl.entityProvider = freshUserMock
 			}
 
 			if tc.mockSetup != nil {
@@ -602,14 +610,6 @@ func (suite *OAuthAuthnServiceTestSuite) TestGetInternalUserWithServiceError() {
 			suite.Equal(tc.expectedErrCode, err.Code)
 		})
 	}
-}
-
-func (suite *OAuthAuthnServiceTestSuite) TestGetMetadata() {
-	svcImpl, ok := suite.service.(*oAuthAuthnService)
-	suite.True(ok)
-
-	meta := svcImpl.getMetadata()
-	suite.Equal(common.AuthenticatorOAuth, meta.Name)
 }
 
 func (suite *OAuthAuthnServiceTestSuite) TestValidateTokenResponseSuccess() {

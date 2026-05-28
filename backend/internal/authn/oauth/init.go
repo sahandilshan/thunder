@@ -19,14 +19,14 @@
 package oauth
 
 import (
-	"github.com/asgardeo/thunder/internal/idp"
-	syshttp "github.com/asgardeo/thunder/internal/system/http"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/idp"
+	syshttp "github.com/thunder-id/thunderid/internal/system/http"
 )
 
 // Initialize initializes the OAuth authentication service.
 func Initialize(idpSvc idp.IDPServiceInterface,
-	userProvider userprovider.UserProviderInterface) OAuthAuthnServiceInterface {
+	entityProvider entityprovider.EntityProviderInterface) OAuthAuthnServiceInterface {
 	httpClient := syshttp.NewHTTPClient()
-	return newOAuthAuthnService(httpClient, idpSvc, userProvider)
+	return newOAuthAuthnService(httpClient, idpSvc, entityProvider)
 }

@@ -7,8 +7,8 @@ package templatemock
 import (
 	"context"
 
-	"github.com/asgardeo/thunder/internal/system/template"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/system/template"
 )
 
 // newTemplateStoreInterfaceMock creates a new instance of templateStoreInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -107,8 +107,8 @@ func (_c *templateStoreInterfaceMock_GetTemplate_Call) RunAndReturn(run func(ctx
 }
 
 // GetTemplateByScenario provides a mock function for the type templateStoreInterfaceMock
-func (_mock *templateStoreInterfaceMock) GetTemplateByScenario(ctx context.Context, scenario template.ScenarioType) (*template.TemplateDTO, error) {
-	ret := _mock.Called(ctx, scenario)
+func (_mock *templateStoreInterfaceMock) GetTemplateByScenario(ctx context.Context, scenario template.ScenarioType, tmplType template.TemplateType) (*template.TemplateDTO, error) {
+	ret := _mock.Called(ctx, scenario, tmplType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetTemplateByScenario")
@@ -116,18 +116,18 @@ func (_mock *templateStoreInterfaceMock) GetTemplateByScenario(ctx context.Conte
 
 	var r0 *template.TemplateDTO
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, template.ScenarioType) (*template.TemplateDTO, error)); ok {
-		return returnFunc(ctx, scenario)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, template.ScenarioType, template.TemplateType) (*template.TemplateDTO, error)); ok {
+		return returnFunc(ctx, scenario, tmplType)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, template.ScenarioType) *template.TemplateDTO); ok {
-		r0 = returnFunc(ctx, scenario)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, template.ScenarioType, template.TemplateType) *template.TemplateDTO); ok {
+		r0 = returnFunc(ctx, scenario, tmplType)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*template.TemplateDTO)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, template.ScenarioType) error); ok {
-		r1 = returnFunc(ctx, scenario)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, template.ScenarioType, template.TemplateType) error); ok {
+		r1 = returnFunc(ctx, scenario, tmplType)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -142,11 +142,12 @@ type templateStoreInterfaceMock_GetTemplateByScenario_Call struct {
 // GetTemplateByScenario is a helper method to define mock.On call
 //   - ctx context.Context
 //   - scenario template.ScenarioType
-func (_e *templateStoreInterfaceMock_Expecter) GetTemplateByScenario(ctx interface{}, scenario interface{}) *templateStoreInterfaceMock_GetTemplateByScenario_Call {
-	return &templateStoreInterfaceMock_GetTemplateByScenario_Call{Call: _e.mock.On("GetTemplateByScenario", ctx, scenario)}
+//   - tmplType template.TemplateType
+func (_e *templateStoreInterfaceMock_Expecter) GetTemplateByScenario(ctx interface{}, scenario interface{}, tmplType interface{}) *templateStoreInterfaceMock_GetTemplateByScenario_Call {
+	return &templateStoreInterfaceMock_GetTemplateByScenario_Call{Call: _e.mock.On("GetTemplateByScenario", ctx, scenario, tmplType)}
 }
 
-func (_c *templateStoreInterfaceMock_GetTemplateByScenario_Call) Run(run func(ctx context.Context, scenario template.ScenarioType)) *templateStoreInterfaceMock_GetTemplateByScenario_Call {
+func (_c *templateStoreInterfaceMock_GetTemplateByScenario_Call) Run(run func(ctx context.Context, scenario template.ScenarioType, tmplType template.TemplateType)) *templateStoreInterfaceMock_GetTemplateByScenario_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -156,9 +157,14 @@ func (_c *templateStoreInterfaceMock_GetTemplateByScenario_Call) Run(run func(ct
 		if args[1] != nil {
 			arg1 = args[1].(template.ScenarioType)
 		}
+		var arg2 template.TemplateType
+		if args[2] != nil {
+			arg2 = args[2].(template.TemplateType)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -169,7 +175,7 @@ func (_c *templateStoreInterfaceMock_GetTemplateByScenario_Call) Return(template
 	return _c
 }
 
-func (_c *templateStoreInterfaceMock_GetTemplateByScenario_Call) RunAndReturn(run func(ctx context.Context, scenario template.ScenarioType) (*template.TemplateDTO, error)) *templateStoreInterfaceMock_GetTemplateByScenario_Call {
+func (_c *templateStoreInterfaceMock_GetTemplateByScenario_Call) RunAndReturn(run func(ctx context.Context, scenario template.ScenarioType, tmplType template.TemplateType) (*template.TemplateDTO, error)) *templateStoreInterfaceMock_GetTemplateByScenario_Call {
 	_c.Call.Return(run)
 	return _c
 }

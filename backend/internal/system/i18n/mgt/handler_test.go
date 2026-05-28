@@ -27,7 +27,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 type I18nHandlerTestSuite struct {
@@ -64,7 +64,7 @@ func (suite *I18nHandlerTestSuite) TestHandleListLanguages_Success() {
 }
 
 func (suite *I18nHandlerTestSuite) TestHandleListLanguages_ServiceError() {
-	suite.mockService.On("ListLanguages").Return(nil, &ErrorInternalServerError)
+	suite.mockService.On("ListLanguages").Return(nil, &serviceerror.InternalServerError)
 
 	req := httptest.NewRequest(http.MethodGet, "/i18n/languages", nil)
 	w := httptest.NewRecorder()
@@ -221,7 +221,7 @@ func (suite *I18nHandlerTestSuite) TestHandleClearOverrideTranslation_Success() 
 
 func (suite *I18nHandlerTestSuite) TestHandleError_NotFound() {
 	// Testing manual error construction/mapping in handleError
-	svcErr := &serviceerror.I18nServiceError{
+	svcErr := &serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1006", // Assuming this is TranslationNotFound
 	}

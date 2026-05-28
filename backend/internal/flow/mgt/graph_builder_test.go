@@ -26,12 +26,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/tests/mocks/flow/coremock"
-	"github.com/asgardeo/thunder/tests/mocks/flow/executormock"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/executormock"
 )
 
 type GraphBuilderTestSuite struct {
@@ -47,7 +47,7 @@ func TestGraphBuilderTestSuite(t *testing.T) {
 }
 
 func (s *GraphBuilderTestSuite) SetupTest() {
-	_ = config.InitializeThunderRuntime("test", &config.Config{
+	_ = config.InitializeServerRuntime("test", &config.Config{
 		Server: config.ServerConfig{Identifier: "test-deployment"},
 	})
 
@@ -71,7 +71,7 @@ func (s *GraphBuilderTestSuite) TestGetGraph_NilFlow() {
 	s.Nil(graph)
 	s.NotNil(err)
 	s.Equal(ErrorInvalidFlowData.Code, err.Code)
-	s.Contains(err.ErrorDescription, "Flow definition is nil or has no nodes")
+	s.Contains(err.ErrorDescription.DefaultValue, "Flow definition is nil or has no nodes")
 }
 
 func (s *GraphBuilderTestSuite) TestGetGraph_EmptyNodes() {
@@ -88,7 +88,7 @@ func (s *GraphBuilderTestSuite) TestGetGraph_EmptyNodes() {
 	s.Nil(graph)
 	s.NotNil(err)
 	s.Equal(ErrorInvalidFlowData.Code, err.Code)
-	s.Contains(err.ErrorDescription, "Flow definition is nil or has no nodes")
+	s.Contains(err.ErrorDescription.DefaultValue, "Flow definition is nil or has no nodes")
 }
 
 func (s *GraphBuilderTestSuite) TestGetGraph_CacheHit() {
@@ -184,7 +184,7 @@ func (s *GraphBuilderTestSuite) TestGetGraph_BuildFailure() {
 	s.Nil(graph)
 	s.NotNil(err)
 	s.Equal(ErrorGraphBuildFailure.Code, err.Code)
-	s.Contains(err.ErrorDescription, "node creation error")
+	s.Contains(err.ErrorDescription.DefaultValue, "node creation error")
 }
 
 func (s *GraphBuilderTestSuite) TestGetGraph_CacheSetError() {
@@ -671,6 +671,52 @@ func (s *GraphBuilderTestSuite) TestBuildGraph_WithMeta() {
 	s.Nil(err)
 }
 
+func (s *GraphBuilderTestSuite) TestBuildGraph_VariantExplicitlySet() {
+	flow := &CompleteFlowDefinition{
+		ID:       "flow-1",
+		Handle:   "test-handle",
+		Name:     "Test Flow",
+		FlowType: common.FlowTypeAuthentication,
+		Nodes: []NodeDefinition{
+			{ID: "start", Type: "START", OnSuccess: "chooser"},
+			{
+				ID:      "chooser",
+				Type:    "PROMPT",
+				Variant: common.NodeVariantLoginOptions,
+			},
+		},
+	}
+
+	mockGraph := coremock.NewGraphInterfaceMock(s.T())
+	mockStartNode := coremock.NewRepresentationNodeInterfaceMock(s.T())
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(s.T())
+
+	s.mockFlowFactory.EXPECT().CreateGraph(
+		"flow-1", common.FlowTypeAuthentication).Return(mockGraph)
+	s.mockFlowFactory.EXPECT().CreateNode(
+		"start", "START", map[string]interface{}(nil), false, false).Return(mockStartNode, nil)
+	s.mockFlowFactory.EXPECT().CreateNode(
+		"chooser", "PROMPT", map[string]interface{}(nil), false, true).Return(mockPromptNode, nil)
+
+	mockStartNode.EXPECT().SetOnSuccess("chooser")
+	mockPromptNode.EXPECT().SetVariant(common.NodeVariantLoginOptions)
+
+	mockGraph.EXPECT().AddNode(mockStartNode).Return(nil)
+	mockGraph.EXPECT().AddNode(mockPromptNode).Return(nil)
+	mockGraph.EXPECT().AddEdge("start", "chooser").Return(nil)
+	mockGraph.EXPECT().GetNodes().Return(
+		map[string]core.NodeInterface{"start": mockStartNode, "chooser": mockPromptNode})
+	mockStartNode.EXPECT().GetType().Return(common.NodeTypeStart)
+	mockPromptNode.EXPECT().GetType().Return(common.NodeTypePrompt).Maybe()
+	mockStartNode.EXPECT().GetID().Return("start")
+	mockGraph.EXPECT().SetStartNode("start").Return(nil)
+
+	graph, err := s.builder.buildGraph(flow)
+
+	s.NotNil(graph)
+	s.Nil(err)
+}
+
 func (s *GraphBuilderTestSuite) TestBuildGraph_WithCondition() {
 	flow := &CompleteFlowDefinition{
 		ID:       "flow-1",
@@ -1122,4 +1168,389 @@ func (s *GraphBuilderTestSuite) TestConfigureNodeExecutor_EmptyExecutorNameInVal
 
 	s.NotNil(err)
 	s.Contains(err.Error(), "executor name cannot be empty")
+}
+
+// Tests for display-only prompt node properties
+
+func (s *GraphBuilderTestSuite) TestConfigureDisplayOnlyProperties_NoNextNodeDefined() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:   "prompt-1",
+		Type: "PROMPT",
+		Next: "", // No next node
+	}
+
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+
+	edges := map[string][]string{}
+
+	err := s.builder.configureDisplayOnlyProperties(nodeDef, mockPromptNode, edges, nil)
+
+	s.Nil(err)
+	// SetNextNode should not be called
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureDisplayOnlyProperties_WithNextNode() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:   "prompt-1",
+		Type: "PROMPT",
+		Next: "next-node",
+	}
+
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+	mockPromptNode.EXPECT().SetNextNode("next-node")
+
+	edges := map[string][]string{}
+
+	err := s.builder.configureDisplayOnlyProperties(nodeDef, mockPromptNode, edges, nil)
+
+	s.Nil(err)
+	// Verify edge is added
+	s.Len(edges["prompt-1"], 1)
+	s.Equal("next-node", edges["prompt-1"][0])
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureDisplayOnlyProperties_WithMessage() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:      "prompt-1",
+		Type:    "PROMPT",
+		Next:    "next-node",
+		Message: "Please wait...",
+	}
+
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+	mockPromptNode.EXPECT().SetNextNode("next-node")
+	mockPromptNode.EXPECT().SetMessage("Please wait...")
+
+	edges := map[string][]string{}
+
+	err := s.builder.configureDisplayOnlyProperties(nodeDef, mockPromptNode, edges, nil)
+
+	s.Nil(err)
+	s.Len(edges["prompt-1"], 1)
+	s.Equal("next-node", edges["prompt-1"][0])
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureDisplayOnlyProperties_OnNonPromptNode() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:   "task-1",
+		Type: "TASK_EXECUTION",
+		Next: "next-node", // Not allowed on non-prompt nodes
+	}
+
+	mockTaskNode := coremock.NewExecutorBackedNodeInterfaceMock(t)
+
+	edges := map[string][]string{}
+
+	err := s.builder.configureDisplayOnlyProperties(nodeDef, mockTaskNode, edges, nil)
+
+	s.NotNil(err)
+	s.Contains(err.Error(), "'next' field is only valid on PROMPT nodes")
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureDisplayOnlyProperties_WithPromptsConflict() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:   "prompt-1",
+		Type: "PROMPT",
+		Next: "next-node",
+		Prompts: []PromptDefinition{
+			{
+				Inputs: []InputDefinition{
+					{Identifier: "username"},
+				},
+			},
+		},
+	}
+
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+
+	edges := map[string][]string{}
+
+	err := s.builder.configureDisplayOnlyProperties(nodeDef, mockPromptNode, edges, nil)
+
+	s.NotNil(err)
+	s.Contains(err.Error(), "has both 'prompts' and 'next'; these are mutually exclusive")
+}
+
+func (s *GraphBuilderTestSuite) TestProcessNode_IsFinalNode_WithNextField() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:        "node-1",
+		Type:      "PROMPT",
+		OnSuccess: "",
+		OnFailure: "",
+		Next:      "next-node", // Has next
+		Prompts:   []PromptDefinition{},
+	}
+
+	mockGraph := coremock.NewGraphInterfaceMock(t)
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+
+	// When Next is defined, isFinalNode should be false
+	s.mockFlowFactory.EXPECT().CreateNode(
+		"node-1", "PROMPT", nodeDef.Properties, false, false).
+		Return(mockPromptNode, nil)
+
+	mockPromptNode.EXPECT().SetNextNode("next-node")
+	mockGraph.EXPECT().AddNode(mockPromptNode).Return(nil)
+
+	allNodes := []NodeDefinition{*nodeDef}
+	edges := map[string][]string{}
+
+	err := s.builder.processNode(nodeDef, allNodes, mockGraph, edges, nil)
+
+	s.Nil(err)
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureNodePrompts_IncludesActionType() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:   "prompt-1",
+		Type: "PROMPT",
+		Prompts: []PromptDefinition{
+			{
+				Inputs: []InputDefinition{
+					{Identifier: "username"},
+				},
+				Action: &ActionDefinition{
+					Ref:      "login",
+					Type:     "password_auth",
+					NextNode: "auth-node",
+				},
+			},
+		},
+	}
+
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+	mockPromptNode.EXPECT().SetPrompts(mock.MatchedBy(func(prompts []common.Prompt) bool {
+		// Verify the action type is included
+		if len(prompts) != 1 {
+			return false
+		}
+		if prompts[0].Action == nil {
+			return false
+		}
+		return prompts[0].Action.Type == "password_auth"
+	}))
+
+	edges := map[string][]string{}
+
+	err := s.builder.configureNodePrompts(nodeDef, mockPromptNode, edges)
+
+	s.Nil(err)
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureNodePrompts_WithMultipleActionsWithTypes() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:   "prompt-1",
+		Type: "PROMPT",
+		Prompts: []PromptDefinition{
+			{
+				Action: &ActionDefinition{
+					Ref:      "google",
+					Type:     "social_google",
+					NextNode: "google-auth",
+				},
+			},
+			{
+				Action: &ActionDefinition{
+					Ref:      "github",
+					Type:     "social_github",
+					NextNode: "github-auth",
+				},
+			},
+		},
+	}
+
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+	mockPromptNode.EXPECT().SetPrompts(mock.MatchedBy(func(prompts []common.Prompt) bool {
+		// Verify both actions have their types
+		if len(prompts) != 2 {
+			return false
+		}
+		return (prompts[0].Action.Type == "social_google" &&
+			prompts[1].Action.Type == "social_github")
+	}))
+
+	edges := map[string][]string{}
+
+	err := s.builder.configureNodePrompts(nodeDef, mockPromptNode, edges)
+
+	s.Nil(err)
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureDisplayOnlyProperties_RecordsBoundary() {
+	t := s.T()
+	nodeDef := &NodeDefinition{
+		ID:   "prompt-1",
+		Type: "PROMPT",
+		Next: "task-1",
+	}
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+	mockPromptNode.EXPECT().SetNextNode("task-1")
+
+	edges := map[string][]string{}
+	boundaries := make([]segmentBoundary, 0)
+
+	err := s.builder.configureDisplayOnlyProperties(nodeDef, mockPromptNode, edges, &boundaries)
+
+	s.Nil(err)
+	s.Len(boundaries, 1)
+	s.Equal("prompt-1", boundaries[0].boundaryNodeID)
+	s.Equal("task-1", boundaries[0].nextNodeID)
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureDisplayOnlyProperties_RecordsMultipleBoundaries() {
+	t := s.T()
+	edges := map[string][]string{}
+	boundaries := make([]segmentBoundary, 0)
+
+	for _, tc := range []struct{ id, next string }{
+		{"prompt-1", "task-1"},
+		{"prompt-2", "task-2"},
+	} {
+		nodeDef := &NodeDefinition{ID: tc.id, Type: "PROMPT", Next: tc.next}
+		mockPN := coremock.NewPromptNodeInterfaceMock(t)
+		mockPN.EXPECT().SetNextNode(tc.next)
+		err := s.builder.configureDisplayOnlyProperties(nodeDef, mockPN, edges, &boundaries)
+		s.Nil(err)
+	}
+
+	s.Len(boundaries, 2)
+	s.Equal("prompt-1", boundaries[0].boundaryNodeID)
+	s.Equal("prompt-2", boundaries[1].boundaryNodeID)
+}
+
+func (s *GraphBuilderTestSuite) TestConfigureDisplayOnlyProperties_NilBoundariesDoesNotPanic() {
+	t := s.T()
+	nodeDef := &NodeDefinition{ID: "prompt-1", Type: "PROMPT", Next: "task-1"}
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(t)
+	mockPromptNode.EXPECT().SetNextNode("task-1")
+
+	edges := map[string][]string{}
+
+	// nil boundaries must not panic
+	err := s.builder.configureDisplayOnlyProperties(nodeDef, mockPromptNode, edges, nil)
+	s.Nil(err)
+}
+
+func (s *GraphBuilderTestSuite) TestComputeSegments_NoBoundaries() {
+	// computeSegments returns early with no boundaries; SetSegments/GetStartNode must NOT be called
+	mockGraph := coremock.NewGraphInterfaceMock(s.T())
+
+	s.builder.computeSegments(mockGraph, []segmentBoundary{})
+}
+
+func (s *GraphBuilderTestSuite) TestComputeSegments_OneBoundary() {
+	t := s.T()
+	mockGraph := coremock.NewGraphInterfaceMock(t)
+	mockStartNode := coremock.NewNodeInterfaceMock(t)
+	mockStartNode.On("GetID").Return("node-start")
+	mockGraph.On("GetStartNode").Return(mockStartNode, nil)
+	mockGraph.On("SetSegments", []core.Segment{
+		{ID: "seg-0", StartNodeID: "node-start"},
+		{ID: "seg-1", StartNodeID: "node-task"},
+	}).Return()
+
+	s.builder.computeSegments(mockGraph, []segmentBoundary{
+		{boundaryNodeID: "node-prompt", nextNodeID: "node-task"},
+	})
+}
+
+func (s *GraphBuilderTestSuite) TestComputeSegments_TwoBoundaries() {
+	t := s.T()
+	mockGraph := coremock.NewGraphInterfaceMock(t)
+	mockStartNode := coremock.NewNodeInterfaceMock(t)
+	mockStartNode.On("GetID").Return("node-start")
+	mockGraph.On("GetStartNode").Return(mockStartNode, nil)
+	mockGraph.On("SetSegments", []core.Segment{
+		{ID: "seg-0", StartNodeID: "node-start"},
+		{ID: "seg-1", StartNodeID: "node-task-1"},
+		{ID: "seg-2", StartNodeID: "node-task-2"},
+	}).Return()
+
+	s.builder.computeSegments(mockGraph, []segmentBoundary{
+		{boundaryNodeID: "node-prompt-1", nextNodeID: "node-task-1"},
+		{boundaryNodeID: "node-prompt-2", nextNodeID: "node-task-2"},
+	})
+}
+
+func (s *GraphBuilderTestSuite) TestComputeSegments_GetStartNodeFails() {
+	t := s.T()
+	mockGraph := coremock.NewGraphInterfaceMock(t)
+	mockGraph.On("GetStartNode").Return(nil, errors.New("start node not set"))
+
+	// SetSegments must NOT be called when GetStartNode fails
+	s.builder.computeSegments(mockGraph, []segmentBoundary{
+		{boundaryNodeID: "prompt", nextNodeID: "task"},
+	})
+}
+
+// Prompt inputs' regex rules must be compiled at graph-build time so the
+// request-path validator never recompiles.
+func (s *GraphBuilderTestSuite) TestConfigureNodePrompts_ValidationRulesCompiled() {
+	nodeDef := &NodeDefinition{
+		ID:   "prompt-1",
+		Type: "PROMPT",
+		Prompts: []PromptDefinition{
+			{
+				Inputs: []InputDefinition{
+					{
+						Identifier: "password",
+						Validation: []ValidationRuleDefinition{
+							{Type: "regex", Value: "[A-Z]+", Message: "needs.upper"},
+						},
+					},
+				},
+				Action: &ActionDefinition{Ref: "submit", NextNode: "next"},
+			},
+		},
+	}
+
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(s.T())
+	mockPromptNode.EXPECT().SetPrompts(mock.MatchedBy(func(prompts []common.Prompt) bool {
+		if len(prompts) != 1 || len(prompts[0].Inputs) != 1 || len(prompts[0].Inputs[0].Validation) != 1 {
+			return false
+		}
+		rule := prompts[0].Inputs[0].Validation[0]
+		return rule.Type == common.ValidationTypeRegex && rule.CompiledRegex != nil
+	}))
+
+	err := s.builder.configureNodePrompts(nodeDef, mockPromptNode, map[string][]string{})
+	s.Nil(err)
+}
+
+// Invalid regex on a prompt input must fail the build with a useful error message.
+func (s *GraphBuilderTestSuite) TestConfigureNodePrompts_InvalidRegexFailsBuild() {
+	nodeDef := &NodeDefinition{
+		ID:   "prompt-1",
+		Type: "PROMPT",
+		Prompts: []PromptDefinition{
+			{
+				Inputs: []InputDefinition{
+					{
+						Identifier: "password",
+						Validation: []ValidationRuleDefinition{
+							{Type: "regex", Value: "[unterminated", Message: "bad"},
+						},
+					},
+				},
+				Action: &ActionDefinition{Ref: "submit", NextNode: "next"},
+			},
+		},
+	}
+
+	mockPromptNode := coremock.NewPromptNodeInterfaceMock(s.T())
+	// SetPrompts must NOT be called.
+
+	err := s.builder.configureNodePrompts(nodeDef, mockPromptNode, map[string][]string{})
+	s.NotNil(err)
+	s.Contains(err.Error(), "prompt-1")
+	s.Contains(err.Error(), "password")
+	s.Contains(err.Error(), "invalid validation regex")
 }

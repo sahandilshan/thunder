@@ -18,7 +18,14 @@
 
 /* eslint-disable no-underscore-dangle */
 
-window.__THUNDER_RUNTIME_CONFIG__ = {
+window.__THUNDERID_RUNTIME_CONFIG__ = {
+  brand: {
+    product_name: {{ .Values.configuration.brand.productName | default "ThunderID" | quote }},
+    favicon: {
+      light: {{ .Values.configuration.brand.favicon.light | default "assets/images/favicon.ico" | quote }},
+      dark: {{ .Values.configuration.brand.favicon.dark | default "assets/images/favicon-inverted.ico" | quote }},
+    },
+  },
   client: {
     base: {{ .Values.configuration.consoleClient.path | quote }},
     client_id: {{ .Values.configuration.consoleClient.clientId | quote }},
@@ -33,4 +40,23 @@ window.__THUNDER_RUNTIME_CONFIG__ = {
     public_url: {{ .Values.configuration.server.publicUrl | quote }},
     {{- end }}
   },
+  {{- if .Values.configuration.consoleClient.trustedIssuer }}
+  trusted_issuer: {
+    hostname: {{ .Values.configuration.consoleClient.trustedIssuer.hostname | quote }},
+    port: {{ .Values.configuration.consoleClient.trustedIssuer.port }},
+    http_only: {{ .Values.configuration.consoleClient.trustedIssuer.httpOnly }},
+    {{- if .Values.configuration.consoleClient.trustedIssuer.publicUrl }}
+    public_url: {{ .Values.configuration.consoleClient.trustedIssuer.publicUrl | quote }},
+    {{- end }}
+    {{- if .Values.configuration.consoleClient.trustedIssuer.clientId }}
+    client_id: {{ .Values.configuration.consoleClient.trustedIssuer.clientId | quote }},
+    {{- end }}
+    {{- if .Values.configuration.consoleClient.trustedIssuer.scopes }}
+    scopes: {{ .Values.configuration.consoleClient.trustedIssuer.scopes }},
+    {{- end }}
+    {{- if .Values.configuration.consoleClient.trustedIssuer.type }}
+    type: {{ .Values.configuration.consoleClient.trustedIssuer.type | quote }},
+    {{- end }}
+  },
+  {{- end }}
 };

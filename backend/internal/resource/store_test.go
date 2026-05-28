@@ -25,9 +25,9 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
 
-	"github.com/asgardeo/thunder/tests/mocks/database/providermock"
+	"github.com/thunder-id/thunderid/tests/mocks/database/providermock"
 )
 
 var (
@@ -89,7 +89,7 @@ func (suite *ResourceStoreTestSuite) TestCreateResourceServer() {
 				suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
 				suite.mockDBClient.On("ExecuteContext", context.Background(),
 					queryCreateResourceServer, "rs1", "ou1", "Test Server",
-					"Test Description", "test-identifier", []byte(`{"delimiter":":"}`), "test-deployment").
+					"Test Description", nil, "test-identifier", []byte(`{"delimiter":":"}`), "test-deployment").
 					Return(int64(1), nil)
 			},
 			shouldErr: false,
@@ -108,7 +108,7 @@ func (suite *ResourceStoreTestSuite) TestCreateResourceServer() {
 				suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
 				suite.mockDBClient.On("ExecuteContext", context.Background(),
 					queryCreateResourceServer, "rs1", "ou1", "Test Server",
-					"Test Description", "test-identifier", []byte(`{"delimiter":":"}`), "test-deployment").
+					"Test Description", nil, "test-identifier", []byte(`{"delimiter":":"}`), "test-deployment").
 					Return(int64(0), errors.New("insert failed"))
 			},
 			shouldErr: true,
@@ -466,7 +466,8 @@ func (suite *ResourceStoreTestSuite) TestUpdateResourceServer() {
 				suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
 				suite.mockDBClient.On("ExecuteContext", context.Background(),
 					queryUpdateResourceServer, "ou1", "Updated Server",
-					"Updated Description", "updated-identifier", []byte(`{"delimiter":"-"}`), "rs1", "test-deployment").
+					"Updated Description", nil, "updated-identifier",
+					[]byte(`{"delimiter":"-"}`), "rs1", "test-deployment").
 					Return(int64(1), nil)
 			},
 			shouldErr: false,
@@ -485,7 +486,8 @@ func (suite *ResourceStoreTestSuite) TestUpdateResourceServer() {
 				suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
 				suite.mockDBClient.On("ExecuteContext", context.Background(),
 					queryUpdateResourceServer, "ou1", "Updated Server",
-					"Updated Description", "updated-identifier", []byte(`{"delimiter":"-"}`), "rs1", "test-deployment").
+					"Updated Description", nil, "updated-identifier",
+					[]byte(`{"delimiter":"-"}`), "rs1", "test-deployment").
 					Return(int64(0), errors.New("update failed"))
 			},
 			shouldErr: true,
@@ -3380,34 +3382,34 @@ func (suite *ResourceStoreTestSuite) TestBuildActionFromResultRow() {
 	}
 }
 
-// resolveIdentifier Tests
+// resolveNullableString Tests
 
-func (suite *ResourceStoreTestSuite) TestResolveIdentifier() {
+func (suite *ResourceStoreTestSuite) TestResolveNullableString() {
 	testCases := []struct {
-		name       string
-		identifier string
-		expected   interface{}
+		name     string
+		value    string
+		expected interface{}
 	}{
 		{
-			name:       "Success_NonEmptyIdentifier",
-			identifier: "https://api.example.com",
-			expected:   "https://api.example.com",
+			name:     "Success_NonEmptyValue",
+			value:    "https://api.example.com",
+			expected: "https://api.example.com",
 		},
 		{
-			name:       "Success_AnotherNonEmptyIdentifier",
-			identifier: "urn:example:resource:server",
-			expected:   "urn:example:resource:server",
+			name:     "Success_AnotherNonEmptyValue",
+			value:    "urn:example:resource:server",
+			expected: "urn:example:resource:server",
 		},
 		{
-			name:       "Success_EmptyIdentifier_ReturnsNil",
-			identifier: "",
-			expected:   nil,
+			name:     "Success_EmptyValue_ReturnsNil",
+			value:    "",
+			expected: nil,
 		},
 	}
 
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			result := resolveIdentifier(tc.identifier)
+			result := resolveNullableString(tc.value)
 			suite.Equal(tc.expected, result)
 		})
 	}

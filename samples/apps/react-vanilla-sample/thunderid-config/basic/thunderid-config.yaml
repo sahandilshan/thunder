@@ -1,0 +1,130 @@
+# resource_type: user_type
+id: 019e3a5c-04ea-7d18-8ae6-f828b1f3d60f
+category: user
+name: Customer
+ou_handle: default
+allow_self_registration: true
+system_attributes:
+  display: username
+schema: {
+    "username": {
+      "type": "string",
+      "displayName": "Username",
+      "required": true,
+      "unique": true
+    },
+    "password": {
+      "type": "string",
+      "displayName": "Password",
+      "required": false,
+      "credential": true
+    },
+    "email": {
+      "type": "string",
+      "displayName": "Email",
+      "required": true,
+      "unique": true,
+      "regex": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+    },
+    "given_name": {
+      "type": "string",
+      "displayName": "First Name",
+      "required": false
+    },
+    "family_name": {
+      "type": "string",
+      "displayName": "Last Name",
+      "required": false
+    },
+    "name": {
+      "type": "string",
+      "displayName": "Full Name",
+      "required": false
+    },
+    "mobileNumber": {
+      "type": "string",
+      "displayName": "Mobile Number",
+      "required": false
+    }
+  }
+
+---
+# resource_type: application
+id: 019e3a5c-0500-7f3e-a66e-66fc7918c3a7
+ou_handle: default
+name: Sample App
+description: Sample application for testing
+url: https://localhost:3000
+logo_url: emoji:🎁
+tos_uri: https://localhost:3000/terms
+policy_uri: https://localhost:3000/privacy
+contacts:
+  - admin@example.com
+  - support@example.com
+auth_flow_handle: default-basic-flow
+registration_flow_handle: default-basic-flow
+is_registration_flow_enabled: true
+is_recovery_flow_enabled: false
+assertion:
+  validity_period: 3600
+login_consent:
+  validity_period: 0
+allowed_user_types:
+  - Customer
+inbound_auth_config:
+  - type: oauth2
+    config:
+      client_id: {{.SAMPLE_APP_CLIENT_ID}}
+      redirect_uris:
+        {{- range .SAMPLE_APP_REDIRECT_URIS}}
+        - {{.}}
+        {{- end}}
+      grant_types:
+        - authorization_code
+      response_types:
+        - code
+      token_endpoint_auth_method: none
+      pkce_required: true
+      public_client: true
+      require_pushed_authorization_requests: false
+      token:
+        access_token:
+          validity_period: 3600
+          user_attributes:
+            - given_name
+            - family_name
+            - email
+            - groups
+        id_token:
+          validity_period: 3600
+          user_attributes:
+            - given_name
+            - family_name
+            - email
+            - groups
+          response_type: JWT
+      scopes:
+        - openid
+        - profile
+        - email
+      user_info:
+        response_type: JSON
+        user_attributes:
+          - given_name
+          - family_name
+          - email
+          - groups
+      scope_claims:
+        email:
+          - email
+          - email_verified
+        group:
+          - groups
+        phone:
+          - phone_number
+          - phone_number_verified
+        profile:
+          - name
+          - given_name
+          - family_name
+          - picture

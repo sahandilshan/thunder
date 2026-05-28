@@ -1,7 +1,8 @@
 ---
 title: Organization Units
 sidebar_position: 11
-description: Create and manage organization units to structure your users in Thunder.
+persona: iam
+description: Create and manage organization units to structure your users.
 ---
 
 import Tabs from '@theme/Tabs';
@@ -46,7 +47,7 @@ apac/
 
 ## Organization Units and User Types
 
-All users belong to an OU and each user also has a [user type](./user-types). A user type defines:
+All users belong to an OU and each user also has a [user type](../users/user-types). A user type defines:
 
 - the attributes in the user's profile.
 
@@ -54,7 +55,7 @@ All users belong to an OU and each user also has a [user type](./user-types). A 
 
 - whether users can self-register.
 
-Thunder ships with two default organization units, each with a predefined user type.
+<ProductName /> ships with two default organization units, each with a predefined user type.
 
 | Organization Unit | Default User Type | Purpose |
 |-------------------|-----------|---------|
@@ -68,7 +69,7 @@ Each user type belongs to a single OU and inherited by its child OUs. This means
 
 Every OU has a **handle**, a short, URL-safe identifier used to reference the OU in the hierarchy. Handles must be unique within the same parent.
 
-Thunder's two default OUs have fixed handles:
+<ProductName />'s two default OUs have fixed handles:
 
 | Organization Unit | Handle |
 |-------------------|--------|
@@ -91,7 +92,7 @@ Handles must be unique within the same parent. Two sibling OUs cannot share the 
 
 ## Create an Organization Unit
 
-1. Navigate to **Organization Units** in the Thunder Console.
+1. Navigate to **Organization Units** in the <ProductName /> Console.
    - To create a root OU, click **Add Root Organization Unit**.
    - To create a child OU, expand the parent OU and click **Add Child Organization Unit**.
 2. Enter a **Name** - the human-readable display name for the OU.
@@ -102,12 +103,106 @@ Handles must be unique within the same parent. Two sibling OUs cannot share the 
 
 ## View an Organization Unit
 
-Navigate to **Organization Units** in the Thunder Console to see all OUs. Click the three-dot menu on any OU and select **Edit** to view its details:
+Navigate to **Organization Units** in the <ProductName /> Console to see all OUs. Click the three-dot menu on any OU and select **Edit** to view its details:
 
 - **Details** - name, handle, description, and parent OU.
 - **Child Organization Units** - nested OUs directly under this OU.
 - **Users** - all users belonging to this OU.
 - **Groups** - all groups belonging to this OU.
+
+When using the Organization Unit APIs, each OU response also includes system metadata:
+
+- **isReadOnly** - indicates whether the OU is immutable.
+- **createdAt** - UTC timestamp when the OU was created.
+- **updatedAt** - UTC timestamp when the OU was last updated.
+
+## List and Filter Organization Units
+
+The Organization Unit API returns paginated results on all list endpoints. Append a `filter` query parameter to narrow results.
+
+### Supported Endpoints
+
+Filtering applies to the following endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /organization-units` | List all root-level organization units |
+| `GET /organization-units/{id}/ous` | List child organization units by parent ID |
+| `GET /organization-units/tree/{path}/ous` | List child organization units by hierarchical path |
+
+### Filter Expression Syntax
+
+A filter expression can contain one or more conditions joined by `AND` or `OR`:
+
+```
+attribute operator "value" [AND|OR attribute operator "value" ...]
+```
+
+- **attribute** — the OU field to filter on.
+- **operator** — the comparison operator (`eq`, `gt`, or `lt`).
+- **value** — the value to compare against. Enclose string values in double quotes.
+- **AND / OR** — logical connectors between conditions. `AND` has higher precedence than `OR`, matching standard SQL behaviour.
+
+### Supported Operators
+
+| Operator | Meaning |
+|----------|---------|
+| `eq` | Equals (case-insensitive for text attributes) |
+| `gt` | Greater than |
+| `lt` | Less than |
+
+### Filterable Attributes
+
+| Attribute | Type | Notes |
+|-----------|------|-------|
+| `name` | text | Case-insensitive equality |
+| `handle` | text | Case-insensitive equality |
+| `description` | text | Case-insensitive equality |
+| `createdAt` | timestamp | Compared lexicographically; use ISO 8601 format |
+| `updatedAt` | timestamp | Compared lexicographically; use ISO 8601 format |
+
+### Filter Examples
+
+**Filter by exact name:**
+
+```bash
+curl -kL "https://localhost:8090/organization-units?filter=name%20eq%20%22Engineering%22" \
+  -H 'Authorization: Bearer <access-token>'
+```
+
+**Filter with AND — both conditions must match:**
+
+```bash
+curl -kL "https://localhost:8090/organization-units?filter=name%20eq%20%22Engineering%22%20AND%20handle%20eq%20%22engineering%22" \
+  -H 'Authorization: Bearer <access-token>'
+```
+
+**Filter with OR — either condition may match:**
+
+```bash
+curl -kL "https://localhost:8090/organization-units?filter=name%20eq%20%22Engineering%22%20OR%20name%20eq%20%22Sales%22" \
+  -H 'Authorization: Bearer <access-token>'
+```
+
+**Filter children by timestamp range:**
+
+```bash
+curl -kL "https://localhost:8090/organization-units/<parent-id>/ous?filter=createdAt%20gt%20%222024-01-01T00:00:00Z%22" \
+  -H 'Authorization: Bearer <access-token>'
+```
+
+**Combine filter with pagination:**
+
+```bash
+curl -kL "https://localhost:8090/organization-units?filter=name%20eq%20%22Engineering%22&limit=10&offset=0" \
+  -H 'Authorization: Bearer <access-token>'
+```
+
+### Filter Error Responses
+
+| Error Code | HTTP Status | Cause |
+|------------|-------------|-------|
+| `OU-1014` | 400 | The filter expression is malformed, uses an unsupported connector, or references an unsupported attribute |
 
 ## Delete an Organization Unit
 
@@ -120,6 +215,6 @@ Deletion fails if the OU still contains users, groups, or child OUs. Delete or r
 
 ## Related Guides
 
-- [User Types](./users/user-types) - User types are scoped to an organization unit
-- [Users](./users/manage-users) - Each user belongs to an organization unit
-- [Groups](./users/user-groups) - Each group belongs to an organization unit
+- [User Types](../users/user-types) - User types are scoped to an organization unit
+- [Users](../users/manage-users) - Each user belongs to an organization unit
+- [Groups](../users/manage-groups) - Each group belongs to an organization unit

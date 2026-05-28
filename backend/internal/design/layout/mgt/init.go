@@ -21,9 +21,9 @@ package layoutmgt
 import (
 	"net/http"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/middleware"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
 )
 
 // Initialize initializes the layout management service and registers its routes.
@@ -101,9 +101,10 @@ func initializeStore() (layoutMgtStoreInterface, error) {
 // registerRoutes registers the routes for layout management operations.
 func registerRoutes(mux *http.ServeMux, layoutMgtHandler *layoutMgtHandler) {
 	opts1 := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("POST /design/layouts", layoutMgtHandler.HandleLayoutPostRequest, opts1))
 	mux.HandleFunc(middleware.WithCORS("GET /design/layouts", layoutMgtHandler.HandleLayoutListRequest, opts1))
@@ -112,9 +113,10 @@ func registerRoutes(mux *http.ServeMux, layoutMgtHandler *layoutMgtHandler) {
 	}, opts1))
 
 	opts2 := middleware.CORSOptions{
-		AllowedMethods:   "GET, PUT, DELETE",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "PUT", "DELETE"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("GET /design/layouts/{id}", layoutMgtHandler.HandleLayoutGetRequest, opts2))
 	mux.HandleFunc(middleware.WithCORS("PUT /design/layouts/{id}", layoutMgtHandler.HandleLayoutPutRequest, opts2))

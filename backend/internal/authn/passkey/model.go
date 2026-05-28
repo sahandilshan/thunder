@@ -66,9 +66,9 @@ type PasskeyRegistrationFinishRequest struct {
 
 // PasskeyRegistrationFinishData represents the data returned after completing passkey registration.
 type PasskeyRegistrationFinishData struct {
-	CredentialID   string
-	CredentialName string
-	CreatedAt      string
+	CredentialID   string `json:"credentialId"`
+	CredentialName string `json:"credentialName"`
+	CreatedAt      string `json:"createdAt"`
 }
 
 // PasskeyAuthenticationStartRequest represents the request to start passkey authentication.

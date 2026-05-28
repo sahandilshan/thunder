@@ -1,0 +1,106 @@
+# Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com).
+#
+# WSO2 LLC. licenses this file to you under the Apache License,
+# Version 2.0 (the "License"); you may not use this file except
+# in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+{{- if .Values.project.create }}
+apiVersion: openchoreo.dev/v1alpha1
+kind: Project
+metadata:
+  name: {{ .Values.project.name }}
+  annotations:
+    openchoreo.dev/description: {{ .Values.project.description | quote }}
+    openchoreo.dev/display-name: {{ .Values.project.displayName | quote }}
+spec:
+  deploymentPipelineRef:
+    kind: DeploymentPipeline
+    name: {{ .Values.pipelineName }}
+{{- end }}
+
+{{- if .Values.pipeline.create }}
+---
+apiVersion: openchoreo.dev/v1alpha1
+kind: DeploymentPipeline
+metadata:
+  name: {{ .Values.pipelineName }}
+  annotations:
+    openchoreo.dev/description: "Deployment pipeline for {{ .Values.project.name }}"
+    openchoreo.dev/display-name: "{{ .Values.project.name | title }} Pipeline"
+spec:
+  promotionPaths:
+    {{- if and .Values.environments.development.create .Values.environments.staging.create }}
+    - sourceEnvironmentRef:
+        kind: Environment
+        name: development
+      targetEnvironmentRefs:
+        - kind: Environment
+          name: staging
+    {{- end }}
+    {{- if and .Values.environments.staging.create .Values.environments.production.create }}
+    - sourceEnvironmentRef:
+        kind: Environment
+        name: staging
+      targetEnvironmentRefs:
+        - kind: Environment
+          name: production
+    {{- end }}
+{{- end }}
+
+{{- if .Values.environments.development.create }}
+---
+apiVersion: openchoreo.dev/v1alpha1
+kind: Environment
+metadata:
+  name: development
+  annotations:
+    openchoreo.dev/description: {{ .Values.environments.development.description | quote }}
+    openchoreo.dev/display-name: {{ .Values.environments.development.displayName | quote }}
+spec:
+  dataPlaneRef:
+    kind: ClusterDataPlane
+    name: {{ .Values.dataPlane.name }}
+  isProduction: false
+{{- end }}
+
+{{- if .Values.environments.staging.create }}
+---
+apiVersion: openchoreo.dev/v1alpha1
+kind: Environment
+metadata:
+  name: staging
+  annotations:
+    openchoreo.dev/description: {{ .Values.environments.staging.description | quote }}
+    openchoreo.dev/display-name: {{ .Values.environments.staging.displayName | quote }}
+spec:
+  dataPlaneRef:
+    kind: ClusterDataPlane
+    name: {{ .Values.dataPlane.name }}
+  isProduction: false
+{{- end }}
+
+{{- if .Values.environments.production.create }}
+---
+apiVersion: openchoreo.dev/v1alpha1
+kind: Environment
+metadata:
+  name: production
+  annotations:
+    openchoreo.dev/description: {{ .Values.environments.production.description | quote }}
+    openchoreo.dev/display-name: {{ .Values.environments.production.displayName | quote }}
+spec:
+  dataPlaneRef:
+    kind: ClusterDataPlane
+    name: {{ .Values.dataPlane.name }}
+  isProduction: true
+{{- end }}

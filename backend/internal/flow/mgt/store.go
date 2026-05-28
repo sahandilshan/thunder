@@ -24,11 +24,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 // Database column names
@@ -78,7 +78,7 @@ func newFlowStore() (flowStoreInterface, transaction.Transactioner, error) {
 	}
 	return &flowStore{
 		dbProvider:        dbProvider,
-		deploymentID:      config.GetThunderRuntime().Config.Server.Identifier,
+		deploymentID:      config.GetServerRuntime().Config.Server.Identifier,
 		maxVersionHistory: getMaxVersionHistory(),
 		logger:            log.GetLogger().With(log.String(log.LoggerKeyComponentName, "FlowStore")),
 	}, transactioner, nil
@@ -681,7 +681,7 @@ func (s *flowStore) buildFlowVersionFromRow(row map[string]interface{}) (*FlowVe
 // getMaxVersionHistory retrieves the maximum version history size from configuration.
 // If not set or invalid, returns the default value.
 func getMaxVersionHistory() int {
-	flowConfig := config.GetThunderRuntime().Config.Flow
+	flowConfig := config.GetServerRuntime().Config.Flow
 	if flowConfig.MaxVersionHistory <= 0 {
 		return defaultVersionHistory
 	}

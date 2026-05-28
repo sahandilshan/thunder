@@ -23,7 +23,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/common"
 )
 
 type GraphTestSuite struct {
@@ -291,6 +291,89 @@ func (s *GraphTestSuite) TestGetStartNodeFailure() {
 	s.Contains(err.Error(), "start node not set for the graph")
 }
 
+func (s *GraphTestSuite) TestHasSegments_NoSegments() {
+	s.False(s.graph.HasSegments())
+}
+
+func (s *GraphTestSuite) TestHasSegments_OneSegmentIsNotMultiple() {
+	s.graph.SetSegments([]Segment{{ID: "seg-0", StartNodeID: "node-1"}})
+	s.False(s.graph.HasSegments())
+}
+
+func (s *GraphTestSuite) TestHasSegments_TwoSegments() {
+	s.graph.SetSegments([]Segment{
+		{ID: "seg-0", StartNodeID: "node-1"},
+		{ID: "seg-1", StartNodeID: "node-2"},
+	})
+	s.True(s.graph.HasSegments())
+}
+
+func (s *GraphTestSuite) TestGetSegments_Empty() {
+	segments := s.graph.GetSegments()
+	s.Empty(segments)
+}
+
+func (s *GraphTestSuite) TestSetAndGetSegments() {
+	input := []Segment{
+		{ID: "seg-0", StartNodeID: "node-a"},
+		{ID: "seg-1", StartNodeID: "node-b"},
+	}
+	s.graph.SetSegments(input)
+	segments := s.graph.GetSegments()
+	s.Len(segments, 2)
+	s.Equal("seg-0", segments[0].ID)
+	s.Equal("node-a", segments[0].StartNodeID)
+	s.Equal("seg-1", segments[1].ID)
+	s.Equal("node-b", segments[1].StartNodeID)
+}
+
+func (s *GraphTestSuite) TestGetSegmentByID_Found() {
+	s.graph.SetSegments([]Segment{
+		{ID: "seg-0", StartNodeID: "node-a"},
+		{ID: "seg-1", StartNodeID: "node-b"},
+	})
+	seg := s.graph.GetSegmentByID("seg-1")
+	s.NotNil(seg)
+	s.Equal("seg-1", seg.ID)
+	s.Equal("node-b", seg.StartNodeID)
+}
+
+func (s *GraphTestSuite) TestGetSegmentByID_NotFound() {
+	s.graph.SetSegments([]Segment{
+		{ID: "seg-0", StartNodeID: "node-a"},
+	})
+	seg := s.graph.GetSegmentByID("seg-99")
+	s.Nil(seg)
+}
+
+func (s *GraphTestSuite) TestGetSegmentByID_EmptyList() {
+	seg := s.graph.GetSegmentByID("seg-0")
+	s.Nil(seg)
+}
+
+func (s *GraphTestSuite) TestGetSegmentByStartNode_Found() {
+	s.graph.SetSegments([]Segment{
+		{ID: "seg-0", StartNodeID: "node-a"},
+		{ID: "seg-1", StartNodeID: "node-b"},
+	})
+	seg := s.graph.GetSegmentByStartNode("node-b")
+	s.NotNil(seg)
+	s.Equal("seg-1", seg.ID)
+}
+
+func (s *GraphTestSuite) TestGetSegmentByStartNode_NotFound() {
+	s.graph.SetSegments([]Segment{
+		{ID: "seg-0", StartNodeID: "node-a"},
+	})
+	seg := s.graph.GetSegmentByStartNode("node-z")
+	s.Nil(seg)
+}
+
+func (s *GraphTestSuite) TestGetSegmentByStartNode_EmptyList() {
+	seg := s.graph.GetSegmentByStartNode("node-a")
+	s.Nil(seg)
+}
+
 func (s *GraphTestSuite) TestToJSON() {
 	node1, _ := s.factory.CreateNode("node-1", string(common.NodeTypeTaskExecution),
 		map[string]interface{}{"key": "value"}, true, false)
@@ -299,7 +382,10 @@ func (s *GraphTestSuite) TestToJSON() {
 
 	if execNode, ok := node1.(ExecutorBackedNodeInterface); ok {
 		execNode.SetExecutorName("test-executor")
-		execNode.SetInputs([]common.Input{{Identifier: "username", Type: "string", Required: true}})
+		execNode.SetInputs([]common.Input{
+			{Identifier: "username", Type: "string", Required: true,
+				DisplayName: "User Name"},
+		})
 	}
 
 	_ = s.graph.AddNode(node1)
@@ -316,4 +402,6 @@ func (s *GraphTestSuite) TestToJSON() {
 	s.Contains(jsonStr, "node-2")
 	s.Contains(jsonStr, "test-executor")
 	s.Contains(jsonStr, "username")
+	s.NotContains(jsonStr, "displayName", "DisplayName must not appear in serialized graph JSON")
+	s.NotContains(jsonStr, "User Name", "DisplayName value must not appear in serialized graph JSON")
 }

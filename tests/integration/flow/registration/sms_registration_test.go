@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -220,14 +220,14 @@ var (
 		Parent:      nil,
 	}
 
-	smsRegTestUserSchema = testutils.UserSchema{
+	smsRegTestEntityType = testutils.UserType{
 		Name: "sms-test-user-type",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 			"email": map[string]interface{}{
@@ -253,7 +253,7 @@ var (
 		ClientID:                  "sms_reg_flow_test_client",
 		ClientSecret:              "sms_reg_flow_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{smsRegTestUserSchema.Name},
+		AllowedUserTypes:          []string{smsRegTestEntityType.Name},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
 		},
@@ -268,7 +268,7 @@ type SMSRegistrationFlowTestSuite struct {
 	suite.Suite
 	config       *common.TestSuiteConfig
 	mockServer   *testutils.MockNotificationServer
-	userSchemaID string
+	entityTypeID string
 	testAppID    string
 	testOUID     string
 }
@@ -288,13 +288,13 @@ func (ts *SMSRegistrationFlowTestSuite) SetupSuite() {
 	}
 	ts.testOUID = ouID
 
-	// Create test user schema for SMS tests
-	smsRegTestUserSchema.OUID = ts.testOUID
-	schemaID, err := testutils.CreateUserType(smsRegTestUserSchema)
+	// Create test user type for SMS tests
+	smsRegTestEntityType.OUID = ts.testOUID
+	schemaID, err := testutils.CreateUserType(smsRegTestEntityType)
 	if err != nil {
-		ts.T().Fatalf("Failed to create test user schema during setup: %v", err)
+		ts.T().Fatalf("Failed to create test user type during setup: %v", err)
 	}
-	ts.userSchemaID = schemaID
+	ts.entityTypeID = schemaID
 
 	// Start mock notification server
 	ts.mockServer = testutils.NewMockNotificationServer(mockNotificationServerPort)
@@ -345,6 +345,7 @@ func (ts *SMSRegistrationFlowTestSuite) SetupSuite() {
 	smsRegTestApp.RegistrationFlowID = flowID
 
 	// Create test application with allowed user types
+	smsRegTestApp.OUID = ts.testOUID
 	appID, err := testutils.CreateApplication(smsRegTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
@@ -394,9 +395,9 @@ func (ts *SMSRegistrationFlowTestSuite) TearDownSuite() {
 		}
 	}
 
-	if ts.userSchemaID != "" {
-		if err := testutils.DeleteUserType(ts.userSchemaID); err != nil {
-			ts.T().Logf("Failed to delete test user schema during teardown: %v", err)
+	if ts.entityTypeID != "" {
+		if err := testutils.DeleteUserType(ts.entityTypeID); err != nil {
+			ts.T().Logf("Failed to delete test user type during teardown: %v", err)
 		}
 	}
 
@@ -414,7 +415,7 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlow() {
 
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("VIEW", flowStep.Type, "Expected flow type to be VIEW")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Validate that mobile number input is required
 	ts.Require().NotEmpty(flowStep.Data, "Flow data should not be empty")
@@ -430,7 +431,8 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlow() {
 		"mobileNumber": mobileNumber,
 	}
 
-	otpFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	otpFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+		flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete registration flow with mobile number: %v", err)
 	}
@@ -455,7 +457,8 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlow() {
 		"otp": lastMessage.OTP,
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, otpInputs, "action_otp")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, otpInputs, "action_otp",
+		otpFlowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete registration flow with OTP: %v", err)
 	}
@@ -483,7 +486,7 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlow() {
 	}
 	fillInputs = append(fillInputs, completeFlowStep.Data.Inputs...)
 	attrInputs := fillRequiredRegistrationAttributes(fillInputs, mobileNumber)
-	completeFlowStep, err = common.CompleteFlow(flowStep.FlowID, attrInputs, "")
+	completeFlowStep, err = common.CompleteFlow(flowStep.ExecutionID, attrInputs, "", completeFlowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete registration flow with attributes: %v", err)
 	}
@@ -501,7 +504,7 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlow() {
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 
 	// Validate JWT contains expected user type and OU ID
-	ts.Require().Equal(smsRegTestUserSchema.Name, jwtClaims.UserType, "Expected userType to match created schema")
+	ts.Require().Equal(smsRegTestEntityType.Name, jwtClaims.UserType, "Expected userType to match created schema")
 	ts.Require().Equal(ts.testOUID, jwtClaims.OUID, "Expected ouId to match the created organization unit")
 	ts.Require().Equal(ts.testAppID, jwtClaims.Aud, "Expected aud to match the application ID")
 	ts.Require().NotEmpty(jwtClaims.Sub, "JWT subject should not be empty")
@@ -537,7 +540,7 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlowInvalidOTP() {
 		"mobileNumber": mobileNumber,
 	}
 
-	flowStep, err := common.InitiateRegistrationFlow(ts.testAppID, false, inputs, "")
+	flowStep, err := common.InitiateRegistrationFlow(ts.testAppID, false, nil, "")
 	if err != nil {
 		ts.T().Fatalf("Failed to initiate registration flow: %v", err)
 	}
@@ -546,7 +549,8 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlowInvalidOTP() {
 	ts.mockServer.ClearMessages()
 
 	// Continue flow to trigger OTP sending
-	otpFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	otpFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+		flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete registration flow with mobile number: %v", err)
 	}
@@ -561,14 +565,15 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlowInvalidOTP() {
 		"otp": "000000",
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, invalidOTPInputs, "action_otp")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, invalidOTPInputs, "action_otp",
+		otpFlowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete registration flow with invalid OTP: %v", err)
 	}
 
-	// Verify registration failure
-	ts.Require().Equal("ERROR", completeFlowStep.FlowStatus, "Expected flow status to be ERROR")
-	ts.Require().Empty(completeFlowStep.Assertion, "No JWT assertion should be returned for failed registration")
+	// Verify registration is incomplete (invalid OTP triggers retry)
+	ts.Require().Equal("INCOMPLETE", completeFlowStep.FlowStatus, "Expected flow status to be INCOMPLETE for invalid OTP")
+	ts.Require().Empty(completeFlowStep.Assertion, "No JWT assertion should be returned for failed OTP")
 	ts.Require().NotEmpty(completeFlowStep.FailureReason, "Failure reason should be provided for invalid OTP")
 	ts.Equal("invalid OTP provided", completeFlowStep.FailureReason,
 		"Expected failure reason to indicate invalid OTP")
@@ -602,7 +607,8 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlowSingleRequestWith
 		"mobileNumber": mobileNumber,
 	}
 
-	otpStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	otpStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+		flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to provide mobile number: %v", err)
 	}
@@ -624,7 +630,8 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlowSingleRequestWith
 		"otp": lastMessage.OTP,
 	}
 
-	provisionStep, err := common.CompleteFlow(otpStep.FlowID, otpInputs, "action_otp")
+	provisionStep, err := common.CompleteFlow(otpStep.ExecutionID, otpInputs, "action_otp",
+		otpStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete registration flow with OTP: %v", err)
 	}
@@ -634,13 +641,14 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlowSingleRequestWith
 
 	// Step 4: Provide user attributes
 	userInputs := map[string]string{
-		"given_name":    "Test",
-		"family_name":     "User",
+		"given_name":   "Test",
+		"family_name":  "User",
 		"email":        fmt.Sprintf("%s@example.com", mobileNumber),
 		"mobileNumber": mobileNumber,
 	}
 
-	completeFlowStep, err := common.CompleteFlow(provisionStep.FlowID, userInputs, "")
+	completeFlowStep, err := common.CompleteFlow(provisionStep.ExecutionID, userInputs, "",
+		provisionStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete registration with user attributes: %v", err)
 	}
@@ -658,7 +666,7 @@ func (ts *SMSRegistrationFlowTestSuite) TestSMSRegistrationFlowSingleRequestWith
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 
 	// Validate JWT contains expected user type and OU ID
-	ts.Require().Equal(smsRegTestUserSchema.Name, jwtClaims.UserType, "Expected userType to match created schema")
+	ts.Require().Equal(smsRegTestEntityType.Name, jwtClaims.UserType, "Expected userType to match created schema")
 	ts.Require().Equal(ts.testOUID, jwtClaims.OUID, "Expected ouId to match the created organization unit")
 	ts.Require().Equal(ts.testAppID, jwtClaims.Aud, "Expected aud to match the application ID")
 	ts.Require().NotEmpty(jwtClaims.Sub, "JWT subject should not be empty")

@@ -22,40 +22,52 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/group"
-	oupkg "github.com/asgardeo/thunder/internal/ou"
-	resourcepkg "github.com/asgardeo/thunder/internal/resource"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/middleware"
-	"github.com/asgardeo/thunder/internal/system/transaction"
-	"github.com/asgardeo/thunder/internal/user"
-	"github.com/asgardeo/thunder/internal/userschema"
+	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/group"
+	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	resourcepkg "github.com/thunder-id/thunderid/internal/resource"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 // Initialize initializes the role service and registers its routes.
 func Initialize(
 	mux *http.ServeMux,
-	userService user.UserServiceInterface,
+	entityService entity.EntityServiceInterface,
 	groupService group.GroupServiceInterface,
 	ouService oupkg.OrganizationUnitServiceInterface,
 	resourceService resourcepkg.ResourceServiceInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
-) (RoleServiceInterface, declarativeresource.ResourceExporter, error) {
-	// Step 1: Initialize store and transactioner based on store mode
-	roleStore, transactioner, err := initializeStore()
+	entityTypeService entitytype.EntityTypeServiceInterface,
+) (RoleServiceInterface, RoleAssignmentServiceInterface, declarativeresource.ResourceExporter, error) {
+	// Step 1: Initialize store and transactioner based on store mode (no declarative loading yet)
+	roleStore, transactioner, fileStore, dbStore, err := initializeStore()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Step 2: Create service with store
 	roleService := newRoleService(
-		roleStore, userService, groupService, ouService, resourceService, userSchemaService, transactioner,
+		roleStore, entityService, groupService, ouService, resourceService,
+		transactioner,
 	)
-	roleHandler := newRoleHandler(roleService)
+
+	// Step 3: Load declarative resources into store (if applicable)
+	if fileStore != nil {
+		if err := loadDeclarativeResources(fileStore, dbStore, roleService); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	assignmentService := newRoleAssignmentService(
+		roleStore, entityService, groupService, entityTypeService, transactioner,
+	)
+	roleHandler := newRoleHandler(roleService, assignmentService)
 	registerRoutes(mux, roleHandler)
-	exporter := newRoleExporter(roleService)
-	return roleService, exporter, nil
+	exporter := newRoleExporter(roleService, assignmentService)
+	return roleService, assignmentService, exporter, nil
 }
 
 // Store Selection (based on role.store configuration):
@@ -82,7 +94,14 @@ func Initialize(
 // - If role.store is not specified, falls back to global declarative_resources.enabled:
 //   - If declarative_resources.enabled = true: behaves as IMMUTABLE mode
 //   - If declarative_resources.enabled = false: behaves as MUTABLE mode
-func initializeStore() (roleStoreInterface, transaction.Transactioner, error) {
+//
+// Returns the active role store, transactioner, and the file/db stores used for declarative
+// resource loading. fileStore is non-nil only in declarative or composite modes; dbStore is non-nil
+// only in composite mode. Callers in those modes invoke loadDeclarativeResources after the
+// role service has been constructed so it can resolve ou_handle.
+func initializeStore() (
+	roleStoreInterface, transaction.Transactioner, *fileBasedStore, roleStoreInterface, error,
+) {
 	storeMode := getRoleStoreMode()
 
 	switch storeMode {
@@ -91,33 +110,32 @@ func initializeStore() (roleStoreInterface, transaction.Transactioner, error) {
 		fileStore := fileStoreInterface.(*fileBasedStore)
 		dbStore, transactioner, err := newRoleStore()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		roleStore := newCompositeRoleStore(fileStoreInterface, dbStore)
-		if err := loadDeclarativeResources(fileStore, dbStore); err != nil {
-			return nil, nil, err
-		}
-		return roleStore, transactioner, nil
+		return roleStore, transactioner, fileStore, dbStore, nil
 
 	case serverconst.StoreModeDeclarative:
 		fileStoreInterface, transactioner := newFileBasedStore()
 		fileStore := fileStoreInterface.(*fileBasedStore)
-		if err := loadDeclarativeResources(fileStore, nil); err != nil {
-			return nil, nil, err
-		}
-		return fileStoreInterface, transactioner, nil
+		return fileStoreInterface, transactioner, fileStore, nil, nil
 
 	default:
-		return newRoleStore()
+		store, transactioner, err := newRoleStore()
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return store, transactioner, nil, nil, nil
 	}
 }
 
 // registerRoutes registers the routes for role management operations.
 func registerRoutes(mux *http.ServeMux, roleHandler *roleHandler) {
 	opts1 := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("POST /roles", roleHandler.HandleRolePostRequest, opts1))
 	mux.HandleFunc(middleware.WithCORS("GET /roles", roleHandler.HandleRoleListRequest, opts1))
@@ -126,9 +144,10 @@ func registerRoutes(mux *http.ServeMux, roleHandler *roleHandler) {
 	}, opts1))
 
 	opts2 := middleware.CORSOptions{
-		AllowedMethods:   "GET, PUT, DELETE",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "PUT", "DELETE"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	// Special handling for /roles/{id} and /roles/{id}/assignments
 	mux.HandleFunc(middleware.WithCORS("GET /roles/",
@@ -150,11 +169,21 @@ func registerRoutes(mux *http.ServeMux, roleHandler *roleHandler) {
 	mux.HandleFunc(middleware.WithCORS("OPTIONS /roles/{id}", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}, opts2))
+	opts4 := middleware.CORSOptions{
+		AllowedMethods:   []string{"GET"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
+		AllowCredentials: true,
+		MaxAge:           600,
+	}
+	mux.HandleFunc(middleware.WithCORS("OPTIONS /roles/{id}/assignments", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}, opts4))
 
 	opts3 := middleware.CORSOptions{
-		AllowedMethods:   "POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("POST /roles/{id}/assignments/add",
 		roleHandler.HandleRoleAddAssignmentsRequest, opts3))

@@ -1,0 +1,84 @@
+---
+title: Resource Export API
+sidebar_position: 90
+description: Export resources as combined YAML in JSON responses or as ZIP archives with optional environment file output.
+---
+
+# Resource Export API
+
+Use the export API to retrieve <ProductName /> resources in two delivery formats:
+
+- `POST /export`: returns a JSON object.
+- `POST /export/zip`: returns a ZIP archive of individual files.
+
+## JSON Response Shape
+
+`POST /export` returns this payload:
+
+```json
+{
+  "resources": "# File: My_App.yaml\napiVersion: thunder/v1\n...",
+  "environment_variables": "MY_APP_CLIENT_ID=\nMY_APP_CLIENT_SECRET=\n"
+}
+```
+
+Field behavior:
+
+- `resources`: Combined YAML output for all exported resources, with `# File:` headers and `---` separators.
+- `environment_variables`: environment file content with one empty assignment per detected template variable.
+
+If the export has no template variables, `environment_variables` is an empty string.
+
+## ZIP Export Behavior
+
+`POST /export/zip` includes one file per exported resource. When template variables are detected, the ZIP root includes a generated environment file.
+
+Example ZIP contents when template variables are detected:
+
+```text
+export.zip
+├── applications/
+│   └── my-app.yaml
+├── flows/
+│   └── login-flow.yaml
+└── .env
+```
+
+Generated environment file semantics:
+
+- `fileName`: Always `.env`.
+- `content`: Same key/value lines returned by `environment_variables` in JSON exports.
+- `size`: Byte length of the generated content.
+
+If no template variables are detected, the ZIP export omits `.env`.
+
+## Internal API Model Reference
+
+The API reference schema also defines an internal `ExportResponse` model (see `ExportResponse.envFile`, backed by the `EnvironmentFile` schema/struct):
+
+```json
+{
+  "files": [
+    {
+      "fileName": "google-idp.yaml",
+      "content": "apiVersion: thunder/v1\nkind: IdentityProvider\n...",
+      "size": 128
+    }
+  ],
+  "envFile": {
+    "fileName": ".env",
+    "content": "GOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\n",
+    "size": 40
+  },
+  "summary": {
+    "totalFiles": 2,
+    "totalSizeBytes": 168
+  }
+}
+```
+
+When no template variables are detected, `envFile` is omitted (or `null` in internal JSON serialization paths), and ZIP output does not include `.env`.
+
+## Format Option
+
+In `options.format`, only `yaml` is currently supported for generated resource content.

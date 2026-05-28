@@ -23,9 +23,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	dbmodel "github.com/asgardeo/thunder/internal/system/database/model"
-	dbprovider "github.com/asgardeo/thunder/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
+	dbprovider "github.com/thunder-id/thunderid/internal/system/database/provider"
 )
 
 // certificateStoreInterface defines the methods for certificate storage operations.
@@ -49,7 +49,7 @@ type certificateStore struct {
 func newCertificateStore() certificateStoreInterface {
 	return &certificateStore{
 		dbProvider:   dbprovider.GetDBProvider(),
-		deploymentID: config.GetThunderRuntime().Config.Server.Identifier,
+		deploymentID: config.GetServerRuntime().Config.Server.Identifier,
 	}
 }
 

@@ -16,33 +16,26 @@
  * under the License.
  */
 
-import React, {JSX, useEffect, useState} from 'react';
-import {Box, Typography, AvatarGroup, Avatar, Tooltip, Skeleton, Card, Container} from '@wso2/oxygen-ui';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {Box, Card, Container, Typography, useTheme} from '@wso2/oxygen-ui';
+import {MessagesSquareIcon} from '@wso2/oxygen-ui-icons-react';
+import {JSX} from 'react';
 import useIsDarkMode from '../../hooks/useIsDarkMode';
 import useScrollAnimation from '../../hooks/useScrollAnimation';
-import {MessagesSquare, CircleDot} from '@wso2/oxygen-ui-icons-react';
-import {useLogger} from '@thunder/logger';
+import type {DocusaurusProductConfig} from '@site/docusaurus.product.config';
 
-interface Contributor {
-  login: string;
-}
-
-function CommunityCard({
-  icon,
-  iconBg,
-  title,
-  description,
-  linkLabel,
-  href,
-}: {
+interface CommunityCardProps {
   icon: JSX.Element;
   iconBg: string;
   title: string;
   description: string;
   linkLabel: string;
   href: string;
-}) {
+}
+
+function CommunityCard({icon, iconBg, title, description, linkLabel, href}: CommunityCardProps) {
   const isDark = useIsDarkMode();
+  const theme = useTheme();
 
   return (
     <Card
@@ -56,61 +49,73 @@ function CommunityCard({
         alignItems: 'center',
         textAlign: 'center',
         cursor: 'pointer',
-        transition: 'all 0.3s ease',
-        bgcolor: isDark ? 'rgba(255, 255, 255, 0.025)' : 'rgba(0, 0, 0, 0.02)',
+        transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        bgcolor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+        backdropFilter: 'blur(12px)',
         border: '1px solid',
-        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+        borderColor: 'divider',
         borderRadius: '16px',
+        position: 'relative',
+        overflow: 'hidden',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          background: `linear-gradient(90deg, ${theme.vars?.palette.primary.dark} 0%, ${theme.vars?.palette.primary.main} 100%)`,
+          opacity: 0,
+          transition: 'opacity 0.3s ease',
+        },
+        '&:hover::before': {opacity: 1},
         '&:hover': {
-          transform: 'translateY(-4px)',
-          boxShadow: isDark ? '0 12px 32px rgba(0, 0, 0, 0.4)' : '0 12px 32px rgba(0, 0, 0, 0.1)',
-          borderColor: 'rgba(255, 140, 0, 0.25)',
-          bgcolor: isDark ? 'rgba(255, 255, 255, 0.035)' : 'rgba(0, 0, 0, 0.03)',
+          transform: 'translateY(-6px)',
+          boxShadow: isDark
+            ? `0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(${theme.vars?.palette.primary.main} / 0.2)`
+            : `0 16px 40px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(${theme.vars?.palette.primary.main} / 0.15)`,
+          borderColor: `rgba(${theme.vars?.palette.primary.main} / 0.3)`,
+          bgcolor: isDark ? 'rgba(255, 255, 255, 0.045)' : 'rgba(0, 0, 0, 0.025)',
         },
       }}
       onClick={() => window.open(href, '_blank', 'noopener noreferrer')}
     >
       <Box
         sx={{
-          width: 56,
-          height: 56,
-          borderRadius: '14px',
+          width: 60,
+          height: 60,
+          borderRadius: '16px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           background: iconBg,
-          color: '#ffffff',
+          color: 'common.white',
           mb: 3,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+          transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+          '.MuiCard-root:hover &': {
+            transform: 'scale(1.1)',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
+          },
         }}
       >
         {icon}
       </Box>
-      <Typography
-        variant="h6"
-        sx={{fontWeight: 600, mb: 1, color: isDark ? '#ffffff' : '#1a1a2e', fontSize: '1.1rem'}}
-      >
+      <Typography variant="h6" sx={{fontWeight: 600, mb: 1, color: 'text.primary', fontSize: '1.1rem'}}>
         {title}
       </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          mb: 3,
-          color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-          lineHeight: 1.7,
-          fontSize: '0.9rem',
-        }}
-      >
+      <Typography variant="body2" sx={{mb: 3, color: 'text.secondary', lineHeight: 1.7, fontSize: '0.9rem'}}>
         {description}
       </Typography>
       <Typography
         variant="body2"
         sx={{
           mt: 'auto',
-          color: '#FF8C00',
+          color: 'primary.main',
           fontWeight: 500,
           fontSize: '0.9rem',
           transition: 'color 0.2s ease',
-          '&:hover': {color: '#FF6B00'},
+          '&:hover': {color: 'primary.dark'},
         }}
       >
         {linkLabel} &rarr;
@@ -119,64 +124,84 @@ function CommunityCard({
   );
 }
 
+function GitForkIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9" />
+      <path d="M12 12v3" />
+    </svg>
+  );
+}
+
+function IssueIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  );
+}
+
 export default function CommunitySection(): JSX.Element {
-  const logger = useLogger('CommunitySection');
-  const isDark = useIsDarkMode();
-  const {ref: sectionRef, isVisible: sectionVisible} = useScrollAnimation({threshold: 0.15});
-
-  const [contributors, setContributors] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
-
-  const handleImageError = (username: string) => {
-    setFailedImages((prev) => new Set(prev).add(username));
-  };
-
-  useEffect(() => {
-    fetch('https://api.github.com/repos/asgardeo/thunder/contributors?per_page=12')
-      .then((response) => response.json())
-      .then((data: Contributor[]) => {
-        setContributors(data.map((contributor) => contributor.login));
-        setLoading(false);
-      })
-      .catch((error) => {
-        logger.error('Error fetching contributors:', {error});
-        setLoading(false);
-      });
-  }, [logger]);
-
-  const hasContributors = !loading && contributors.length > 0;
+  const theme = useTheme();
+  const {ref, isVisible} = useScrollAnimation({threshold: 0.15});
+  const {siteConfig} = useDocusaurusContext();
+  const productName = (siteConfig.customFields?.product as DocusaurusProductConfig).project.name;
+  const discussionsUrl = (siteConfig.customFields?.product as DocusaurusProductConfig).project.source.github
+    .discussionsUrl;
+  const issuesUrl = (siteConfig.customFields?.product as DocusaurusProductConfig).project.source.github.issuesUrl;
 
   return (
-    <Box component="section" sx={{py: {xs: 8, lg: 12}, background: isDark ? '#0a0a0a' : 'transparent'}}>
+    <Box component="section" sx={{py: {xs: 8, lg: 12}, borderTop: '1px solid', borderColor: 'divider'}}>
       <Container maxWidth="lg" sx={{px: {xs: 2, sm: 4}}}>
         <Box
-          ref={sectionRef}
+          ref={ref}
           sx={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             textAlign: 'center',
-            opacity: sectionVisible ? 1 : 0,
-            transform: sectionVisible ? 'translateY(0)' : 'translateY(32px)',
+            opacity: isVisible ? 1 : 0,
+            transform: isVisible ? 'translateY(0)' : 'translateY(32px)',
             transition: 'opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
-          {/* Heading */}
           <Typography
             variant="h3"
             sx={{
               mb: 2,
               fontSize: {xs: '1.75rem', sm: '2.25rem', md: '2.5rem'},
               fontWeight: 700,
-              color: isDark ? '#ffffff' : '#1a1a2e',
+              color: 'text.primary',
             }}
           >
-            Join the{' '}
+            Join the {productName}{' '}
             <Box
               component="span"
               sx={{
-                background: 'linear-gradient(90deg, #FF6B00 0%, #FF8C00 100%)',
+                background: `linear-gradient(90deg, ${theme.vars?.palette.primary.dark} 0%, ${theme.vars?.palette.primary.main} 100%)`,
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
                 backgroundClip: 'text',
@@ -185,106 +210,52 @@ export default function CommunitySection(): JSX.Element {
               community
             </Box>
           </Typography>
-
           <Typography
             variant="body1"
             sx={{
-              mb: hasContributors || loading ? 6 : 5,
+              mb: 6,
               fontSize: {xs: '0.95rem', sm: '1.05rem'},
-              color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.55)',
+              color: 'text.secondary',
               lineHeight: 1.7,
               maxWidth: '600px',
             }}
           >
-            Engage with our ever-growing community to get the latest updates, product support, and more.
+            We&apos;re building {productName} with you. Engage with our ever-growing community to get the latest
+            updates, product support, and more.
           </Typography>
 
-          {/* Contributor avatars — only show when we have data */}
-          {loading && (
-            <Box
-              sx={{
-                mx: 'auto',
-                mb: 6,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexWrap: 'wrap',
-                gap: 0.5,
-              }}
-            >
-              {Array.from({length: 10}).map((_, index) => (
-                <Skeleton
-                  key={`${index + 1}-skeleton`}
-                  variant="circular"
-                  sx={{
-                    height: {xs: 44, lg: 52},
-                    width: {xs: 44, lg: 52},
-                    bgcolor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
-                  }}
-                />
-              ))}
-            </Box>
-          )}
-
-          {hasContributors && (
-            <AvatarGroup
-              max={12}
-              sx={{
-                mx: 'auto',
-                mb: 6,
-                '& .MuiAvatar-root': {
-                  width: {xs: 44, lg: 52},
-                  height: {xs: 44, lg: 52},
-                  border: isDark ? '2px solid #141414' : '2px solid #ffffff',
-                  transition: 'all 0.2s ease',
-                  cursor: 'pointer',
-                  '&:hover': {
-                    transform: 'translateY(-6px) scale(1.15)',
-                    zIndex: 1000,
-                  },
-                },
-              }}
-            >
-              {contributors
-                .filter((username) => !failedImages.has(username))
-                .map((username) => (
-                  <Tooltip key={username} title={username} arrow>
-                    <Avatar
-                      alt={username}
-                      src={`https://github.com/${username}.png?size=96`}
-                      imgProps={{loading: 'lazy'}}
-                      onError={() => handleImageError(username)}
-                    />
-                  </Tooltip>
-                ))}
-            </AvatarGroup>
-          )}
-
-          {/* Cards */}
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: {xs: '1fr', md: '1fr 1fr'},
+              gridTemplateColumns: {xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)'},
               width: '100%',
-              maxWidth: 800,
+              maxWidth: 900,
               gap: 3,
             }}
           >
             <CommunityCard
-              icon={<MessagesSquare size={26} />}
-              iconBg="linear-gradient(135deg, #FF6B00 0%, #FF8C00 100%)"
-              title="Join the Discussions"
-              description="Connect with the community, ask questions, and share your ideas"
-              linkLabel="Join Discussions"
-              href="https://github.com/asgardeo/thunder/discussions"
+              icon={<GitForkIcon />}
+              iconBg="rgba(59,130,246,0.10)"
+              title="Contribute"
+              description={`Help shape ${productName} by submitting features, fixes, or improvements.`}
+              linkLabel="Start Contributing"
+              href="/docs/next/community/contributing/overview/"
             />
             <CommunityCard
-              icon={<CircleDot size={26} />}
-              iconBg="linear-gradient(135deg, #22c55e 0%, #16a34a 100%)"
-              title="Good First Issues"
-              description="Start contributing with beginner-friendly issues to get involved"
-              linkLabel="View Issues"
-              href="https://github.com/asgardeo/thunder/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22"
+              icon={<IssueIcon />}
+              iconBg="rgba(59,130,246,0.10)"
+              title="Report issues"
+              description={`Identify bugs and suggest enhancements to make ${productName} better for everyone.`}
+              linkLabel="Open an Issue"
+              href={issuesUrl}
+            />
+            <CommunityCard
+              icon={<MessagesSquareIcon />}
+              iconBg="rgba(59,130,246,0.10)"
+              title="Join the Discussions"
+              description="Ask questions, share ideas, and connect with the community through GitHub Discussions"
+              linkLabel="Open Discussions"
+              href={discussionsUrl}
             />
           </Box>
         </Box>

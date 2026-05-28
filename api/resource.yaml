@@ -3,7 +3,7 @@ info:
   title: Resource Server Management API
   version: "1.0"
   description: |
-    This API is used to manage resource servers, resources, and actions for permission-based access control.
+    Resource servers in ThunderID define the permission namespace for a protected API or service; resources and actions nested within them form the permission strings used in role assignments.
     Resources can be nested hierarchically, and permissions are derived from the handle-based path structure.
     Resource Server identifier is optional and if provided, must be unique within the system.
     Resource, and Action handles are unique under it's parent and are immutable after creation and used directly for permission derivation.
@@ -21,14 +21,14 @@ servers:
         default: "8090"
 
 tags:
-  - name: resource-servers
-    description: Operations related to resource server management
-  - name: resources
-    description: Operations related to resource management within resource servers
-  - name: actions
-    description: Operations related to action management at resource server and resource levels
-  - name: permissions
-    description: Operations to preview and retrieve derived permissions
+  - name: Resource Servers
+    description: Register and manage resource servers that define OAuth2 permission scopes.
+  - name: Resources
+    description: Manage hierarchical resources within a resource server.
+  - name: Actions
+    description: Define actions on resources; actions map directly to OAuth2 scopes used in permission grants.
+  - name: Permissions
+    description: Preview and retrieve derived permissions based on the resource handle hierarchy.
 
 security:
   - OAuth2: [system]
@@ -37,7 +37,7 @@ paths:
   /resource-servers:
     get:
       tags:
-        - resource-servers
+        - Resource Servers
       summary: List resource servers
       parameters:
         - $ref: '#/components/parameters/limitQueryParam'
@@ -57,13 +57,15 @@ paths:
                   - id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                     name: "Booking System"
                     description: "Handles all booking operations"
-                    identifier: "booking-system"
+                    handle: "booking-system"
+                    identifier: "https://api.example.com/booking"
                     ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
                     delimiter: ":"
                   - id: "257e528f-eb24-48b6-884d-20460e190957"
                     name: "Property Management"
                     description: "Property and facility management"
-                    identifier: "property-mgmt"
+                    handle: "property-mgmt"
+                    identifier: "https://api.example.com/property"
                     ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
                     delimiter: ":"
                 links:
@@ -80,14 +82,32 @@ paths:
                   summary: Invalid limit parameter
                   value:
                     code: "RES-1011"
-                    message: "Invalid limit parameter"
-                    description: "The limit parameter must be a positive integer"
+                    message:
+                      key: "error.resourceservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.resourceservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
                     code: "RES-1012"
-                    message: "Invalid offset parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    message:
+                      key: "error.resourceservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.resourceservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
+                result-limit-exceeded:
+                  summary: Result limit exceeded in composite mode
+                  value:
+                    code: "RES-1021"
+                    message:
+                      key: "error.resourceservice.result_limit_exceeded_in_composite_mode"
+                      defaultValue: "Result limit exceeded in composite mode"
+                    description:
+                      key: "error.resourceservice.result_limit_exceeded_in_composite_mode_description"
+                      defaultValue: "The total number of records exceeds the maximum limit in composite mode"
         "500":
           description: Internal server error
           content:
@@ -96,12 +116,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     post:
       tags:
-        - resource-servers
+        - Resource Servers
       summary: Create a new resource server
       description: Creates a new resource server with the specified details.
       requestBody:
@@ -113,7 +137,8 @@ paths:
             example:
               name: "Booking System"
               description: "Handles all booking operations"
-              identifier: "booking-system"
+              handle: "booking-system"
+              identifier: "https://api.example.com/booking"
               ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
       responses:
         "201":
@@ -126,7 +151,8 @@ paths:
                 id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                 name: "Booking System"
                 description: "Handles all booking operations"
-                identifier: "booking-system"
+                handle: "booking-system"
+                identifier: "https://api.example.com/booking"
                 ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
                 delimiter: ":"
         "400":
@@ -140,20 +166,42 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "RES-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.resourceservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 ou-not-found:
                   summary: Organization unit not found
                   value:
                     code: "RES-1010"
-                    message: "Organization unit not found"
-                    description: "The specified organization unit does not exist"
+                    message:
+                      key: "error.resourceservice.organization_unit_not_found"
+                      defaultValue: "Organization unit not found"
+                    description:
+                      key: "error.resourceservice.organization_unit_not_found_description"
+                      defaultValue: "The specified organization unit does not exist"
                 invalid-delimiter:
                   summary: Invalid delimiter
                   value:
                     code: "RES-1015"
-                    message: "Invalid delimiter"
-                    description: "Delimiter must be a single character from: a-z A-Z 0-9 . _ : - /"
+                    message:
+                      key: "error.resourceservice.invalid_delimiter"
+                      defaultValue: "Invalid delimiter"
+                    description:
+                      key: "error.resourceservice.invalid_delimiter_description"
+                      defaultValue: "Delimiter must be a single character from: a-z A-Z 0-9 . _ : - /"
+                delimiter-in-handle:
+                  summary: Delimiter conflict in resource server handle
+                  value:
+                    code: "RES-1022"
+                    message:
+                      key: "error.resourceservice.delimiter_conflict_in_resource_server_handle"
+                      defaultValue: "Delimiter conflict in handle"
+                    description:
+                      key: "error.resourceservice.delimiter_conflict_in_resource_server_handle_description"
+                      defaultValue: "Resource server handle cannot contain the delimiter character"
         "409":
           description: Conflict
           content:
@@ -165,14 +213,32 @@ paths:
                   summary: Name conflict
                   value:
                     code: "RES-1004"
-                    message: "Name conflict"
-                    description: "A resource server with the same name already exists"
+                    message:
+                      key: "error.resourceservice.name_conflict"
+                      defaultValue: "Name conflict"
+                    description:
+                      key: "error.resourceservice.name_conflict_description"
+                      defaultValue: "A resource server with the same name already exists"
+                handle-conflict:
+                  summary: Handle conflict
+                  value:
+                    code: "RES-1014"
+                    message:
+                      key: "error.resourceservice.handle_conflict"
+                      defaultValue: "Handle conflict"
+                    description:
+                      key: "error.resourceservice.handle_conflict_description"
+                      defaultValue: "The same handle already exists within the specified resource"
                 identifier-conflict:
                   summary: Identifier conflict
                   value:
                     code: "RES-1013"
-                    message: "Identifier conflict"
-                    description: "A resource server with the same identifier already exists"
+                    message:
+                      key: "error.resourceservice.identifier_conflict"
+                      defaultValue: "Identifier conflict"
+                    description:
+                      key: "error.resourceservice.identifier_conflict_description"
+                      defaultValue: "A resource server with the same identifier already exists"
         "500":
           description: Internal server error
           content:
@@ -181,13 +247,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /resource-servers/{id}:
     get:
       tags:
-        - resource-servers
+        - Resource Servers
       summary: Get resource server details
       description: Returns resource server metadata
       parameters:
@@ -208,7 +278,8 @@ paths:
                 id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                 name: "Booking System"
                 description: "Handles all booking operations"
-                identifier: "booking-system"
+                handle: "booking-system"
+                identifier: "https://api.example.com/booking"
                 ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
                 delimiter: ":"
         "400":
@@ -219,8 +290,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1002"
-                message: "Invalid request format"
-                description: "Resource server ID is required"
+                message:
+                  key: "error.resourceservice.missing_id"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.resourceservice.missing_id_description"
+                  defaultValue: "Resource server ID is required"
         "404":
           description: Resource server not found
           content:
@@ -229,8 +304,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1003"
-                message: "Resource server not found"
-                description: "The resource server with the specified id does not exist"
+                message:
+                  key: "error.resourceservice.resource_server_not_found"
+                  defaultValue: "Resource server not found"
+                description:
+                  key: "error.resourceservice.resource_server_not_found_description"
+                  defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -239,14 +318,18 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     put:
       tags:
-        - resource-servers
+        - Resource Servers
       summary: Update resource server
-      description: Updates resource server name, description, identifier, and organization unit.
+      description: Updates resource server name, description, handle, identifier, and organization unit. If the handle is changed, all derived permission strings for resources and actions under this server are recomputed.
       parameters:
         - in: path
           name: id
@@ -263,7 +346,8 @@ paths:
             example:
               name: "Booking System Updated"
               description: "Updated description for booking operations"
-              identifier: "booking-system-v2"
+              handle: "booking-system-v2"
+              identifier: "https://api.example.com/booking/v2"
               ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
       responses:
         "200":
@@ -276,7 +360,8 @@ paths:
                 id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                 name: "Booking System Updated"
                 description: "Updated description for booking operations"
-                identifier: "booking-system-v2"
+                handle: "booking-system"
+                identifier: "https://api.example.com/booking/v2"
                 ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
                 delimiter: ":"
         "400":
@@ -290,20 +375,52 @@ paths:
                   summary: Missing resource server ID
                   value:
                     code: "RES-1002"
-                    message: "Invalid request format"
-                    description: "Resource server ID is required"
+                    message:
+                      key: "error.resourceservice.missing_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.missing_id_description"
+                      defaultValue: "Resource server ID is required"
                 invalid-request-format:
                   summary: Invalid request format
                   value:
                     code: "RES-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.resourceservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 ou-not-found:
                   summary: Organization unit not found
                   value:
                     code: "RES-1010"
-                    message: "Organization unit not found"
-                    description: "The specified organization unit does not exist"
+                    message:
+                      key: "error.resourceservice.organization_unit_not_found"
+                      defaultValue: "Organization unit not found"
+                    description:
+                      key: "error.resourceservice.organization_unit_not_found_description"
+                      defaultValue: "The specified organization unit does not exist"
+                immutable-resource-server:
+                  summary: Cannot modify declarative resource server
+                  value:
+                    code: "RES-1018"
+                    message:
+                      key: "error.resourceservice.cannot_modify_declarative_resource_server"
+                      defaultValue: "Cannot modify declarative resource server"
+                    description:
+                      key: "error.resourceservice.cannot_modify_declarative_resource_server_description"
+                      defaultValue: "Resource server is defined in declarative configuration and cannot be modified"
+                delimiter-in-handle:
+                  summary: Delimiter conflict in resource server handle
+                  value:
+                    code: "RES-1022"
+                    message:
+                      key: "error.resourceservice.delimiter_conflict_in_resource_server_handle"
+                      defaultValue: "Delimiter conflict in handle"
+                    description:
+                      key: "error.resourceservice.delimiter_conflict_in_resource_server_handle_description"
+                      defaultValue: "Resource server handle cannot contain the delimiter character"
         "404":
           description: Resource server not found
           content:
@@ -312,8 +429,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1003"
-                message: "Resource server not found"
-                description: "The resource server with the specified id does not exist"
+                message:
+                  key: "error.resourceservice.resource_server_not_found"
+                  defaultValue: "Resource server not found"
+                description:
+                  key: "error.resourceservice.resource_server_not_found_description"
+                  defaultValue: "The resource server with the specified id does not exist"
         "409":
           description: Conflict
           content:
@@ -325,14 +446,32 @@ paths:
                   summary: Name conflict
                   value:
                     code: "RES-1004"
-                    message: "Name conflict"
-                    description: "A resource server with the same name already exists"
+                    message:
+                      key: "error.resourceservice.name_conflict"
+                      defaultValue: "Name conflict"
+                    description:
+                      key: "error.resourceservice.name_conflict_description"
+                      defaultValue: "A resource server with the same name already exists"
+                handle-conflict:
+                  summary: Handle conflict
+                  value:
+                    code: "RES-1014"
+                    message:
+                      key: "error.resourceservice.handle_conflict"
+                      defaultValue: "Handle conflict"
+                    description:
+                      key: "error.resourceservice.handle_conflict_description"
+                      defaultValue: "The same handle already exists within the specified resource"
                 identifier-conflict:
                   summary: Identifier conflict
                   value:
                     code: "RES-1013"
-                    message: "Identifier conflict"
-                    description: "A resource server with the same identifier already exists"
+                    message:
+                      key: "error.resourceservice.identifier_conflict"
+                      defaultValue: "Identifier conflict"
+                    description:
+                      key: "error.resourceservice.identifier_conflict_description"
+                      defaultValue: "A resource server with the same identifier already exists"
         "500":
           description: Internal server error
           content:
@@ -341,12 +480,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     delete:
       tags:
-        - resource-servers
+        - Resource Servers
       summary: Delete a resource server by id
       description: Deletes a resource server. Cannot delete if it has resources or actions.
       parameters:
@@ -370,14 +513,32 @@ paths:
                   summary: Missing resource server ID
                   value:
                     code: "RES-1002"
-                    message: "Invalid request format"
-                    description: "Resource server ID is required"
+                    message:
+                      key: "error.resourceservice.missing_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.missing_id_description"
+                      defaultValue: "Resource server ID is required"
                 cannot-delete:
                   summary: Cannot delete resource server
                   value:
                     code: "RES-1006"
-                    message: "Cannot delete resource server"
-                    description: "Cannot delete resource server that has resources or actions"
+                    message:
+                      key: "error.resourceservice.cannot_delete"
+                      defaultValue: "Cannot delete resource server"
+                    description:
+                      key: "error.resourceservice.cannot_delete_description"
+                      defaultValue: "Cannot delete resource server that has resources or actions"
+                immutable-resource-server:
+                  summary: Cannot delete declarative resource server
+                  value:
+                    code: "RES-1018"
+                    message:
+                      key: "error.resourceservice.cannot_modify_declarative_resource_server"
+                      defaultValue: "Cannot modify declarative resource server"
+                    description:
+                      key: "error.resourceservice.cannot_modify_declarative_resource_server_description"
+                      defaultValue: "Resource server is defined in declarative configuration and cannot be modified"
         "500":
           description: Internal server error
           content:
@@ -386,13 +547,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /resource-servers/{rsId}/resources:
     get:
       tags:
-        - resources
+        - Resources
       summary: List resources in resource server
       description: |
         Returns a paginated list of resources. Use the parentId parameter to filter:
@@ -437,13 +602,11 @@ paths:
                         name: "Reservations"
                         description: "Reservation management"
                         handle: "reservations"
-                        parent: null
                         permission: "reservations"
                       - id: "6b1e7b8d-7e19-41eb-8fa2-c0ee5bb67a94"
                         name: "Payments"
                         description: "Payment processing"
                         handle: "payments"
-                        parent: null
                         permission: "payments"
                     links:
                       - href: "resource-servers/3fa85f64-5717-4562-b3fc-2c963f66afa6/resources?offset=2&limit=2"
@@ -479,14 +642,32 @@ paths:
                   summary: Invalid limit parameter
                   value:
                     code: "RES-1011"
-                    message: "Invalid limit parameter"
-                    description: "The limit parameter must be a positive integer"
+                    message:
+                      key: "error.resourceservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.resourceservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
                     code: "RES-1012"
-                    message: "Invalid offset parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    message:
+                      key: "error.resourceservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.resourceservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
+                result-limit-exceeded:
+                  summary: Result limit exceeded in composite mode
+                  value:
+                    code: "RES-1021"
+                    message:
+                      key: "error.resourceservice.result_limit_exceeded_in_composite_mode"
+                      defaultValue: "Result limit exceeded in composite mode"
+                    description:
+                      key: "error.resourceservice.result_limit_exceeded_in_composite_mode_description"
+                      defaultValue: "The total number of records exceeds the maximum limit in composite mode"
         "404":
           description: Resource server not found
           content:
@@ -495,8 +676,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1003"
-                message: "Resource server not found"
-                description: "The resource server with the specified id does not exist"
+                message:
+                  key: "error.resourceservice.resource_server_not_found"
+                  defaultValue: "Resource server not found"
+                description:
+                  key: "error.resourceservice.resource_server_not_found_description"
+                  defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -505,12 +690,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     post:
       tags:
-        - resources
+        - Resources
       summary: Create a new resource
       description: |
         Creates a new resource within the resource server. Handle is immutable and used for permissions. Parent is immutable after creation.
@@ -560,7 +749,6 @@ paths:
                     name: "Reservations"
                     description: "Reservation management"
                     handle: "reservations"
-                    parent: null
                     permission: "reservations"
                 nested-resource:
                   summary: Nested resource created
@@ -582,14 +770,22 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "RES-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.resourceservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 parent-not-found:
                   summary: Parent resource not found
                   value:
                     code: "RES-1005"
-                    message: "Parent resource not found"
-                    description: "The specified parent resource does not exist"
+                    message:
+                      key: "error.resourceservice.parent_resource_not_found"
+                      defaultValue: "Parent resource not found"
+                    description:
+                      key: "error.resourceservice.parent_resource_not_found_description"
+                      defaultValue: "The specified parent resource does not exist"
         "404":
           description: Resource server not found
           content:
@@ -598,8 +794,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1003"
-                message: "Resource server not found"
-                description: "The resource server with the specified id does not exist"
+                message:
+                  key: "error.resourceservice.resource_server_not_found"
+                  defaultValue: "Resource server not found"
+                description:
+                  key: "error.resourceservice.resource_server_not_found_description"
+                  defaultValue: "The resource server with the specified id does not exist"
         "409":
           description: Conflict
           content:
@@ -608,8 +808,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1014"
-                message: "Handle conflict"
-                description: "The same handle already exists within the specified resource"
+                message:
+                  key: "error.resourceservice.handle_conflict"
+                  defaultValue: "Handle conflict"
+                description:
+                  key: "error.resourceservice.handle_conflict_description"
+                  defaultValue: "The same handle already exists within the specified resource"
         "500":
           description: Internal server error
           content:
@@ -618,13 +822,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /resource-servers/{rsId}/resources/{id}:
     get:
       tags:
-        - resources
+        - Resources
       summary: Get resource details
       description: Returns resource metadata
       parameters:
@@ -654,7 +862,6 @@ paths:
                 name: "Reservations"
                 description: "Reservation management"
                 handle: "reservations"
-                parent: null
                 permission: "reservations"
         "400":
           description: Bad request
@@ -664,8 +871,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1002"
-                message: "Invalid request format"
-                description: "Resource ID is required"
+                message:
+                  key: "error.resourceservice.missing_id"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.resourceservice.missing_id_description"
+                  defaultValue: "Resource ID is required"
         "404":
           description: Resource or resource server not found
           content:
@@ -677,14 +888,22 @@ paths:
                   summary: Resource not found
                   value:
                     code: "RES-1008"
-                    message: "Resource not found"
-                    description: "The resource with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_not_found"
+                      defaultValue: "Resource not found"
+                    description:
+                      key: "error.resourceservice.resource_not_found_description"
+                      defaultValue: "The resource with the specified id does not exist"
                 resource-server-not-found:
                   summary: Resource server not found
                   value:
                     code: "RES-1003"
-                    message: "Resource server not found"
-                    description: "The resource server with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_server_not_found"
+                      defaultValue: "Resource server not found"
+                    description:
+                      key: "error.resourceservice.resource_server_not_found_description"
+                      defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -693,12 +912,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     put:
       tags:
-        - resources
+        - Resources
       summary: Update resource
       description: |
         Updates resource name and description. Handle and parent are immutable after creation.
@@ -738,7 +961,6 @@ paths:
                 name: "Reservations Updated"
                 handle: "reservations"
                 description: "Updated reservation management"
-                parent: null
                 permission: "reservations"
         "400":
           description: Bad request
@@ -751,14 +973,32 @@ paths:
                   summary: Missing resource ID
                   value:
                     code: "RES-1002"
-                    message: "Invalid request format"
-                    description: "Resource ID is required"
+                    message:
+                      key: "error.resourceservice.missing_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.missing_id_description"
+                      defaultValue: "Resource ID is required"
                 invalid-request-format:
                   summary: Invalid request format
                   value:
                     code: "RES-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.resourceservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
+                immutable-resource:
+                  summary: Cannot modify declarative resource
+                  value:
+                    code: "RES-1019"
+                    message:
+                      key: "error.resourceservice.cannot_modify_declarative_resource"
+                      defaultValue: "Cannot modify declarative resource"
+                    description:
+                      key: "error.resourceservice.cannot_modify_declarative_resource_description"
+                      defaultValue: "Resource is defined in declarative configuration and cannot be modified"
         "404":
           description: Resource or resource server not found
           content:
@@ -770,14 +1010,22 @@ paths:
                   summary: Resource not found
                   value:
                     code: "RES-1008"
-                    message: "Resource not found"
-                    description: "The resource with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_not_found"
+                      defaultValue: "Resource not found"
+                    description:
+                      key: "error.resourceservice.resource_not_found_description"
+                      defaultValue: "The resource with the specified id does not exist"
                 resource-server-not-found:
                   summary: Resource server not found
                   value:
                     code: "RES-1003"
-                    message: "Resource server not found"
-                    description: "The resource server with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_server_not_found"
+                      defaultValue: "Resource server not found"
+                    description:
+                      key: "error.resourceservice.resource_server_not_found_description"
+                      defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -786,12 +1034,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     delete:
       tags:
-        - resources
+        - Resources
       summary: Delete a resource by id
       description: Deletes a resource. Cannot delete if it has sub-resources or actions.
       parameters:
@@ -823,14 +1075,32 @@ paths:
                   summary: Missing resource ID
                   value:
                     code: "RES-1002"
-                    message: "Invalid request format"
-                    description: "Resource ID is required"
+                    message:
+                      key: "error.resourceservice.missing_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.missing_id_description"
+                      defaultValue: "Resource ID is required"
                 cannot-delete:
                   summary: Cannot delete resource
                   value:
                     code: "RES-1006"
-                    message: "Cannot delete resource"
-                    description: "Cannot delete resource that has sub-resources or actions"
+                    message:
+                      key: "error.resourceservice.cannot_delete"
+                      defaultValue: "Cannot delete resource"
+                    description:
+                      key: "error.resourceservice.cannot_delete_description"
+                      defaultValue: "Cannot delete resource that has sub-resources or actions"
+                immutable-resource:
+                  summary: Cannot delete declarative resource
+                  value:
+                    code: "RES-1019"
+                    message:
+                      key: "error.resourceservice.cannot_modify_declarative_resource"
+                      defaultValue: "Cannot modify declarative resource"
+                    description:
+                      key: "error.resourceservice.cannot_modify_declarative_resource_description"
+                      defaultValue: "Resource is defined in declarative configuration and cannot be modified"
         "500":
           description: Internal server error
           content:
@@ -839,13 +1109,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /resource-servers/{rsId}/actions:
     get:
       tags:
-        - actions
+        - Actions
       summary: List actions at resource server level
       description: Returns all actions defined at the resource server level
       parameters:
@@ -894,14 +1168,32 @@ paths:
                   summary: Invalid limit parameter
                   value:
                     code: "RES-1011"
-                    message: "Invalid limit parameter"
-                    description: "The limit parameter must be a positive integer"
+                    message:
+                      key: "error.resourceservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.resourceservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
                     code: "RES-1012"
-                    message: "Invalid offset parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    message:
+                      key: "error.resourceservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.resourceservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
+                result-limit-exceeded:
+                  summary: Result limit exceeded in composite mode
+                  value:
+                    code: "RES-1021"
+                    message:
+                      key: "error.resourceservice.result_limit_exceeded_in_composite_mode"
+                      defaultValue: "Result limit exceeded in composite mode"
+                    description:
+                      key: "error.resourceservice.result_limit_exceeded_in_composite_mode_description"
+                      defaultValue: "The total number of records exceeds the maximum limit in composite mode"
         "404":
           description: Resource server not found
           content:
@@ -910,8 +1202,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1003"
-                message: "Resource server not found"
-                description: "The resource server with the specified id does not exist"
+                message:
+                  key: "error.resourceservice.resource_server_not_found"
+                  defaultValue: "Resource server not found"
+                description:
+                  key: "error.resourceservice.resource_server_not_found_description"
+                  defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -920,12 +1216,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     post:
       tags:
-        - actions
+        - Actions
       summary: Create an action at resource server level
       description: Creates a new action at the resource server level. Handle is immutable and used for permissions.
       parameters:
@@ -970,20 +1270,32 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "RES-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.resourceservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 invalid-handle:
                   summary: Invalid handle
                   value:
                     code: "RES-1016"
-                    message: "Invalid handle"
-                    description: "Handle length must be less than 100 characters and contain only valid characters: a-z A-Z 0-9 . _ : - /"
+                    message:
+                      key: "error.resourceservice.invalid_handle"
+                      defaultValue: "Invalid handle"
+                    description:
+                      key: "error.resourceservice.invalid_handle_description"
+                      defaultValue: "Handle length must be less than 100 characters and contain only valid characters: a-z A-Z 0-9 . _ : - /"
                 delimiter-conflict:
                   summary: Delimiter conflict in handle
                   value:
                     code: "RES-1017"
-                    message: "Delimiter conflict in handle"
-                    description: "Handle cannot contain the delimiter character"
+                    message:
+                      key: "error.resourceservice.delimiter_conflict_in_handle"
+                      defaultValue: "Delimiter conflict in handle"
+                    description:
+                      key: "error.resourceservice.delimiter_conflict_in_handle_description"
+                      defaultValue: "Handle cannot contain the delimiter character"
         "404":
           description: Resource server not found
           content:
@@ -992,8 +1304,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1003"
-                message: "Resource server not found"
-                description: "The resource server with the specified id does not exist"
+                message:
+                  key: "error.resourceservice.resource_server_not_found"
+                  defaultValue: "Resource server not found"
+                description:
+                  key: "error.resourceservice.resource_server_not_found_description"
+                  defaultValue: "The resource server with the specified id does not exist"
         "409":
           description: Conflict
           content:
@@ -1002,8 +1318,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1014"
-                message: "Handle conflict"
-                description: "The same handle already exists within the specified resource"
+                message:
+                  key: "error.resourceservice.handle_conflict"
+                  defaultValue: "Handle conflict"
+                description:
+                  key: "error.resourceservice.handle_conflict_description"
+                  defaultValue: "The same handle already exists within the specified resource"
         "500":
           description: Internal server error
           content:
@@ -1012,13 +1332,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /resource-servers/{rsId}/actions/{id}:
     get:
       tags:
-        - actions
+        - Actions
       summary: Get action details at resource server level
       description: Returns action metadata
       parameters:
@@ -1056,8 +1380,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1002"
-                message: "Invalid request format"
-                description: "Action ID is required"
+                message:
+                  key: "error.resourceservice.missing_id"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.resourceservice.missing_id_description"
+                  defaultValue: "Action ID is required"
         "404":
           description: Action or resource server not found
           content:
@@ -1069,14 +1397,22 @@ paths:
                   summary: Action not found
                   value:
                     code: "RES-1009"
-                    message: "Action not found"
-                    description: "The action with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.action_not_found"
+                      defaultValue: "Action not found"
+                    description:
+                      key: "error.resourceservice.action_not_found_description"
+                      defaultValue: "The action with the specified id does not exist"
                 resource-server-not-found:
                   summary: Resource server not found
                   value:
                     code: "RES-1003"
-                    message: "Resource server not found"
-                    description: "The resource server with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_server_not_found"
+                      defaultValue: "Resource server not found"
+                    description:
+                      key: "error.resourceservice.resource_server_not_found_description"
+                      defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -1085,12 +1421,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     put:
       tags:
-        - actions
+        - Actions
       summary: Update action at resource server level
       description: Updates action name and description. Handle is immutable after creation.
       parameters:
@@ -1140,14 +1480,32 @@ paths:
                   summary: Missing action ID
                   value:
                     code: "RES-1002"
-                    message: "Invalid request format"
-                    description: "Action ID is required"
+                    message:
+                      key: "error.resourceservice.missing_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.missing_id_description"
+                      defaultValue: "Action ID is required"
                 invalid-request-format:
                   summary: Invalid request format
                   value:
                     code: "RES-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.resourceservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
+                immutable-action:
+                  summary: Cannot modify declarative action
+                  value:
+                    code: "RES-1020"
+                    message:
+                      key: "error.resourceservice.cannot_modify_declarative_action"
+                      defaultValue: "Cannot modify declarative action"
+                    description:
+                      key: "error.resourceservice.cannot_modify_declarative_action_description"
+                      defaultValue: "Action is defined in declarative configuration and cannot be modified"
         "404":
           description: Action or resource server not found
           content:
@@ -1159,14 +1517,22 @@ paths:
                   summary: Action not found
                   value:
                     code: "RES-1009"
-                    message: "Action not found"
-                    description: "The action with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.action_not_found"
+                      defaultValue: "Action not found"
+                    description:
+                      key: "error.resourceservice.action_not_found_description"
+                      defaultValue: "The action with the specified id does not exist"
                 resource-server-not-found:
                   summary: Resource server not found
                   value:
                     code: "RES-1003"
-                    message: "Resource server not found"
-                    description: "The resource server with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_server_not_found"
+                      defaultValue: "Resource server not found"
+                    description:
+                      key: "error.resourceservice.resource_server_not_found_description"
+                      defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -1175,12 +1541,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     delete:
       tags:
-        - actions
+        - Actions
       summary: Delete an action at resource server level
       description: Deletes an action at the resource server level
       parameters:
@@ -1207,10 +1577,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                code: "RES-1002"
-                message: "Invalid request format"
-                description: "Action ID is required"
+              examples:
+                missing-id:
+                  summary: Missing action ID
+                  value:
+                    code: "RES-1002"
+                    message:
+                      key: "error.resourceservice.missing_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.missing_id_description"
+                      defaultValue: "Action ID is required"
+                immutable-action:
+                  summary: Cannot delete declarative action
+                  value:
+                    code: "RES-1020"
+                    message:
+                      key: "error.resourceservice.cannot_modify_declarative_action"
+                      defaultValue: "Cannot modify declarative action"
+                    description:
+                      key: "error.resourceservice.cannot_modify_declarative_action_description"
+                      defaultValue: "Action is defined in declarative configuration and cannot be modified"
         "500":
           description: Internal server error
           content:
@@ -1219,13 +1606,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /resource-servers/{rsId}/resources/{resourceId}/actions:
     get:
       tags:
-        - actions
+        - Actions
       summary: List actions at resource level
       description: Returns all actions defined for a specific resource
       parameters:
@@ -1281,14 +1672,32 @@ paths:
                   summary: Invalid limit parameter
                   value:
                     code: "RES-1011"
-                    message: "Invalid limit parameter"
-                    description: "The limit parameter must be a positive integer"
+                    message:
+                      key: "error.resourceservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.resourceservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
                     code: "RES-1012"
-                    message: "Invalid offset parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    message:
+                      key: "error.resourceservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.resourceservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
+                result-limit-exceeded:
+                  summary: Result limit exceeded in composite mode
+                  value:
+                    code: "RES-1021"
+                    message:
+                      key: "error.resourceservice.result_limit_exceeded_in_composite_mode"
+                      defaultValue: "Result limit exceeded in composite mode"
+                    description:
+                      key: "error.resourceservice.result_limit_exceeded_in_composite_mode_description"
+                      defaultValue: "The total number of records exceeds the maximum limit in composite mode"
         "404":
           description: Resource or resource server not found
           content:
@@ -1300,14 +1709,22 @@ paths:
                   summary: Resource not found
                   value:
                     code: "RES-1008"
-                    message: "Resource not found"
-                    description: "The resource with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_not_found"
+                      defaultValue: "Resource not found"
+                    description:
+                      key: "error.resourceservice.resource_not_found_description"
+                      defaultValue: "The resource with the specified id does not exist"
                 resource-server-not-found:
                   summary: Resource server not found
                   value:
                     code: "RES-1003"
-                    message: "Resource server not found"
-                    description: "The resource server with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_server_not_found"
+                      defaultValue: "Resource server not found"
+                    description:
+                      key: "error.resourceservice.resource_server_not_found_description"
+                      defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -1316,12 +1733,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     post:
       tags:
-        - actions
+        - Actions
       summary: Create an action at resource level
       description: Creates a new action for a specific resource. Handle is immutable and used for permissions.
       parameters:
@@ -1373,14 +1794,22 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "RES-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.resourceservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 invalid-handle:
                   summary: Invalid handle
                   value:
                     code: "RES-1016"
-                    message: "Invalid handle"
-                    description: "Handle must contain only valid characters (a-z A-Z 0-9 . _ : - /) and cannot contain the delimiter character"
+                    message:
+                      key: "error.resourceservice.delimiter_conflict_in_handle"
+                      defaultValue: "Invalid handle"
+                    description:
+                      key: "error.resourceservice.delimiter_conflict_in_handle_description"
+                      defaultValue: "Handle must contain only valid characters (a-z A-Z 0-9 . _ : - /) and cannot contain the delimiter character"
         "404":
           description: Resource or resource server not found
           content:
@@ -1392,14 +1821,22 @@ paths:
                   summary: Resource not found
                   value:
                     code: "RES-1008"
-                    message: "Resource not found"
-                    description: "The resource with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_not_found"
+                      defaultValue: "Resource not found"
+                    description:
+                      key: "error.resourceservice.resource_not_found_description"
+                      defaultValue: "The resource with the specified id does not exist"
                 resource-server-not-found:
                   summary: Resource server not found
                   value:
                     code: "RES-1003"
-                    message: "Resource server not found"
-                    description: "The resource server with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_server_not_found"
+                      defaultValue: "Resource server not found"
+                    description:
+                      key: "error.resourceservice.resource_server_not_found_description"
+                      defaultValue: "The resource server with the specified id does not exist"
         "409":
           description: Conflict
           content:
@@ -1408,8 +1845,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1014"
-                message: "Handle conflict"
-                description: "The same handle already exists within the specified resource"
+                message:
+                  key: "error.resourceservice.handle_conflict"
+                  defaultValue: "Handle conflict"
+                description:
+                  key: "error.resourceservice.handle_conflict_description"
+                  defaultValue: "The same handle already exists within the specified resource"
         "500":
           description: Internal server error
           content:
@@ -1418,13 +1859,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /resource-servers/{rsId}/resources/{resourceId}/actions/{id}:
     get:
       tags:
-        - actions
+        - Actions
       summary: Get action details at resource level
       description: Returns action metadata
       parameters:
@@ -1469,8 +1914,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "RES-1002"
-                message: "Invalid request format"
-                description: "Action ID is required"
+                message:
+                  key: "error.resourceservice.missing_id"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.resourceservice.missing_id_description"
+                  defaultValue: "Action ID is required"
         "404":
           description: Action, resource, or resource server not found
           content:
@@ -1482,20 +1931,32 @@ paths:
                   summary: Action not found
                   value:
                     code: "RES-1009"
-                    message: "Action not found"
-                    description: "The action with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.action_not_found"
+                      defaultValue: "Action not found"
+                    description:
+                      key: "error.resourceservice.action_not_found_description"
+                      defaultValue: "The action with the specified id does not exist"
                 resource-not-found:
                   summary: Resource not found
                   value:
                     code: "RES-1008"
-                    message: "Resource not found"
-                    description: "The resource with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_not_found"
+                      defaultValue: "Resource not found"
+                    description:
+                      key: "error.resourceservice.resource_not_found_description"
+                      defaultValue: "The resource with the specified id does not exist"
                 resource-server-not-found:
                   summary: Resource server not found
                   value:
                     code: "RES-1003"
-                    message: "Resource server not found"
-                    description: "The resource server with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_server_not_found"
+                      defaultValue: "Resource server not found"
+                    description:
+                      key: "error.resourceservice.resource_server_not_found_description"
+                      defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -1504,12 +1965,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     put:
       tags:
-        - actions
+        - Actions
       summary: Update action at resource level
       description: Updates action name and description. Handle is immutable after creation.
       parameters:
@@ -1566,14 +2031,32 @@ paths:
                   summary: Missing action ID
                   value:
                     code: "RES-1002"
-                    message: "Invalid request format"
-                    description: "Action ID is required"
+                    message:
+                      key: "error.resourceservice.missing_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.missing_id_description"
+                      defaultValue: "Action ID is required"
                 invalid-request-format:
                   summary: Invalid request format
                   value:
                     code: "RES-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.resourceservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
+                immutable-action:
+                  summary: Cannot modify declarative action
+                  value:
+                    code: "RES-1020"
+                    message:
+                      key: "error.resourceservice.cannot_modify_declarative_action"
+                      defaultValue: "Cannot modify declarative action"
+                    description:
+                      key: "error.resourceservice.cannot_modify_declarative_action_description"
+                      defaultValue: "Action is defined in declarative configuration and cannot be modified"
         "404":
           description: Action, resource, or resource server not found
           content:
@@ -1585,20 +2068,32 @@ paths:
                   summary: Action not found
                   value:
                     code: "RES-1009"
-                    message: "Action not found"
-                    description: "The action with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.action_not_found"
+                      defaultValue: "Action not found"
+                    description:
+                      key: "error.resourceservice.action_not_found_description"
+                      defaultValue: "The action with the specified id does not exist"
                 resource-not-found:
                   summary: Resource not found
                   value:
                     code: "RES-1008"
-                    message: "Resource not found"
-                    description: "The resource with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_not_found"
+                      defaultValue: "Resource not found"
+                    description:
+                      key: "error.resourceservice.resource_not_found_description"
+                      defaultValue: "The resource with the specified id does not exist"
                 resource-server-not-found:
                   summary: Resource server not found
                   value:
                     code: "RES-1003"
-                    message: "Resource server not found"
-                    description: "The resource server with the specified id does not exist"
+                    message:
+                      key: "error.resourceservice.resource_server_not_found"
+                      defaultValue: "Resource server not found"
+                    description:
+                      key: "error.resourceservice.resource_server_not_found_description"
+                      defaultValue: "The resource server with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -1607,12 +2102,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     delete:
       tags:
-        - actions
+        - Actions
       summary: Delete an action at resource level
       description: Deletes an action for a specific resource
       parameters:
@@ -1646,10 +2145,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                code: "RES-1002"
-                message: "Invalid request format"
-                description: "Action ID is required"
+              examples:
+                missing-id:
+                  summary: Missing action ID
+                  value:
+                    code: "RES-1002"
+                    message:
+                      key: "error.resourceservice.missing_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.resourceservice.missing_id_description"
+                      defaultValue: "Action ID is required"
+                immutable-action:
+                  summary: Cannot delete declarative action
+                  value:
+                    code: "RES-1020"
+                    message:
+                      key: "error.resourceservice.cannot_modify_declarative_action"
+                      defaultValue: "Cannot modify declarative action"
+                    description:
+                      key: "error.resourceservice.cannot_modify_declarative_action_description"
+                      defaultValue: "Action is defined in declarative configuration and cannot be modified"
         "500":
           description: Internal server error
           content:
@@ -1658,8 +2174,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
 components:
   securitySchemes:
@@ -1668,6 +2188,10 @@ components:
       flows:
         authorizationCode:
           authorizationUrl: https://localhost:8090/oauth2/authorize
+          tokenUrl: https://localhost:8090/oauth2/token
+          scopes:
+            system: Access to system management APIs
+        clientCredentials:
           tokenUrl: https://localhost:8090/oauth2/token
           scopes:
             system: Access to system management APIs
@@ -1695,7 +2219,7 @@ components:
   schemas:
     ResourceServer:
       type: object
-      required: [id, name, ouId, delimiter]
+      required: [id, name, handle, ouId, delimiter]
       properties:
         id:
           type: string
@@ -1708,10 +2232,13 @@ components:
           type: string
           nullable: true
           description: Optional description of the resource server
+        handle:
+          type: string
+          description: Immutable handle that prefixes all permission strings derived from this resource server. Must be unique.
         identifier:
           type: string
           nullable: true
-          description: Optional identifier for authorization requests (Unique in the system if provided)
+          description: Optional identifier for this resource server. Must be unique in the system if provided. When set to an absolute URI, the resource server is used in RFC 8707 resource indicator flows and the identifier is used as the access token audience claim value.
         ouId:
           type: string
           format: uuid
@@ -1719,6 +2246,9 @@ components:
         delimiter:
           type: string
           description: Character used to separate permission hierarchy levels (immutable after creation)
+        isReadOnly:
+          type: boolean
+          description: Whether the resource server is read-only (system-managed)
 
     CreateResourceServerRequest:
       type: object
@@ -1730,9 +2260,12 @@ components:
         description:
           type: string
           description: Optional description of the resource server
+        handle:
+          type: string
+          description: Immutable handle that prefixes all permission strings derived from this resource server. Must be unique. Use lowercase with hyphens (e.g., "booking-api").
         identifier:
           type: string
-          description: Optional identifier for authorization requests (Unique in the system if provided)
+          description: Optional identifier for this resource server. Must be unique in the system if provided. When set to an absolute URI, the resource server is used in RFC 8707 resource indicator flows and clients can use this value in the resource parameter to request audience-restricted access tokens.
         ouId:
           type: string
           format: uuid
@@ -1751,9 +2284,12 @@ components:
         description:
           type: string
           description: Optional description of the resource server
+        handle:
+          type: string
+          description: Handle that prefixes all permission strings derived from this resource server. If changed, all derived permission strings for resources and actions are recomputed. Must be unique.
         identifier:
           type: string
-          description: Optional identifier for authorization requests (Unique in the system if provided)
+          description: Optional identifier for this resource server. Must be unique in the system if provided. When set to an absolute URI, the resource server is used in RFC 8707 resource indicator flows.
         ouId:
           type: string
           format: uuid
@@ -1780,8 +2316,7 @@ components:
         parent:
           type: string
           format: uuid
-          nullable: true
-          description: Parent resource ID (null for top-level resources, immutable after creation)
+          description: Parent resource ID. Absent for top-level resources (immutable after creation)
         permission:
           type: string
           description: Derived permission string based on handle hierarchy
@@ -1949,13 +2484,23 @@ components:
       properties:
         code:
           type: string
-          description: Error code
+          description: "Error code. Codes follow the RES-XXXX convention."
           example: "RES-1001"
         message:
-          type: string
-          description: Error message
-          example: "Invalid request format"
+          $ref: '#/components/schemas/I18nMessage'
         description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
           type: string
-          description: Detailed error description
-          example: "The request body is malformed or contains invalid data"
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

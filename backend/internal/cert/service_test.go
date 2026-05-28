@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 type ServiceTestSuite struct {
@@ -811,7 +811,6 @@ func (suite *ServiceTestSuite) TestIsValidCertificateType() {
 		certType CertificateType
 		expected bool
 	}{
-		{"None type", CertificateTypeNone, true},
 		{"JWKS type", CertificateTypeJWKS, true},
 		{"JWKS URI type", CertificateTypeJWKSURI, true},
 		{"Invalid type", CertificateType("INVALID"), false},

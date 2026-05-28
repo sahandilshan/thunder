@@ -27,10 +27,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/tests/mocks/database/providermock"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/tests/mocks/database/providermock"
 )
 
 type FlowStoreTestSuite struct {
@@ -45,7 +45,7 @@ func TestFlowStoreTestSuite(t *testing.T) {
 }
 
 func (s *FlowStoreTestSuite) SetupTest() {
-	_ = config.InitializeThunderRuntime("test", &config.Config{
+	_ = config.InitializeServerRuntime("test", &config.Config{
 		Server: config.ServerConfig{Identifier: "test-deployment"},
 		Flow:   config.FlowConfig{MaxVersionHistory: 5},
 	})
@@ -1143,8 +1143,8 @@ func (s *FlowStoreTestSuite) TestGetMaxVersionHistory() {
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
 			// Reset before reinitializing config for each test case
-			config.ResetThunderRuntime()
-			err := config.InitializeThunderRuntime("test", &config.Config{
+			config.ResetServerRuntime()
+			err := config.InitializeServerRuntime("test", &config.Config{
 				Server: config.ServerConfig{Identifier: "test-deployment"},
 				Flow:   config.FlowConfig{MaxVersionHistory: tt.config},
 			})

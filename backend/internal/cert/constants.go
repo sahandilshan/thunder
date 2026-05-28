@@ -36,8 +36,6 @@ const (
 type CertificateType string
 
 const (
-	// CertificateTypeNone represents no certificate.
-	CertificateTypeNone CertificateType = "NONE"
 	// CertificateTypeJWKS represents a JSON Web Key Set (JWKS) certificate.
 	CertificateTypeJWKS CertificateType = "JWKS"
 	// CertificateTypeJWKSURI represents a JWKS URI certificate.

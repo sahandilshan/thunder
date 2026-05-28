@@ -23,9 +23,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // TokenIntrospectionServiceInterface defines the interface for OAuth 2.0 token introspection.
@@ -79,7 +80,7 @@ func (s *tokenIntrospectionService) IntrospectToken(
 // validateToken verifies the signature and validity of the token.
 func (s *tokenIntrospectionService) validateToken(logger *log.Logger, token string) bool {
 	if err := s.jwtService.VerifyJWT(token, "", ""); err != nil {
-		logger.Debug("Failed to verify refresh token", log.String("error", err.Error))
+		logger.Debug("Failed to verify refresh token", log.String("error", err.Error.DefaultValue))
 		return false
 	}
 	return true
@@ -88,9 +89,13 @@ func (s *tokenIntrospectionService) validateToken(logger *log.Logger, token stri
 // prepareValidResponse prepares the response for a valid token introspection.
 func (s *tokenIntrospectionService) prepareValidResponse(payload map[string]interface{}) *IntrospectResponse {
 	response := &IntrospectResponse{
-		Active: true,
-		// TODO: Revisit if/when adding support for other token types.
+		Active:    true,
 		TokenType: constants.TokenTypeBearer,
+	}
+
+	if jkt, _ := dpop.ExtractCnfJkt(payload); jkt != "" {
+		response.Cnf = &CnfClaim{Jkt: jkt}
+		response.TokenType = constants.TokenTypeDPoP
 	}
 
 	if scope, ok := payload["scope"].(string); ok {

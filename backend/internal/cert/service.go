@@ -23,10 +23,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const loggerComponentName = "CertificateService"
@@ -37,7 +37,8 @@ type CertificateServiceInterface interface {
 	GetCertificateByReference(ctx context.Context, refType CertificateReferenceType, refID string) (
 		*Certificate, *serviceerror.ServiceError)
 	CreateCertificate(ctx context.Context, cert *Certificate) (*Certificate, *serviceerror.ServiceError)
-	UpdateCertificateByID(ctx context.Context, id string, cert *Certificate) (*Certificate, *serviceerror.ServiceError)
+	UpdateCertificateByID(ctx context.Context, id string, cert *Certificate) (
+		*Certificate, *serviceerror.ServiceError)
 	UpdateCertificateByReference(ctx context.Context, refType CertificateReferenceType, refID string,
 		cert *Certificate) (*Certificate, *serviceerror.ServiceError)
 	DeleteCertificateByID(ctx context.Context, id string) *serviceerror.ServiceError
@@ -305,7 +306,7 @@ func isValidReferenceType(refType CertificateReferenceType) bool {
 // isValidCertificateType checks if the provided certificate type is valid.
 func isValidCertificateType(certType CertificateType) bool {
 	switch certType {
-	case CertificateTypeNone, CertificateTypeJWKS, CertificateTypeJWKSURI:
+	case CertificateTypeJWKS, CertificateTypeJWKSURI:
 		return true
 	default:
 		return false

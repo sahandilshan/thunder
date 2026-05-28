@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -196,14 +196,14 @@ var (
 		Parent:      nil,
 	}
 
-	googleRegUserSchema = testutils.UserSchema{
+	googleRegEntityType = testutils.UserType{
 		Name: "google_reg_flow_user",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 			"sub": map[string]interface{}{
@@ -246,7 +246,7 @@ var (
 		ClientID:                  "google_reg_flow_test_client",
 		ClientSecret:              "google_reg_flow_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{googleRegUserSchema.Name},
+		AllowedUserTypes:          []string{googleRegEntityType.Name},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
 		},
@@ -266,7 +266,7 @@ type GoogleRegistrationFlowTestSuite struct {
 	suite.Suite
 	mockGoogleServer *testutils.MockGoogleOIDCServer
 	idpID            string
-	userSchemaID     string
+	entityTypeID     string
 	config           *common.TestSuiteConfig
 }
 
@@ -304,12 +304,12 @@ func (ts *GoogleRegistrationFlowTestSuite) SetupSuite() {
 	}
 	googleRegTestOUID = ouID
 
-	// Create user schema
-	googleRegUserSchema.OUID = googleRegTestOUID
-	googleRegUserSchema.AllowSelfRegistration = true
-	schemaID, err := testutils.CreateUserType(googleRegUserSchema)
-	ts.Require().NoError(err, "Failed to create Google user schema")
-	ts.userSchemaID = schemaID
+	// create user type
+	googleRegEntityType.OUID = googleRegTestOUID
+	googleRegEntityType.AllowSelfRegistration = true
+	schemaID, err := testutils.CreateUserType(googleRegEntityType)
+	ts.Require().NoError(err, "Failed to create Google user type")
+	ts.entityTypeID = schemaID
 
 	// Create Google IDP
 	googleIDP := testutils.IDP{
@@ -385,6 +385,7 @@ func (ts *GoogleRegistrationFlowTestSuite) SetupSuite() {
 	ts.config.CreatedFlowIDs = append(ts.config.CreatedFlowIDs, flowIDWithExisting)
 
 	// Create test application with the first flow
+	googleRegTestApp.OUID = googleRegTestOUID
 	appID, err := testutils.CreateApplication(googleRegTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
@@ -439,8 +440,8 @@ func (ts *GoogleRegistrationFlowTestSuite) TearDownSuite() {
 		}
 	}
 
-	if ts.userSchemaID != "" {
-		_ = testutils.DeleteUserType(ts.userSchemaID)
+	if ts.entityTypeID != "" {
+		_ = testutils.DeleteUserType(ts.entityTypeID)
 	}
 
 	// Stop mock server
@@ -461,7 +462,7 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowInitiation(
 	// Verify flow status and type
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("REDIRECTION", flowStep.Type, "Expected flow type to be REDIRECT")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Validate redirect information
 	ts.Require().NotEmpty(flowStep.Data, "Flow data should not be empty")
@@ -500,14 +501,14 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowCompleteSuc
 	// Verify flow status and type
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("REDIRECTION", flowStep.Type, "Expected flow type to be REDIRECT")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
-	flowID := flowStep.FlowID
+	flowID := flowStep.ExecutionID
 	redirectURLStr := flowStep.Data.RedirectURL
 	ts.Require().NotEmpty(redirectURLStr, "Redirect URL should not be empty")
 
 	// Step 2: Simulate user authorization at Google (get authorization code)
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
 	if err != nil {
 		ts.T().Fatalf("Failed to simulate Google authorization: %v", err)
 	}
@@ -515,10 +516,11 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowCompleteSuc
 
 	// Step 3: Complete the flow with the authorization code
 	inputs := map[string]string{
-		"code": authCode,
+		"code":  authCode,
+		"state": state,
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowID, inputs, "")
+	completeFlowStep, err := common.CompleteFlow(flowID, inputs, "", flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete Google registration flow: %v", err)
 	}
@@ -536,7 +538,7 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowCompleteSuc
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 
 	// Validate JWT contains expected user type and OU ID
-	ts.Require().Equal(googleRegUserSchema.Name, jwtClaims.UserType, "Expected userType to match created schema")
+	ts.Require().Equal(googleRegEntityType.Name, jwtClaims.UserType, "Expected userType to match created schema")
 	ts.Require().NotEmpty(jwtClaims.OUID, "Expected ouId to be present")
 	ts.Require().Equal(googleRegTestAppID, jwtClaims.Aud, "Expected aud to match the application ID")
 	ts.Require().NotEmpty(jwtClaims.Sub, "JWT subject should not be empty")
@@ -567,14 +569,16 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowCompleteWit
 		ts.T().Fatalf("Failed to initiate Google registration flow: %v", err)
 	}
 
-	flowID := flowStep.FlowID
+	flowID := flowStep.ExecutionID
 
 	// Step 2: Try to complete with invalid authorization code
+	state := testutils.ExtractStateFromRedirectURL(flowStep.Data.RedirectURL)
 	inputs := map[string]string{
-		"code": "invalid-reg-auth-code-12345",
+		"code":  "invalid-reg-auth-code-12345",
+		"state": state,
 	}
 
-	_, err = common.CompleteFlow(flowID, inputs, "")
+	_, err = common.CompleteFlow(flowID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().Error(err, "Should fail with invalid authorization code")
 }
 
@@ -585,14 +589,14 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowCompleteWit
 		ts.T().Fatalf("Failed to initiate Google registration flow: %v", err)
 	}
 
-	flowID := flowStep.FlowID
+	flowID := flowStep.ExecutionID
 
 	// Step 2: Try to complete without providing authorization code
 	inputs := map[string]string{}
 
 	// When required inputs are missing, the flow returns INCOMPLETE status (not an error)
 	// and asks for the missing inputs again
-	flowStep, err = common.CompleteFlow(flowID, inputs, "")
+	flowStep, err = common.CompleteFlow(flowID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Should not return error when inputs are missing")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus,
 		"Flow should remain INCOMPLETE when required inputs are missing")
@@ -618,16 +622,17 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowDuplicateUs
 	}
 
 	redirectURLStr := flowStep.Data.RedirectURL
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
 	if err != nil {
 		ts.T().Fatalf("Failed to simulate first Google authorization: %v", err)
 	}
 
 	inputs := map[string]string{
-		"code": authCode,
+		"code":  authCode,
+		"state": state,
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "", flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete first Google registration flow: %v", err)
 	}
@@ -647,16 +652,17 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowDuplicateUs
 	}
 
 	redirectURLStr2 := flowStep2.Data.RedirectURL
-	authCode2, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr2)
+	authCode2, state2, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr2)
 	if err != nil {
 		ts.T().Fatalf("Failed to simulate second Google authorization: %v", err)
 	}
 
 	inputs2 := map[string]string{
-		"code": authCode2,
+		"code":  authCode2,
+		"state": state2,
 	}
 
-	completeFlowStep2, err := common.CompleteFlow(flowStep2.FlowID, inputs2, "")
+	completeFlowStep2, err := common.CompleteFlow(flowStep2.ExecutionID, inputs2, "", flowStep2.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete second Google registration flow: %v", err)
 	}
@@ -675,16 +681,17 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowWithExistin
 	}
 
 	redirectURLStr := flowStep.Data.RedirectURL
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
 	if err != nil {
 		ts.T().Fatalf("Failed to simulate first Google authorization: %v", err)
 	}
 
 	inputs := map[string]string{
-		"code": authCode,
+		"code":  authCode,
+		"state": state,
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "", flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete first Google registration flow: %v", err)
 	}
@@ -716,16 +723,17 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowWithExistin
 	}
 
 	redirectURLStr2 := flowStep2.Data.RedirectURL
-	authCode2, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr2)
+	authCode2, state2, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr2)
 	if err != nil {
 		ts.T().Fatalf("Failed to simulate second Google authorization: %v", err)
 	}
 
 	inputs2 := map[string]string{
-		"code": authCode2,
+		"code":  authCode2,
+		"state": state2,
 	}
 
-	completeFlowStep2, err := common.CompleteFlow(flowStep2.FlowID, inputs2, "")
+	completeFlowStep2, err := common.CompleteFlow(flowStep2.ExecutionID, inputs2, "", flowStep2.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete second Google registration flow: %v", err)
 	}
@@ -743,7 +751,7 @@ func (ts *GoogleRegistrationFlowTestSuite) TestGoogleRegistrationFlowWithExistin
 
 	// Verify that the JWT is for the same user (existing user ID should match)
 	ts.Require().Equal(firstUserID, jwtClaims.Sub, "JWT subject should match the existing user ID")
-	ts.Require().Equal(googleRegUserSchema.Name, jwtClaims.UserType, "User type should match")
+	ts.Require().Equal(googleRegEntityType.Name, jwtClaims.UserType, "User type should match")
 	ts.Require().Equal(googleRegTestAppID, jwtClaims.Aud, "Audience should match the application ID")
 
 	// Verify that no new user was created - should still be the same user

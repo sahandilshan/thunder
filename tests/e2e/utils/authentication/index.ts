@@ -17,3 +17,4 @@
  */
 
 export * from "../authentication/console-admin-auth-utils";
+export * from "../authentication/admin-api-auth";

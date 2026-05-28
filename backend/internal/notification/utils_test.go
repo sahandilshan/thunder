@@ -24,9 +24,9 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 type UtilsTestSuite struct {
@@ -45,9 +45,9 @@ func (suite *UtilsTestSuite) SetupSuite() {
 			},
 		},
 	}
-	err := config.InitializeThunderRuntime("", testConfig)
+	err := config.InitializeServerRuntime("", testConfig)
 	if err != nil {
-		suite.T().Fatalf("Failed to initialize ThunderRuntime: %v", err)
+		suite.T().Fatalf("Failed to initialize server runtime: %v", err)
 	}
 }
 
@@ -378,7 +378,7 @@ func (suite *UtilsTestSuite) TestValidateMessageNotificationSender_EmptyProperti
 
 	suite.NotNil(err)
 	suite.Equal(ErrorInvalidRequestFormat.Code, err.Code)
-	suite.Contains(err.ErrorDescription, "message notification sender properties cannot be empty")
+	suite.Contains(err.ErrorDescription.DefaultValue, "message notification sender properties cannot be empty")
 }
 
 func (suite *UtilsTestSuite) TestValidateNotificationSender() {

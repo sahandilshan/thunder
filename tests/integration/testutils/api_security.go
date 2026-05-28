@@ -34,6 +34,7 @@ import (
 var (
 	adminTokenState *TokenResponse
 	tokenInitOnce   sync.Once
+	tokenInitErr    error
 )
 
 // authTransport wraps http.RoundTripper to inject authorization headers
@@ -138,13 +139,21 @@ func GetHTTPClientForUser(username, password string) (*http.Client, error) {
 // ObtainAdminAccessToken obtains an admin access token using the CONSOLE app and stores it globally
 func ObtainAdminAccessToken() error {
 	log.Println("Obtaining admin access token...")
+	adminUsername := os.Getenv("ADMIN_USERNAME")
+	if adminUsername == "" {
+		adminUsername = "admin"
+	}
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	if adminPassword == "" {
+		adminPassword = "admin"
+	}
 	var err error
 	adminTokenState, err = ObtainAccessTokenWithPassword(
 		"CONSOLE",
 		"https://localhost:8095/console",
 		"system",
-		"admin",
-		"admin",
+		adminUsername,
+		adminPassword,
 		true,
 	)
 	if err != nil {
@@ -178,14 +187,18 @@ func GetAccessToken() (string, error) {
 
 	// Fallback: Initialize token if not available (for running individual test packages)
 	if adminTokenState == nil {
-		// Use sync.Once to ensure token is obtained only once even with concurrent calls
-		var initErr error
+		// Use sync.Once to ensure token is obtained only once even with concurrent calls.
+		// Persist the first initialization error so subsequent callers return a clean error
+		// instead of dereferencing a nil token state.
 		tokenInitOnce.Do(func() {
 			log.Println("No token available, obtaining access token automatically...")
-			initErr = ObtainAdminAccessToken()
+			tokenInitErr = ObtainAdminAccessToken()
 		})
-		if initErr != nil {
-			return "", fmt.Errorf("failed to obtain access token: %w", initErr)
+		if tokenInitErr != nil {
+			return "", fmt.Errorf("failed to obtain access token: %w", tokenInitErr)
+		}
+		if adminTokenState == nil {
+			return "", fmt.Errorf("failed to obtain access token: token state is not initialized")
 		}
 	}
 
@@ -255,7 +268,7 @@ func exportTokenStateToEnv() error {
 
 	// Encode as base64 for safe environment variable storage
 	encoded := base64.StdEncoding.EncodeToString(jsonBytes)
-	os.Setenv("THUNDER_TEST_ADMIN_TOKEN", encoded)
+	os.Setenv("TEST_ADMIN_TOKEN", encoded)
 
 	log.Printf("Token state exported to environment")
 	return nil
@@ -263,7 +276,7 @@ func exportTokenStateToEnv() error {
 
 // loadTokenStateFromEnv deserializes token state from environment variable
 func loadTokenStateFromEnv() (*TokenResponse, error) {
-	encoded := os.Getenv("THUNDER_TEST_ADMIN_TOKEN")
+	encoded := os.Getenv("TEST_ADMIN_TOKEN")
 	if encoded == "" {
 		return nil, nil // No token state in environment
 	}

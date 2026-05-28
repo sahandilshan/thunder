@@ -28,6 +28,7 @@ const sidebar: SidebarsConfig = {
       type: 'category',
       label: 'APIs',
       collapsed: false,
+      className: 'sidebar-section-icon-apis',
       items: [
         {
           type: 'category',
@@ -36,8 +37,8 @@ const sidebar: SidebarsConfig = {
           items: [
             {
               type: 'doc',
-              id: 'sdks/react/apis/contexts/asgardeo-provider',
-              label: '<AsgardeoProvider />',
+              id: 'sdks/react/apis/contexts/thunderid-provider',
+              label: '<ThunderIDProvider />',
             },
           ],
         },
@@ -112,38 +113,6 @@ const sidebar: SidebarsConfig = {
                 },
               ],
             },
-            {
-              type: 'category',
-              label: 'Organization Components (B2B)',
-              collapsed: true,
-              items: [
-                {
-                  type: 'doc',
-                  id: 'sdks/react/apis/components/create-organization',
-                  label: '<CreateOrganization />',
-                },
-                {
-                  type: 'doc',
-                  id: 'sdks/react/apis/components/organization-profile',
-                  label: '<OrganizationProfile />',
-                },
-                {
-                  type: 'doc',
-                  id: 'sdks/react/apis/components/organization-switcher',
-                  label: '<OrganizationSwitcher />',
-                },
-                {
-                  type: 'doc',
-                  id: 'sdks/react/apis/components/organization-list',
-                  label: '<OrganizationList />',
-                },
-                {
-                  type: 'doc',
-                  id: 'sdks/react/apis/components/organization',
-                  label: '<Organization />',
-                },
-              ],
-            },
           ],
         },
         {
@@ -153,8 +122,8 @@ const sidebar: SidebarsConfig = {
           items: [
             {
               type: 'doc',
-              id: 'sdks/react/apis/hooks/use-asgardeo',
-              label: 'useAsgardeo()',
+              id: 'sdks/react/apis/hooks/use-thunderid',
+              label: 'useThunderID()',
             },
           ],
         },
@@ -164,6 +133,7 @@ const sidebar: SidebarsConfig = {
       type: 'category',
       label: 'Guides',
       collapsed: false,
+      className: 'sidebar-section-icon-guides',
       items: [
         {
           type: 'category',

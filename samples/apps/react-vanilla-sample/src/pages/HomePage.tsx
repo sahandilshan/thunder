@@ -54,14 +54,14 @@ const HomePage = () => {
             <Box className="home-container">
                 {token ? (
                     <Box className="token-container">
-                        <Typography variant='h5' sx={{ mb: 3 }}>Access Token:</Typography>
+                        <Typography variant='h5' sx={{ mb: 3 }}>Auth Assertion:</Typography>
                         <pre style={{ margin: 0 }}>
                             <code>{token}</code>
                         </pre>
                         <Divider sx={{ my: 4 }} />
                         {decodedToken && (
                             <Box>
-                                <Typography variant='h5' sx={{ mb: 3 }}>Decoded Token:</Typography>
+                                <Typography variant='h5' sx={{ mb: 3 }}>Decoded Assertion:</Typography>
                                 <Box className="decoded-token-container">
                                     <Box className="decoded-token-section">
                                         <Typography variant='h6' sx={{ mt: 3, mb: 1 }}>Header:</Typography>
@@ -84,7 +84,7 @@ const HomePage = () => {
                         )}
                     </Box>
                 ) : (
-                    <Typography>No token available. Please log in.</Typography>
+                    <Typography>No auth assertion available. Please log in.</Typography>
                 )}
             </Box>
         </Layout>

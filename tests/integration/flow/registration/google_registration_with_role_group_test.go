@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -144,7 +144,7 @@ var (
 		Parent:      nil,
 	}
 
-	googleRegGroupRoleUserSchema = testutils.UserSchema{
+	googleRegGroupRoleEntityType = testutils.UserType{
 		Name: "google_reg_group_role_user",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
@@ -190,7 +190,7 @@ var (
 		ClientID:                  "google_reg_group_role_test_client",
 		ClientSecret:              "google_reg_group_role_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{googleRegGroupRoleUserSchema.Name},
+		AllowedUserTypes:          []string{googleRegGroupRoleEntityType.Name},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
 		},
@@ -210,7 +210,7 @@ type GoogleRegistrationGroupRoleTestSuite struct {
 	suite.Suite
 	mockGoogleServer *testutils.MockGoogleOIDCServer
 	idpID            string
-	userSchemaID     string
+	entityTypeID     string
 	groupID          string
 	roleID           string
 	config           *common.TestSuiteConfig
@@ -250,18 +250,18 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) SetupSuite() {
 	}
 	googleRegGroupRoleTestOUID = ouID
 
-	// Create user schema
-	googleRegGroupRoleUserSchema.OUID = googleRegGroupRoleTestOUID
-	googleRegGroupRoleUserSchema.AllowSelfRegistration = true
-	schemaID, err := testutils.CreateUserType(googleRegGroupRoleUserSchema)
-	ts.Require().NoError(err, "Failed to create user schema")
-	ts.userSchemaID = schemaID
+	// create user type
+	googleRegGroupRoleEntityType.OUID = googleRegGroupRoleTestOUID
+	googleRegGroupRoleEntityType.AllowSelfRegistration = true
+	schemaID, err := testutils.CreateUserType(googleRegGroupRoleEntityType)
+	ts.Require().NoError(err, "Failed to create user type")
+	ts.entityTypeID = schemaID
 
 	// Create test group
 	testGroup := testutils.Group{
-		Name:               "Provisioned Users Group",
-		Description:        "Group for testing user provisioning with group assignment",
-		OUID:               googleRegGroupRoleTestOUID,
+		Name:        "Provisioned Users Group",
+		Description: "Group for testing user provisioning with group assignment",
+		OUID:        googleRegGroupRoleTestOUID,
 	}
 	groupID, err := testutils.CreateGroup(testGroup)
 	ts.Require().NoError(err, "Failed to create test group")
@@ -270,10 +270,10 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) SetupSuite() {
 
 	// Create test role
 	testRole := testutils.Role{
-		Name:               "Provisioned Users Role",
-		Description:        "Role for testing user provisioning with role assignment",
-		OUID:               googleRegGroupRoleTestOUID,
-		Permissions:        []testutils.ResourcePermissions{},
+		Name:        "Provisioned Users Role",
+		Description: "Role for testing user provisioning with role assignment",
+		OUID:        googleRegGroupRoleTestOUID,
+		Permissions: []testutils.ResourcePermissions{},
 	}
 	roleID, err := testutils.CreateRole(testRole)
 	ts.Require().NoError(err, "Failed to create test role")
@@ -348,6 +348,7 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) SetupSuite() {
 	googleRegGroupRoleTestApp.RegistrationFlowID = flowID
 
 	// Create test application
+	googleRegGroupRoleTestApp.OUID = googleRegGroupRoleTestOUID
 	appID, err := testutils.CreateApplication(googleRegGroupRoleTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
@@ -416,8 +417,8 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) TearDownSuite() {
 		}
 	}
 
-	if ts.userSchemaID != "" {
-		_ = testutils.DeleteUserType(ts.userSchemaID)
+	if ts.entityTypeID != "" {
+		_ = testutils.DeleteUserType(ts.entityTypeID)
 	}
 
 	// Stop mock server
@@ -436,19 +437,19 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) TestGoogleRegistrationWithGroupA
 	// Verify flow status and type
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("REDIRECTION", flowStep.Type, "Expected flow type to be REDIRECT")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	redirectURLStr := flowStep.Data.RedirectURL
 	ts.Require().NotEmpty(redirectURLStr, "Redirect URL should not be empty")
 
 	// Step 2: Simulate OAuth flow
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
 	ts.Require().NoError(err, "Failed to simulate OAuth flow")
 	ts.Require().NotEmpty(authCode, "Authorization code should not be empty")
 
 	// Step 3: Complete the flow
-	inputs := map[string]string{"code": authCode}
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "")
+	inputs := map[string]string{"code": authCode, "state": state}
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete flow")
 
 	// Verify flow completion
@@ -459,7 +460,7 @@ func (ts *GoogleRegistrationGroupRoleTestSuite) TestGoogleRegistrationWithGroupA
 	jwtClaims, err := testutils.DecodeJWT(completeFlowStep.Assertion)
 	ts.Require().NoError(err, "Failed to decode JWT assertion")
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
-	ts.Require().Equal(googleRegGroupRoleUserSchema.Name, jwtClaims.UserType, "Expected userType to match")
+	ts.Require().Equal(googleRegGroupRoleEntityType.Name, jwtClaims.UserType, "Expected userType to match")
 	ts.Require().Equal(googleRegGroupRoleTestAppID, jwtClaims.Aud, "Expected aud to match application ID")
 
 	// Step 4: Verify user was created

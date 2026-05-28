@@ -22,8 +22,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -169,14 +169,14 @@ var (
 		},
 	}
 
-	testUserSchema = testutils.UserSchema{
+	testUserType = testutils.UserType{
 		Name: "basic_auth_user",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 			"email": map[string]interface{}{
@@ -192,7 +192,7 @@ var (
 	}
 
 	testUser = testutils.User{
-		Type: testUserSchema.Name,
+		Type: testUserType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "testuser",
 			"password": "testpassword",
@@ -205,7 +205,7 @@ var (
 
 var (
 	testAppID    string
-	userSchemaID string
+	entityTypeID string
 )
 
 type BasicAuthFlowTestSuite struct {
@@ -227,13 +227,13 @@ func (ts *BasicAuthFlowTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "Failed to create test organization unit")
 	ts.ouID = ouID
 
-	// Create test user schema
-	testUserSchema.OUID = ts.ouID
-	schemaID, err := testutils.CreateUserType(testUserSchema)
+	// Create test user type
+	testUserType.OUID = ts.ouID
+	schemaID, err := testutils.CreateUserType(testUserType)
 	if err != nil {
-		ts.T().Fatalf("Failed to create test user schema during setup: %v", err)
+		ts.T().Fatalf("Failed to create test user type during setup: %v", err)
 	}
-	userSchemaID = schemaID
+	entityTypeID = schemaID
 
 	// Create flows
 	flowID, err := testutils.CreateFlow(basicAuthTestFlow)
@@ -246,6 +246,7 @@ func (ts *BasicAuthFlowTestSuite) SetupSuite() {
 	ts.config.CreatedFlowIDs = append(ts.config.CreatedFlowIDs, withoutPromptFlow)
 
 	// Create test application
+	testApp.OUID = ts.ouID
 	appID, err := testutils.CreateApplication(testApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
@@ -282,9 +283,9 @@ func (ts *BasicAuthFlowTestSuite) TearDownSuite() {
 		}
 	}
 
-	if userSchemaID != "" {
-		if err := testutils.DeleteUserType(userSchemaID); err != nil {
-			ts.T().Logf("Failed to delete test user schema during teardown: %v", err)
+	if entityTypeID != "" {
+		if err := testutils.DeleteUserType(entityTypeID); err != nil {
+			ts.T().Logf("Failed to delete test user type during teardown: %v", err)
 		}
 	}
 
@@ -311,7 +312,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowSuccess() {
 
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("VIEW", flowStep.Type, "Expected flow type to be VIEW")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Validate that the required inputs are returned
 	ts.Require().NotEmpty(flowStep.Data, "Flow data should not be empty")
@@ -333,7 +334,8 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowSuccess() {
 		"password": userAttrs["password"].(string),
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+		flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete authentication flow: %v", err)
 	}
@@ -348,7 +350,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowSuccess() {
 	jwtClaims, err := testutils.ValidateJWTAssertionFields(
 		completeFlowStep.Assertion,
 		testAppID,
-		testUserSchema.Name,
+		testUserType.Name,
 		ts.ouID,
 		testOU.Name,
 		testOU.Handle,
@@ -388,7 +390,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowSuccessWithSingleRequest() {
 	jwtClaims, err := testutils.ValidateJWTAssertionFields(
 		flowStep.Assertion,
 		testAppID,
-		testUserSchema.Name,
+		testUserType.Name,
 		ts.ouID,
 		testOU.Name,
 		testOU.Handle,
@@ -408,7 +410,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowWithTwoStepInput() {
 		ts.T().Fatalf("Failed to initiate authentication flow: %v", err)
 	}
 
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	var userAttrs map[string]interface{}
 	err = json.Unmarshal(testUser.Attributes, &userAttrs)
@@ -419,14 +421,15 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowWithTwoStepInput() {
 		"username": userAttrs["username"].(string),
 	}
 
-	intermediateFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	intermediateFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+		flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete authentication flow with missing credentials: %v", err)
 	}
 
 	ts.Require().Equal("INCOMPLETE", intermediateFlowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("VIEW", intermediateFlowStep.Type, "Expected flow type to be VIEW")
-	ts.Require().NotEmpty(intermediateFlowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(intermediateFlowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Validate that the required inputs are returned
 	ts.Require().NotEmpty(intermediateFlowStep.Data, "Flow data should not be empty")
@@ -440,7 +443,8 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowWithTwoStepInput() {
 		"password": userAttrs["password"].(string),
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+		intermediateFlowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete authentication flow: %v", err)
 	}
@@ -455,7 +459,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowWithTwoStepInput() {
 	jwtClaims, err := testutils.ValidateJWTAssertionFields(
 		completeFlowStep.Assertion,
 		testAppID,
-		testUserSchema.Name,
+		testUserType.Name,
 		ts.ouID,
 		testOU.Name,
 		testOU.Handle,
@@ -475,7 +479,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowInvalidCredentials() {
 		ts.T().Fatalf("Failed to initiate authentication flow: %v", err)
 	}
 
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Step 2: Continue with invalid credentials
 	inputs := map[string]string{
@@ -483,7 +487,8 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowInvalidCredentials() {
 		"password": "wrong_password",
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+		flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete authentication flow with invalid credentials: %v", err)
 	}
@@ -512,7 +517,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowRetryAfterInvalidCredentials(
 	if err != nil {
 		ts.T().Fatalf("Failed to initiate authentication flow: %v", err)
 	}
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Step 2: Submit invalid credentials
 	invalidInputs := map[string]string{
@@ -520,7 +525,8 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowRetryAfterInvalidCredentials(
 		"password": "wrong_password",
 	}
 
-	retryFlowStep, err := common.CompleteFlow(flowStep.FlowID, invalidInputs, "action_001")
+	retryFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, invalidInputs, "action_001",
+		flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete authentication flow with invalid credentials: %v", err)
 	}
@@ -535,7 +541,8 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowRetryAfterInvalidCredentials(
 		"password": "testpassword",
 	}
 
-	successFlowStep, err := common.CompleteFlow(flowStep.FlowID, validInputs, "action_001")
+	successFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, validInputs, "action_001",
+		retryFlowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete authentication flow after retry: %v", err)
 	}
@@ -556,8 +563,8 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowInvalidAppID() {
 
 	// Verify the error response
 	ts.Require().Equal("FES-1003", errorResp.Code, "Expected error code for invalid app ID")
-	ts.Require().Equal("Invalid request", errorResp.Message, "Expected error message for invalid request")
-	ts.Require().Equal("Invalid app ID provided in the request", errorResp.Description,
+	ts.Require().Equal("Invalid request", errorResp.Message.DefaultValue, "Expected error message for invalid request")
+	ts.Require().Equal("Invalid app ID provided in the request", errorResp.Description.DefaultValue,
 		"Expected error description for invalid app ID")
 }
 
@@ -570,7 +577,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowInvalidFlowID() {
 
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("VIEW", flowStep.Type, "Expected flow type to be VIEW")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 	ts.Require().NotEmpty(flowStep.Data, "Flow data should not be empty")
 	ts.Require().NotEmpty(flowStep.Data.Inputs, "Flow should require inputs")
 
@@ -580,15 +587,15 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlowInvalidFlowID() {
 		"password": "somepassword",
 	}
 
-	errorResp, err := common.CompleteAuthFlowWithError("invalid-flow-id", inputs)
+	errorResp, err := common.CompleteAuthFlowWithError("invalid-flow-id", inputs, flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete authentication flow: %v", err)
 	}
 
 	// Verify the error response
 	ts.Require().Equal("FES-1004", errorResp.Code, "Expected error code for invalid flow ID")
-	ts.Require().Equal("Invalid request", errorResp.Message, "Expected error message for invalid request")
-	ts.Require().Equal("Invalid flow ID provided in the request", errorResp.Description,
+	ts.Require().Equal("Invalid request", errorResp.Message.DefaultValue, "Expected error message for invalid request")
+	ts.Require().Equal("Invalid flow execution ID provided in the request", errorResp.Description.DefaultValue,
 		"Expected error description for invalid flow ID")
 }
 
@@ -598,6 +605,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlow_WithoutTokenConfig() {
 	// Create a new application without TokenConfig
 	appWithoutTokenConfig := testutils.Application{
 		Name:                      "Flow Test Application Without Token Config",
+		OUID:                      ts.ouID,
 		Description:               "Application for testing default behavior without token config",
 		IsRegistrationFlowEnabled: false,
 		ClientID:                  "flow_test_client_no_token_config",
@@ -657,6 +665,7 @@ func (ts *BasicAuthFlowTestSuite) TestBasicAuthFlow_WithEmptyUserAttributes() {
 	// Create a new application with empty user_attributes
 	appWithEmptyAttrs := testutils.Application{
 		Name:                      "Flow Test Application With Empty User Attributes",
+		OUID:                      ts.ouID,
 		Description:               "Application for testing behavior with empty user_attributes",
 		IsRegistrationFlowEnabled: false,
 		ClientID:                  "flow_test_client_empty_attrs",

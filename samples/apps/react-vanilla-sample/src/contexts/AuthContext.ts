@@ -17,6 +17,7 @@
  */
 
 import React, { createContext } from 'react';
+import type { UserProfile } from '../services/userProfileService';
 
 /**
  * AuthContext provides authentication state management for the application.
@@ -27,6 +28,8 @@ type AuthContextType = {
   token: string | null;
   setToken: React.Dispatch<React.SetStateAction<string | null>>;
   clearToken: () => void;
+  userProfile: UserProfile | null;
+  refreshUserProfile: () => Promise<UserProfile | null>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

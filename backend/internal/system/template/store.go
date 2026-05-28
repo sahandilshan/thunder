@@ -24,7 +24,7 @@ import "context"
 type templateStoreInterface interface {
 	GetTemplate(ctx context.Context, id string) (*TemplateDTO, error)
 
-	GetTemplateByScenario(ctx context.Context, scenario ScenarioType) (*TemplateDTO, error)
+	GetTemplateByScenario(ctx context.Context, scenario ScenarioType, tmplType TemplateType) (*TemplateDTO, error)
 
 	ListTemplates(ctx context.Context) ([]*TemplateDTO, error)
 }

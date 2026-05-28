@@ -16,9 +16,9 @@
  * under the License.
  */
 
-import React, {JSX, PropsWithChildren, ReactElement} from 'react';
-import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
+import Tabs from '@theme/Tabs';
+import React, {JSX, PropsWithChildren, ReactElement} from 'react';
 
 interface CodeGroupProps {
   /**
@@ -53,10 +53,10 @@ const KNOWN_ICONS: Record<string, string> = {
  * ```tsx
  * <CodeGroup>
  *   <CodeBlock lang="bash" label="npm">
- *     npm install @asgardeo/react
+ *     npm install @example/react
  *   </CodeBlock>
  *   <CodeBlock lang="bash" label="Yarn">
- *     yarn add @asgardeo/react
+ *     yarn add @example/react
  *   </CodeBlock>
  * </CodeGroup>
  * ```

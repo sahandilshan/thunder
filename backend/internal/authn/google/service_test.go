@@ -19,6 +19,8 @@
 package google
 
 import (
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -30,14 +32,14 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/authn/oauth"
-	"github.com/asgardeo/thunder/internal/authn/oidc"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userprovider"
-	"github.com/asgardeo/thunder/tests/mocks/authn/oidcmock"
-	"github.com/asgardeo/thunder/tests/mocks/jose/jwtmock"
+	"github.com/thunder-id/thunderid/internal/authn/oauth"
+	"github.com/thunder-id/thunderid/internal/authn/oidc"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/tests/mocks/authn/oidcmock"
+	"github.com/thunder-id/thunderid/tests/mocks/jose/jwtmock"
 )
 
 const (
@@ -72,7 +74,7 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) SetupTest() {
 			Leeway: 30, // 30 seconds leeway for clock skew
 		},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	_ = config.InitializeServerRuntime("test", testConfig)
 }
 
 func (suite *GoogleOIDCAuthnServiceTestSuite) TestBuildAuthorizeURLSuccess() {
@@ -482,10 +484,16 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDTokenWithFailure() {
 					Return(config, nil).Once()
 				suite.mockJWTService.On("VerifyJWTSignatureWithJWKS", idToken, config.OAuthEndpoints.JwksEndpoint).
 					Return(&serviceerror.ServiceError{
-						Type:             serviceerror.ServerErrorType,
-						Code:             "SIGNATURE_VERIFICATION_FAILED",
-						Error:            "Signature verification failed",
-						ErrorDescription: "signature verification failed",
+						Type: serviceerror.ServerErrorType,
+						Code: "SIGNATURE_VERIFICATION_FAILED",
+						Error: core.I18nMessage{
+							Key:          "error.test.signature_verification_failed",
+							DefaultValue: "Signature verification failed",
+						},
+						ErrorDescription: core.I18nMessage{
+							Key:          "error.test.signature_verification_failed",
+							DefaultValue: "signature verification failed",
+						},
 					}).Once()
 			},
 		},
@@ -747,7 +755,7 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDTokenWithFailure() {
 			suite.NotNil(err)
 			suite.Equal(tc.expectedErrorCode, err.Code)
 			if tc.expectedErrContains != "" {
-				suite.Contains(err.ErrorDescription, tc.expectedErrContains)
+				suite.Contains(err.ErrorDescription.DefaultValue, tc.expectedErrContains)
 			}
 		})
 	}
@@ -785,16 +793,16 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) TestFetchUserInfoSuccess() {
 
 func (suite *GoogleOIDCAuthnServiceTestSuite) TestGetInternalUserSuccess() {
 	sub := "user123"
-	user := &userprovider.User{
-		UserID:   "user123",
-		UserType: "person",
+	user := &entityprovider.Entity{
+		ID:   "user123",
+		Type: "person",
 	}
 	suite.mockOIDCService.On("GetInternalUser", sub).Return(user, nil)
 
 	result, err := suite.service.GetInternalUser(sub)
 	suite.Nil(err)
 	suite.NotNil(result)
-	suite.Equal(user.UserID, result.UserID)
+	suite.Equal(user.ID, result.ID)
 }
 
 // generateTestJWT creates a valid JWT token with the specified claims.
@@ -865,7 +873,7 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_Expired
 	err := suite.service.ValidateIDToken(context.Background(), testGoogleIDPID, idToken)
 	suite.NotNil(err)
 	suite.Equal(oidc.ErrorInvalidIDToken.Code, err.Code)
-	suite.Contains(err.ErrorDescription, "expired")
+	suite.Contains(err.ErrorDescription.DefaultValue, "expired")
 }
 
 func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_IssuedInFutureWithinLeeway_ShouldPass() {
@@ -915,18 +923,18 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_IssuedI
 	err := suite.service.ValidateIDToken(context.Background(), testGoogleIDPID, idToken)
 	suite.NotNil(err)
 	suite.Equal(oidc.ErrorInvalidIDToken.Code, err.Code)
-	suite.Contains(err.ErrorDescription, "future")
+	suite.Contains(err.ErrorDescription.DefaultValue, "future")
 }
 
 func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_ZeroLeeway_ExpiredShouldFail() {
 	// Reset and reinitialize with zero leeway
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Leeway: 0, // No leeway
 		},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	_ = config.InitializeServerRuntime("test", testConfig)
 
 	now := time.Now()
 	// Token expired 1 second ago - should fail with zero leeway
@@ -950,18 +958,18 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_ZeroLee
 	err := suite.service.ValidateIDToken(context.Background(), testGoogleIDPID, idToken)
 	suite.NotNil(err)
 	suite.Equal(oidc.ErrorInvalidIDToken.Code, err.Code)
-	suite.Contains(err.ErrorDescription, "expired")
+	suite.Contains(err.ErrorDescription.DefaultValue, "expired")
 }
 
 func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_IatExactlyAtBoundary_ShouldPass() {
 	// Reset and reinitialize with 30 second leeway
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Leeway: 30, // 30 seconds leeway
 		},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	_ = config.InitializeServerRuntime("test", testConfig)
 
 	now := time.Now()
 	// Token iat is exactly at leeway boundary (now + 30 seconds)
@@ -990,13 +998,13 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_IatExac
 
 func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_IatJustBeyondBoundary_ShouldFail() {
 	// Reset and reinitialize with 30 second leeway
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Leeway: 30, // 30 seconds leeway
 		},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	_ = config.InitializeServerRuntime("test", testConfig)
 
 	now := time.Now()
 	// Token iat is just beyond leeway boundary (now + 31 seconds)
@@ -1022,5 +1030,5 @@ func (suite *GoogleOIDCAuthnServiceTestSuite) TestValidateIDToken_Leeway_IatJust
 	err := suite.service.ValidateIDToken(context.Background(), testGoogleIDPID, idToken)
 	suite.NotNil(err)
 	suite.Equal(oidc.ErrorInvalidIDToken.Code, err.Code)
-	suite.Contains(err.ErrorDescription, "future")
+	suite.Contains(err.ErrorDescription.DefaultValue, "future")
 }

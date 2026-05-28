@@ -22,15 +22,18 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/security"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/security"
 )
 
-const (
-	defaultRequiredScope = "system"
-)
+func getDefaultRequiredScope() string {
+	if p := security.GetSystemPermissions(); p != nil {
+		return p.Root
+	}
+	return security.UninitializedPermissionSentinel
+}
 
 // permissionValidator validates that the request has the required permission/scope to access the next node.
 type permissionValidator struct {
@@ -55,7 +58,7 @@ func newPermissionValidator(flowFactory core.FlowFactoryInterface) *permissionVa
 
 // Execute validates that the request has the required permission/scope to access the next node.
 func (e *permissionValidator) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := e.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := e.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 
 	execResp := &common.ExecutorResponse{
 		AdditionalData: make(map[string]string),
@@ -99,7 +102,7 @@ func (e *permissionValidator) Execute(ctx *core.NodeContext) (*common.ExecutorRe
 
 // getRequiredScopes retrieves the required scopes from the node context properties.
 func (e *permissionValidator) getRequiredScopes(ctx *core.NodeContext) []string {
-	requiredScopes := []string{defaultRequiredScope}
+	requiredScopes := []string{getDefaultRequiredScope()}
 
 	if ctx.NodeProperties != nil {
 		if val, exists := ctx.NodeProperties[propertyKeyRequiredScopes]; exists {

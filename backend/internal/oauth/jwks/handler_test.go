@@ -19,6 +19,8 @@
 package jwks
 
 import (
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 type JWKSHandlerTestSuite struct {
@@ -89,8 +91,8 @@ func (s *JWKSHandlerTestSuite) TestHandleJWKSRequest_ClientError() {
 	svcErr := &serviceerror.ServiceError{
 		Type:             serviceerror.ClientErrorType,
 		Code:             "invalid_request",
-		Error:            "invalid_request",
-		ErrorDescription: "Invalid request",
+		Error:            core.I18nMessage{Key: "error.test.invalid_request", DefaultValue: "invalid_request"},
+		ErrorDescription: core.I18nMessage{Key: "error.test.invalid_request", DefaultValue: "Invalid request"},
 	}
 	s.mockService.On("GetJWKS").Return(nil, svcErr)
 
@@ -105,7 +107,10 @@ func (s *JWKSHandlerTestSuite) TestHandleJWKSRequest_ServiceError() {
 	req := httptest.NewRequest(http.MethodGet, "/oauth2/jwks", nil)
 	rr := httptest.NewRecorder()
 
-	svcErr := serviceerror.CustomServiceError(serviceerror.InternalServerError, "Failed to get JWKS")
+	svcErr := serviceerror.CustomServiceError(serviceerror.InternalServerError, core.I18nMessage{
+		Key:          "error.test.failed_get_jwks",
+		DefaultValue: "Failed to get JWKS",
+	})
 	s.mockService.On("GetJWKS").Return(nil, svcErr)
 
 	s.handler.HandleJWKSRequest(rr, req)

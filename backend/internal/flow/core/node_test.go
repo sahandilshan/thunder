@@ -23,7 +23,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/common"
 )
 
 type NodeTestSuite struct {
@@ -37,7 +37,7 @@ func TestNodeTestSuite(t *testing.T) {
 func (s *NodeTestSuite) TestExecuteBaseNodeReturnsError() {
 	node := newTaskExecutionNode("node-1", nil, false, false)
 
-	resp, err := node.Execute(&NodeContext{FlowID: "f1"})
+	resp, err := node.Execute(&NodeContext{ExecutionID: "f1"})
 
 	s.NotNil(err)
 	s.Nil(resp)

@@ -30,12 +30,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
-	"github.com/asgardeo/thunder/tests/mocks/database/providermock"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
+	"github.com/thunder-id/thunderid/tests/mocks/database/providermock"
 )
 
 // InitTestSuite contains tests for store initialization.
@@ -50,7 +50,7 @@ func TestInitTestSuite(t *testing.T) {
 // SetupSuite initializes the test suite once.
 func (suite *InitTestSuite) SetupSuite() {
 	testConfig := &config.Config{}
-	err := config.InitializeThunderRuntime("/tmp/test", testConfig)
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
 	if err != nil {
 		suite.Fail("Failed to initialize runtime", err)
 	}
@@ -58,14 +58,14 @@ func (suite *InitTestSuite) SetupSuite() {
 
 // SetupTest resets configuration before each test.
 func (suite *InitTestSuite) SetupTest() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = ""
 	runtime.Config.DeclarativeResources.Enabled = false
 }
 
 // TestInitializeStoreMutableMode tests store initialization in mutable mode.
 func (suite *InitTestSuite) TestInitializeStoreMutableMode() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = ""
 	runtime.Config.DeclarativeResources.Enabled = false
 
@@ -77,7 +77,7 @@ func (suite *InitTestSuite) TestInitializeStoreMutableMode() {
 	getDBProvider = func() provider.DBProviderInterface { return mockProvider }
 	defer func() { getDBProvider = originalGetDBProvider }()
 
-	store, _, err := initializeStore()
+	store, _, _, _, err := initializeStore()
 
 	suite.NoError(err)
 	suite.NotNil(store)
@@ -90,11 +90,11 @@ func (suite *InitTestSuite) TestInitializeStoreMutableMode() {
 
 // TestInitializeStoreDeclarativeMode tests store initialization in declarative mode.
 func (suite *InitTestSuite) TestInitializeStoreDeclarativeMode() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = string(serverconst.StoreModeDeclarative)
 	runtime.Config.DeclarativeResources.Enabled = true
 
-	store, _, err := initializeStore()
+	store, _, _, _, err := initializeStore()
 
 	suite.NoError(err)
 	suite.NotNil(store)
@@ -106,7 +106,7 @@ func (suite *InitTestSuite) TestInitializeStoreDeclarativeMode() {
 
 // TestInitializeStoreCompositeMode tests store initialization in composite mode.
 func (suite *InitTestSuite) TestInitializeStoreCompositeMode() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = string(serverconst.StoreModeComposite)
 
 	mockClient := &providermock.DBClientInterfaceMock{}
@@ -117,7 +117,7 @@ func (suite *InitTestSuite) TestInitializeStoreCompositeMode() {
 	getDBProvider = func() provider.DBProviderInterface { return mockProvider }
 	defer func() { getDBProvider = originalGetDBProvider }()
 
-	store, _, err := initializeStore()
+	store, _, _, _, err := initializeStore()
 
 	suite.NoError(err)
 	suite.NotNil(store)
@@ -132,11 +132,11 @@ func (suite *InitTestSuite) TestInitializeStoreCompositeMode() {
 
 // TestInitializeStoreDeclarativeFallback tests fall back to declarative mode when enabled globally.
 func (suite *InitTestSuite) TestInitializeStoreDeclarativeFallback() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = ""
 	runtime.Config.DeclarativeResources.Enabled = true
 
-	store, _, err := initializeStore()
+	store, _, _, _, err := initializeStore()
 
 	suite.NoError(err)
 	suite.NotNil(store)
@@ -148,7 +148,7 @@ func (suite *InitTestSuite) TestInitializeStoreDeclarativeFallback() {
 
 // TestInitializeStoreMutableModeFallback tests fall back to mutable mode when declarative is disabled.
 func (suite *InitTestSuite) TestInitializeStoreMutableModeFallback() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = ""
 	runtime.Config.DeclarativeResources.Enabled = false
 
@@ -160,7 +160,7 @@ func (suite *InitTestSuite) TestInitializeStoreMutableModeFallback() {
 	getDBProvider = func() provider.DBProviderInterface { return mockProvider }
 	defer func() { getDBProvider = originalGetDBProvider }()
 
-	store, _, err := initializeStore()
+	store, _, _, _, err := initializeStore()
 
 	suite.NoError(err)
 	suite.NotNil(store)
@@ -173,10 +173,10 @@ func (suite *InitTestSuite) TestInitializeStoreMutableModeFallback() {
 
 // TestInitializeStoreNormalizeCaseSensitivity tests store mode is case-insensitive.
 func (suite *InitTestSuite) TestInitializeStoreNormalizeCaseSensitivity() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = "DECLARATIVE"
 
-	store, _, err := initializeStore()
+	store, _, _, _, err := initializeStore()
 
 	suite.NoError(err)
 	suite.NotNil(store)
@@ -188,7 +188,7 @@ func (suite *InitTestSuite) TestInitializeStoreNormalizeCaseSensitivity() {
 
 // TestInitializeStoreTrimsWhitespace tests store mode trims whitespace.
 func (suite *InitTestSuite) TestInitializeStoreTrimsWhitespace() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = "  composite  "
 
 	mockClient := &providermock.DBClientInterfaceMock{}
@@ -199,7 +199,7 @@ func (suite *InitTestSuite) TestInitializeStoreTrimsWhitespace() {
 	getDBProvider = func() provider.DBProviderInterface { return mockProvider }
 	defer func() { getDBProvider = originalGetDBProvider }()
 
-	store, _, err := initializeStore()
+	store, _, _, _, err := initializeStore()
 
 	suite.NoError(err)
 	suite.NotNil(store)
@@ -221,7 +221,7 @@ func TestLoadDeclarativeResourcesTestSuite(t *testing.T) {
 // SetupSuite initializes the test suite once.
 func (suite *LoadDeclarativeResourcesTestSuite) SetupSuite() {
 	testConfig := &config.Config{}
-	err := config.InitializeThunderRuntime("/tmp/test", testConfig)
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
 	if err != nil {
 		suite.Fail("Failed to initialize runtime", err)
 	}
@@ -229,7 +229,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) SetupSuite() {
 
 // SetupTest resets configuration before each test.
 func (suite *LoadDeclarativeResourcesTestSuite) SetupTest() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Role.Store = ""
 	runtime.Config.DeclarativeResources.Enabled = false
 }
@@ -240,7 +240,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesWith
 	genericStore := declarativeresource.NewGenericFileBasedStoreForTest(entity.KeyTypeRole)
 	fileStore := &fileBasedStore{GenericFileBasedStore: genericStore}
 
-	err := loadDeclarativeResources(fileStore, nil)
+	err := loadDeclarativeResources(fileStore, nil, nil)
 
 	// Should not error even if no resources are found (empty directory)
 	suite.NoError(err)
@@ -252,7 +252,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesWith
 	fileStore := &fileBasedStore{GenericFileBasedStore: genericStore}
 
 	// Should handle nil dbStore gracefully (no duplicate checking against DB)
-	err := loadDeclarativeResources(fileStore, nil)
+	err := loadDeclarativeResources(fileStore, nil, nil)
 
 	suite.NoError(err)
 }
@@ -266,7 +266,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesWith
 	mockDbStore := newRoleStoreInterfaceMock(suite.T())
 	// Don't setup any expectations since no resources are loaded by default
 
-	err := loadDeclarativeResources(fileStore, mockDbStore)
+	err := loadDeclarativeResources(fileStore, mockDbStore, nil)
 
 	suite.NoError(err)
 }
@@ -291,7 +291,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 	}
 
 	// Validate the role with no dbStore (validation should pass for valid role)
-	err := validateRoleWrapper(testRole, fileStore, nil)
+	err := validateRoleWrapper(testRole, fileStore, nil, nil)
 
 	suite.NoError(err)
 }
@@ -311,7 +311,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesIDEx
 	suite.NoError(err)
 
 	// Load should correctly extract the ID
-	err = loadDeclarativeResources(fileStore, nil)
+	err = loadDeclarativeResources(fileStore, nil, nil)
 
 	suite.NoError(err)
 	// Verify the role is still in the store with correct ID
@@ -353,7 +353,7 @@ assignments:
 	suite.Equal("api-server", role.Permissions[0].ResourceServerID)
 	suite.Len(role.Assignments, 1)
 	suite.Equal("user1", role.Assignments[0].ID)
-	suite.Equal(AssigneeTypeUser, role.Assignments[0].Type)
+	suite.Equal(assigneeTypeEntity, role.Assignments[0].Type)
 }
 
 // TestLoadDeclarativeResourcesValidateRoleWrapperRequiredFields tests validation of required fields.
@@ -366,7 +366,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 		Name: "No ID",
 		OUID: "ou1",
 	}
-	err := validateRoleWrapper(roleNoID, fileStore, nil)
+	err := validateRoleWrapper(roleNoID, fileStore, nil, nil)
 	suite.Error(err)
 	suite.Contains(err.Error(), "role ID is required")
 
@@ -375,7 +375,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 		ID:   "role1",
 		OUID: "ou1",
 	}
-	err = validateRoleWrapper(roleNoName, fileStore, nil)
+	err = validateRoleWrapper(roleNoName, fileStore, nil, nil)
 	suite.Error(err)
 	suite.Contains(err.Error(), "role name is required")
 
@@ -384,9 +384,9 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 		ID:   "role1",
 		Name: "Test Role",
 	}
-	err = validateRoleWrapper(roleNoOU, fileStore, nil)
+	err = validateRoleWrapper(roleNoOU, fileStore, nil, nil)
 	suite.Error(err)
-	suite.Contains(err.Error(), "organization unit ID is required")
+	suite.Contains(err.Error(), "ou_id or ou_handle is required for role 'Test Role'")
 }
 
 // TestLoadDeclarativeResourcesValidateAssignmentTypes tests validation of assignment types.
@@ -400,10 +400,10 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 		Name: "Test Role",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 		},
 	}
-	err := validateRoleWrapper(roleValidUser, fileStore, nil)
+	err := validateRoleWrapper(roleValidUser, fileStore, nil, nil)
 	suite.NoError(err)
 
 	// Test role with valid group assignment
@@ -415,7 +415,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 			{ID: "group1", Type: AssigneeTypeGroup},
 		},
 	}
-	err = validateRoleWrapper(roleValidGroup, fileStore, nil)
+	err = validateRoleWrapper(roleValidGroup, fileStore, nil, nil)
 	suite.NoError(err)
 
 	// Test role with invalid assignment type
@@ -427,7 +427,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 			{ID: "invalid1", Type: "invalid_type"},
 		},
 	}
-	err = validateRoleWrapper(roleInvalidType, fileStore, nil)
+	err = validateRoleWrapper(roleInvalidType, fileStore, nil, nil)
 	suite.Error(err)
 	suite.Contains(err.Error(), "invalid assignment type")
 
@@ -437,10 +437,10 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 		Name: "Test Role 4",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{Type: AssigneeTypeUser},
+			{Type: assigneeTypeEntity},
 		},
 	}
-	err = validateRoleWrapper(roleNoAssignmentID, fileStore, nil)
+	err = validateRoleWrapper(roleNoAssignmentID, fileStore, nil, nil)
 	suite.Error(err)
 	suite.Contains(err.Error(), "assignment ID is required")
 }
@@ -459,7 +459,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 			{Permissions: []string{"read"}},
 		},
 	}
-	err := validateRoleWrapper(roleNoResourceServer, fileStore, nil)
+	err := validateRoleWrapper(roleNoResourceServer, fileStore, nil, nil)
 	suite.Error(err)
 	suite.Contains(err.Error(), "resource server ID is required")
 
@@ -475,7 +475,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 			},
 		},
 	}
-	err = validateRoleWrapper(roleValidPermission, fileStore, nil)
+	err = validateRoleWrapper(roleValidPermission, fileStore, nil, nil)
 	suite.NoError(err)
 }
 
@@ -494,7 +494,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 	suite.NoError(err)
 
 	// Try to validate same role again
-	err = validateRoleWrapper(existingRole, fileStore, nil)
+	err = validateRoleWrapper(existingRole, fileStore, nil, nil)
 	suite.Error(err)
 	suite.Contains(err.Error(), "duplicate role ID")
 	suite.Contains(err.Error(), "declarative resources")
@@ -515,7 +515,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 	// Mock database store to indicate role exists
 	mockDbStore.On("IsRoleExist", mock.Anything, "db-duplicate").Return(true, nil).Once()
 
-	err := validateRoleWrapper(role, fileStore, mockDbStore)
+	err := validateRoleWrapper(role, fileStore, mockDbStore, nil)
 	suite.Error(err)
 	suite.Contains(err.Error(), "duplicate role ID")
 	suite.Contains(err.Error(), "database store")
@@ -539,7 +539,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestLoadDeclarativeResourcesVali
 		false, fmt.Errorf("database error"),
 	).Once()
 
-	err := validateRoleWrapper(role, fileStore, mockDbStore)
+	err := validateRoleWrapper(role, fileStore, mockDbStore, nil)
 	suite.Error(err)
 	suite.Contains(err.Error(), "database error")
 	mockDbStore.AssertExpectations(suite.T())
@@ -595,7 +595,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestIsEntityNotFoundError() {
 // TestMatchesAssignee tests the role assignment matching logic.
 func (suite *LoadDeclarativeResourcesTestSuite) TestMatchesAssigneeUserMatch() {
 	assignments := []RoleAssignment{
-		{ID: "user1", Type: AssigneeTypeUser},
+		{ID: "user1", Type: assigneeTypeEntity},
 		{ID: "group1", Type: AssigneeTypeGroup},
 	}
 	groupSet := map[string]bool{
@@ -610,7 +610,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestMatchesAssigneeUserMatch() {
 // TestMatchesAssigneeGroupMatch tests group assignment matching.
 func (suite *LoadDeclarativeResourcesTestSuite) TestMatchesAssigneeGroupMatch() {
 	assignments := []RoleAssignment{
-		{ID: "user1", Type: AssigneeTypeUser},
+		{ID: "user1", Type: assigneeTypeEntity},
 		{ID: "group1", Type: AssigneeTypeGroup},
 	}
 	groupSet := map[string]bool{
@@ -624,7 +624,7 @@ func (suite *LoadDeclarativeResourcesTestSuite) TestMatchesAssigneeGroupMatch() 
 // TestMatchesAssigneeNoMatch tests when no assignments match.
 func (suite *LoadDeclarativeResourcesTestSuite) TestMatchesAssigneeNoMatch() {
 	assignments := []RoleAssignment{
-		{ID: "user1", Type: AssigneeTypeUser},
+		{ID: "user1", Type: assigneeTypeEntity},
 		{ID: "group1", Type: AssigneeTypeGroup},
 	}
 	groupSet := map[string]bool{
@@ -657,7 +657,7 @@ func (suite *InitTestSuite) TestInitialize_DBClientError() {
 	}()
 
 	mux := http.NewServeMux()
-	_, _, err := Initialize(mux, nil, nil, nil, nil, nil)
+	_, _, _, err := Initialize(mux, nil, nil, nil, nil, nil)
 
 	suite.Error(err)
 	suite.Equal("mock db client error", err.Error())
@@ -681,7 +681,7 @@ func (suite *InitTestSuite) TestInitialize_TransactionerError() {
 	}()
 
 	mux := http.NewServeMux()
-	_, _, err := Initialize(mux, nil, nil, nil, nil, nil)
+	_, _, _, err := Initialize(mux, nil, nil, nil, nil, nil)
 
 	suite.Error(err)
 	suite.Equal("mock transactioner error", err.Error())
@@ -712,7 +712,7 @@ func (suite *InitTestSuite) TestInitialize_Success() {
 	}()
 
 	mux := http.NewServeMux()
-	svc, exporter, err := Initialize(mux, nil, nil, nil, nil, nil)
+	svc, _, exporter, err := Initialize(mux, nil, nil, nil, nil, nil)
 
 	suite.NoError(err)
 	suite.NotNil(svc)
@@ -723,7 +723,7 @@ func (suite *InitTestSuite) TestInitialize_Success() {
 
 // TestInitialize_StoreInitError tests Initialize when store initialization fails
 func (suite *InitTestSuite) TestInitialize_StoreInitError() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testDir := suite.T().TempDir()
 
 	// Create invalid roles yaml
@@ -741,14 +741,14 @@ func (suite *InitTestSuite) TestInitialize_StoreInitError() {
 			Enabled: true,
 		},
 	}
-	_ = config.InitializeThunderRuntime(testDir, testConfig)
+	_ = config.InitializeServerRuntime(testDir, testConfig)
 	defer func() {
-		config.ResetThunderRuntime()
+		config.ResetServerRuntime()
 		suite.SetupSuite()
 	}()
 
 	mux := http.NewServeMux()
-	svc, exporter, err := Initialize(mux, nil, nil, nil, nil, nil)
+	svc, _, exporter, err := Initialize(mux, nil, nil, nil, nil, nil)
 
 	suite.Error(err)
 	if err != nil {

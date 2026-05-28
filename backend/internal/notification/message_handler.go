@@ -23,12 +23,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // messageNotificationSenderHandler handles HTTP requests for message notification sender management
@@ -62,7 +63,7 @@ func (h *messageNotificationSenderHandler) HandleSenderListRequest(w http.Respon
 		senderResponse, err := getSenderResponseFromDTO(&sender)
 		if err != nil {
 			logger.Error("Failed to convert sender to response", log.String("sender", sender.Name), log.Error(err))
-			h.handleError(w, &ErrorInternalServerError, "Failed to convert sender to response: "+err.Error())
+			h.handleError(w, &serviceerror.InternalServerError, "Failed to convert sender to response: "+err.Error())
 			return
 		}
 		senderResponses = append(senderResponses, senderResponse)
@@ -84,7 +85,7 @@ func (h *messageNotificationSenderHandler) HandleSenderCreateRequest(w http.Resp
 	senderDTO, err := getDTOFromSenderRequest(sender)
 	if err != nil {
 		logger.Error("Failed to process sender request", log.Error(err))
-		h.handleError(w, &ErrorInternalServerError, "Failed to process sender request: "+err.Error())
+		h.handleError(w, &serviceerror.InternalServerError, "Failed to process sender request: "+err.Error())
 		return
 	}
 
@@ -108,7 +109,7 @@ func (h *messageNotificationSenderHandler) HandleSenderCreateRequest(w http.Resp
 	senderResponse, err := getSenderResponseFromDTO(createdSender)
 	if err != nil {
 		logger.Error("Failed to convert sender to response", log.String("sender", createdSender.Name), log.Error(err))
-		h.handleError(w, &ErrorInternalServerError, "Failed to convert sender to response: "+err.Error())
+		h.handleError(w, &serviceerror.InternalServerError, "Failed to convert sender to response: "+err.Error())
 		return
 	}
 
@@ -142,7 +143,7 @@ func (h *messageNotificationSenderHandler) HandleSenderGetRequest(w http.Respons
 	senderResponse, err := getSenderResponseFromDTO(sender)
 	if err != nil {
 		logger.Error("Failed to convert sender to response", log.String("sender", sender.Name), log.Error(err))
-		h.handleError(w, &ErrorInternalServerError, "Failed to convert sender to response: "+err.Error())
+		h.handleError(w, &serviceerror.InternalServerError, "Failed to convert sender to response: "+err.Error())
 		return
 	}
 
@@ -167,7 +168,7 @@ func (h *messageNotificationSenderHandler) HandleSenderUpdateRequest(w http.Resp
 	senderDTO, err := getDTOFromSenderRequest(sender)
 	if err != nil {
 		logger.Error("Failed to process sender request", log.Error(err))
-		h.handleError(w, &ErrorInternalServerError, "Failed to process sender request: "+err.Error())
+		h.handleError(w, &serviceerror.InternalServerError, "Failed to process sender request: "+err.Error())
 		return
 	}
 
@@ -180,7 +181,7 @@ func (h *messageNotificationSenderHandler) HandleSenderUpdateRequest(w http.Resp
 	senderResponse, err := getSenderResponseFromDTO(updatedSender)
 	if err != nil {
 		logger.Error("Failed to convert sender to response", log.String("sender", updatedSender.Name), log.Error(err))
-		h.handleError(w, &ErrorInternalServerError, "Failed to convert sender to response: "+err.Error())
+		h.handleError(w, &serviceerror.InternalServerError, "Failed to convert sender to response: "+err.Error())
 		return
 	}
 
@@ -254,14 +255,17 @@ func (h *messageNotificationSenderHandler) HandleOTPVerifyRequest(w http.Respons
 // handleError handles service errors and returns appropriate HTTP responses.
 func (h *messageNotificationSenderHandler) handleError(w http.ResponseWriter,
 	svcErr *serviceerror.ServiceError, customErrDesc string) {
-	apiErrDesc := svcErr.ErrorDescription
+	errDesc := svcErr.ErrorDescription
 	if customErrDesc != "" {
-		apiErrDesc = customErrDesc
+		errDesc = core.I18nMessage{
+			Key:          svcErr.ErrorDescription.Key,
+			DefaultValue: customErrDesc,
+		}
 	}
 	errResp := apierror.ErrorResponse{
 		Code:        svcErr.Code,
 		Message:     svcErr.Error,
-		Description: apiErrDesc,
+		Description: errDesc,
 	}
 
 	statusCode := http.StatusInternalServerError

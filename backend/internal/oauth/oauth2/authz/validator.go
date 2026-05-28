@@ -19,20 +19,16 @@
 package authz
 
 import (
-	"fmt"
-	"net/url"
-	"slices"
-	"strings"
-
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/pkce"
-	"github.com/asgardeo/thunder/internal/system/log"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/authz/requestvalidator"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/resourceindicators"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // AuthorizationValidatorInterface defines the interface for validating OAuth2 authorization requests.
 type AuthorizationValidatorInterface interface {
-	validateInitialAuthorizationRequest(msg *OAuthMessage, oauthApp *appmodel.OAuthAppConfigProcessedDTO) (
+	validateInitialAuthorizationRequest(msg *OAuthMessage, oauthApp *inboundmodel.OAuthClient) (
 		bool, string, string)
 }
 
@@ -46,11 +42,9 @@ func newAuthorizationValidator() AuthorizationValidatorInterface {
 
 // validateInitialAuthorizationRequest validates the initial authorization request parameters.
 func (av *authorizationValidator) validateInitialAuthorizationRequest(msg *OAuthMessage,
-	oauthApp *appmodel.OAuthAppConfigProcessedDTO) (bool, string, string) {
+	oauthApp *inboundmodel.OAuthClient) (bool, string, string) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "AuthorizationValidator"))
 
-	// Extract required parameters.
-	responseType := msg.RequestQueryParams[constants.RequestParamResponseType]
 	clientID := msg.RequestQueryParams[constants.RequestParamClientID]
 	redirectURI := msg.RequestQueryParams[constants.RequestParamRedirectURI]
 
@@ -58,122 +52,21 @@ func (av *authorizationValidator) validateInitialAuthorizationRequest(msg *OAuth
 		return false, constants.ErrorInvalidRequest, "Missing client_id parameter"
 	}
 
-	// Validate the redirect URI against the registered application.
 	if err := oauthApp.ValidateRedirectURI(redirectURI); err != nil {
 		logger.Debug("Validation failed for redirect URI", log.Error(err))
 		return false, constants.ErrorInvalidRequest, "Invalid redirect URI"
 	}
 
-	// Validate the prompt parameter if present.
-	promptParam, promptExists := msg.RequestQueryParams[constants.RequestParamPrompt]
-	if promptExists {
-		sendToClient, errCode, errMsg := validatePromptParameter(promptParam)
-		if errCode != "" {
-			return sendToClient, errCode, errMsg
-		}
+	// All subsequent validation errors can be sent to the client application via redirect.
+	// The /authorize endpoint does not accept a DPoP header (proofs are bound at /par
+	// or /token), so dpopHeaderJkt is always empty here.
+	errCode, errMsg := requestvalidator.ValidateAuthorizationRequestParams(msg.RequestQueryParams, oauthApp, "")
+	if errCode != "" {
+		return true, errCode, errMsg
 	}
 
-	// Validate if the authorization code grant type is allowed for the app.
-	if !oauthApp.IsAllowedGrantType(constants.GrantTypeAuthorizationCode) {
-		return true, constants.ErrorUnauthorizedClient,
-			"Authorization code grant type is not allowed for the client"
-	}
-
-	// Validate the authorization request.
-	if responseType == "" {
-		return true, constants.ErrorInvalidRequest, "Missing response_type parameter"
-	}
-	if !oauthApp.IsAllowedResponseType(responseType) {
-		return true, constants.ErrorUnsupportedResponseType, "Unsupported response type"
-	}
-
-	// Validate PKCE parameters
-	if responseType == string(constants.ResponseTypeCode) {
-		codeChallenge := msg.RequestQueryParams[constants.RequestParamCodeChallenge]
-		codeChallengeMethod := msg.RequestQueryParams[constants.RequestParamCodeChallengeMethod]
-
-		if oauthApp.RequiresPKCE() && codeChallenge == "" {
-			return true, constants.ErrorInvalidRequest, "code_challenge is required for this application"
-		}
-
-		// Validate code challenge format and method if PKCE parameters are present
-		if codeChallenge != "" {
-			if err := pkce.ValidateCodeChallenge(codeChallenge, codeChallengeMethod); err != nil {
-				return true, constants.ErrorInvalidRequest, "Invalid code_challenge or code_challenge_method parameter"
-			}
-		}
-	}
-	// Validate nonce length (FAPI 2.0 aligned)
-	nonce := msg.RequestQueryParams[constants.RequestParamNonce]
-	if nonce != "" && len(nonce) > constants.MaxNonceLength {
-		return true, constants.ErrorInvalidRequest, "nonce exceeds maximum allowed length"
-	}
-
-	// Validate resource parameter if present
-	resource := msg.RequestQueryParams[constants.RequestParamResource]
-	if resource != "" {
-		if err := validateResourceParameter(resource); err != nil {
-			return true, constants.ErrorInvalidTarget, "Invalid resource parameter"
-		}
-	}
-
-	return false, "", ""
-}
-
-// validateResourceParameter validates the resource parameter.
-// TODO: Need to add other validations after introducing resources.
-func validateResourceParameter(resource string) error {
-	parsedURL, err := url.Parse(resource)
-	if err != nil {
-		return fmt.Errorf("resource parameter must be a valid absolute URI: %w", err)
-	}
-
-	if parsedURL.Scheme == "" {
-		return fmt.Errorf("resource parameter must be an absolute URI with a scheme")
-	}
-
-	if parsedURL.Fragment != "" {
-		return fmt.Errorf("resource parameter must not include a fragment component")
-	}
-
-	return nil
-}
-
-// validatePromptParameter validates the OIDC prompt parameter.
-func validatePromptParameter(prompt string) (bool, string, string) {
-	if strings.TrimSpace(prompt) == "" {
-		return true, constants.ErrorInvalidRequest, "The prompt parameter cannot be empty"
-	}
-
-	values := strings.Fields(prompt)
-
-	for _, v := range values {
-		if !slices.Contains(constants.ValidPromptValues, v) {
-			return true, constants.ErrorInvalidRequest, "Unsupported prompt parameter value"
-		}
-	}
-
-	if slices.Contains(values, constants.PromptNone) {
-		// "none" must not be combined with other values.
-		if len(values) > 1 {
-			return true, constants.ErrorInvalidRequest,
-				"prompt value 'none' must not be combined with other values"
-		}
-
-		// Thunder does not support server-side sessions as of now.
-		return true, constants.ErrorLoginRequired,
-			"User authentication is required"
-	}
-
-	// Thunder does not support consent or account selection prompts as of now.
-	if slices.Contains(values, constants.PromptConsent) {
-		return true, constants.ErrorConsentRequired,
-			"Consent is not supported"
-	}
-
-	if slices.Contains(values, constants.PromptSelectAccount) {
-		return true, constants.ErrorAccountSelectionRequired,
-			"Account selection is not supported"
+	if errResp := resourceindicators.ValidateResourceURIs(msg.Resources); errResp != nil {
+		return true, errResp.Error, errResp.ErrorDescription
 	}
 
 	return false, "", ""

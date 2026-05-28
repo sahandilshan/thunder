@@ -2,11 +2,11 @@ openapi: 3.0.3
 
 info:
   title: Health Check API
-  version: 0.1.0
-  description: This API is used to retrieve health status of the server including readiness and liveness checks.
+  version: "1.0"
+  description: Check server health for liveness and readiness probes. Used by load balancers and orchestrators to determine instance availability.
   license:
     name: Apache 2.0
-    url: http://www.apache.org/licenses/LICENSE-2.0.html
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
 
 servers:
   - url: https://{host}:{port}
@@ -17,34 +17,35 @@ servers:
         default: "8090"
 
 tags:
-  - name: health
+  - name: Health
     description: Health check operations
+
+security: []
 
 paths:
   /health/liveness:
     get:
       tags:
-        - health
-      summary: Liveness Check
+        - Health
+      summary: Liveness check
+      description: Returns 200 if the server process is alive.
       responses:
         '200':
-          description: OK
-        '503':
-          description: Service Unavailable
+          description: Service is alive
 
   /health/readiness:
     get:
       tags:
-        - health
+        - Health
       summary: Readiness check
-      description: Returns OK if the service is ready to accept traffic.
+      description: Returns 200 if the service is ready to accept traffic.
       responses:
         '200':
           description: Service is ready
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthStatus'
+                $ref: '#/components/schemas/ServerStatus'
               example:
                 status: "UP"
                 serviceStatus:
@@ -59,7 +60,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthStatus'
+                $ref: '#/components/schemas/ServerStatus'
               example:
                 status: "DOWN"
                 serviceStatus:
@@ -72,7 +73,7 @@ paths:
 
 components:
   schemas:
-    HealthStatus:
+    ServerStatus:
       type: object
       properties:
         status:
@@ -84,17 +85,19 @@ components:
         serviceStatus:
           type: array
           items:
-            type: object
-            properties:
-              serviceName:
-                type: string
-                enum:
-                  - ConfigDB
-                  - RuntimeDB
-                  - UserDB
-              status:
-                type: string
-                enum:
-                - UP
-                - DOWN
-                - UNKNOWN
+            $ref: '#/components/schemas/ServiceStatus'
+    ServiceStatus:
+      type: object
+      properties:
+        serviceName:
+          type: string
+          enum:
+            - ConfigDB
+            - RuntimeDB
+            - UserDB
+        status:
+          type: string
+          enum:
+            - UP
+            - DOWN
+            - UNKNOWN

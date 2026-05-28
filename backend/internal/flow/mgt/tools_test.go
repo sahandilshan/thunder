@@ -19,6 +19,8 @@
 package flowmgt
 
 import (
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"context"
 	"testing"
 
@@ -27,9 +29,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	flowCommon "github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/mcp/tool"
+	flowCommon "github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/mcp/tool"
 )
 
 type FlowToolsTestSuite struct {
@@ -135,9 +137,10 @@ func (suite *FlowToolsTestSuite) TestListFlows_Error() {
 	mockService := NewFlowMgtServiceInterfaceMock(suite.T())
 	tools := &flowTools{flowService: mockService}
 
-	mockService.On("ListFlows", mock.Anything, 30, 0, flowCommon.FlowType("")).Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "database error",
-	})
+	mockService.On("ListFlows", mock.Anything, 30, 0, flowCommon.FlowType("")).
+		Return(nil, &serviceerror.ServiceError{
+			ErrorDescription: core.I18nMessage{Key: "error.test.database_error", DefaultValue: "database error"},
+		})
 
 	ctx := context.Background()
 	req := &mcp.CallToolRequest{}
@@ -210,7 +213,7 @@ func (suite *FlowToolsTestSuite) TestGetFlowByHandle_Error() {
 		"nonexistent",
 		flowCommon.FlowTypeAuthentication,
 	).Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "flow not found",
+		ErrorDescription: core.I18nMessage{Key: "error.test.flow_not_found", DefaultValue: "flow not found"},
 	})
 
 	ctx := context.Background()
@@ -261,7 +264,7 @@ func (suite *FlowToolsTestSuite) TestGetFlowByID_Error() {
 	tools := &flowTools{flowService: mockService}
 
 	mockService.On("GetFlow", mock.Anything, "flow123").Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "flow not found",
+		ErrorDescription: core.I18nMessage{Key: "error.test.flow_not_found", DefaultValue: "flow not found"},
 	})
 
 	ctx := context.Background()
@@ -331,7 +334,7 @@ func (suite *FlowToolsTestSuite) TestCreateFlow_Error() {
 	}
 
 	mockService.On("CreateFlow", mock.Anything, &inputFlow).Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "validation error",
+		ErrorDescription: core.I18nMessage{Key: "error.test.validation_error", DefaultValue: "validation error"},
 	})
 
 	ctx := context.Background()
@@ -423,7 +426,7 @@ func (suite *FlowToolsTestSuite) TestUpdateFlow_GetFlowError() {
 	}
 
 	mockService.On("GetFlow", mock.Anything, "flow123").Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "flow not found",
+		ErrorDescription: core.I18nMessage{Key: "error.test.flow_not_found", DefaultValue: "flow not found"},
 	})
 
 	ctx := context.Background()
@@ -468,7 +471,7 @@ func (suite *FlowToolsTestSuite) TestUpdateFlow_UpdateError() {
 		Name:     "Updated Name",
 		Nodes:    inputUpdate.Nodes,
 	}).Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "validation error",
+		ErrorDescription: core.I18nMessage{Key: "error.test.validation_error", DefaultValue: "validation error"},
 	})
 
 	ctx := context.Background()

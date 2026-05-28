@@ -24,8 +24,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 )
 
 // newTemplateFileBasedStoreForTest creates an isolated store for testing
@@ -53,6 +53,7 @@ func (suite *FileBasedStoreTestSuite) TestFileBasedStore() {
 	dto := &TemplateDTO{
 		ID:       "t1",
 		Scenario: ScenarioUserInvite,
+		Type:     TemplateTypeEmail,
 	}
 	err := suite.store.Create("t1", dto)
 	suite.NoError(err)
@@ -62,7 +63,7 @@ func (suite *FileBasedStoreTestSuite) TestFileBasedStore() {
 	suite.NotNil(res)
 	suite.Equal("t1", res.ID)
 
-	resScen, err := suite.store.GetTemplateByScenario(context.Background(), ScenarioUserInvite)
+	resScen, err := suite.store.GetTemplateByScenario(context.Background(), ScenarioUserInvite, TemplateTypeEmail)
 	suite.NoError(err)
 	suite.NotNil(resScen)
 	suite.Equal("t1", resScen.ID)
@@ -77,7 +78,8 @@ func (suite *FileBasedStoreTestSuite) TestFileBasedStore() {
 	suite.ErrorIs(err, errTemplateNotFound)
 	suite.Nil(resNotFound)
 
-	resScenNotFound, err := suite.store.GetTemplateByScenario(context.Background(), ScenarioType("UNKNOWN"))
+	resScenNotFound, err := suite.store.GetTemplateByScenario(
+		context.Background(), ScenarioType("UNKNOWN"), TemplateTypeEmail)
 	suite.Error(err)
 	suite.ErrorIs(err, errTemplateNotFound)
 	suite.Nil(resScenNotFound)
@@ -107,6 +109,7 @@ func (suite *FileBasedStoreTestSuite) TestFileBasedStore_GetTemplateByScenario_C
 	dto := &TemplateDTO{
 		ID:       "t1",
 		Scenario: ScenarioUserInvite,
+		Type:     TemplateTypeEmail,
 	}
 	err := suite.store.Create("t1", dto)
 	suite.NoError(err)
@@ -120,6 +123,33 @@ func (suite *FileBasedStoreTestSuite) TestFileBasedStore_GetTemplateByScenario_C
 	suite.Error(err)
 	suite.Contains(err.Error(), "template data corrupted")
 	suite.Nil(res)
+}
+
+func (suite *FileBasedStoreTestSuite) TestFileBasedStore_SameScenarioDifferentType() {
+	emailDTO := &TemplateDTO{
+		ID:       "otp-email",
+		Scenario: ScenarioOTP,
+		Type:     TemplateTypeEmail,
+	}
+	smsDTO := &TemplateDTO{
+		ID:       "otp-sms",
+		Scenario: ScenarioOTP,
+		Type:     TemplateTypeSMS,
+	}
+	suite.NoError(suite.store.Create("otp-email", emailDTO))
+	suite.NoError(suite.store.Create("otp-sms", smsDTO))
+
+	resEmail, err := suite.store.GetTemplateByScenario(context.Background(), ScenarioOTP, TemplateTypeEmail)
+	suite.NoError(err)
+	suite.NotNil(resEmail)
+	suite.Equal("otp-email", resEmail.ID)
+	suite.Equal(TemplateTypeEmail, resEmail.Type)
+
+	resSMS, err := suite.store.GetTemplateByScenario(context.Background(), ScenarioOTP, TemplateTypeSMS)
+	suite.NoError(err)
+	suite.NotNil(resSMS)
+	suite.Equal("otp-sms", resSMS.ID)
+	suite.Equal(TemplateTypeSMS, resSMS.Type)
 }
 
 func (suite *FileBasedStoreTestSuite) TestFileBasedStore_ListTemplates_WithCorruptedData() {

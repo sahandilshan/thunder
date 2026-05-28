@@ -31,12 +31,12 @@ export interface SMSMessage {
 /**
  * Mock SMS Server for E2E Testing
  *
- * This server acts as a fake SMS provider that captures messages sent by Thunder
+ * This server acts as a fake SMS provider that captures messages sent by the Server
  * during authentication flows, automatically extracts OTP codes, and provides
  * endpoints for tests to retrieve the captured messages.
  *
  * Features:
- * - POST /send-sms - Endpoint for Thunder to send SMS messages
+ * - POST /send-sms - Endpoint for the Server to send SMS messages
  * - GET /messages - Retrieve all captured messages
  * - GET /messages/last - Get the most recent message
  * - POST /clear - Clear all captured messages
@@ -79,7 +79,7 @@ export class MockSMSServer {
    * Setup HTTP routes
    */
   private setupRoutes(): void {
-    // Main endpoint that Thunder calls to send SMS
+    // Main endpoint that the Server calls to send SMS
     this.app.post("/send-sms", this.handleSendSMS.bind(this));
 
     // Endpoint for tests to retrieve all messages
@@ -98,7 +98,7 @@ export class MockSMSServer {
   }
 
   /**
-   * Handle incoming SMS from Thunder
+   * Handle incoming SMS from the Server
    */
   private handleSendSMS(req: Request, res: Response): void {
     try {

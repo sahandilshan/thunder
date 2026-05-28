@@ -20,6 +20,11 @@ package flowmeta
 
 import "encoding/json"
 
+type I18nMessage struct {
+	Key          string `json:"key,omitempty"`
+	DefaultValue string `json:"defaultValue,omitempty"`
+}
+
 // FlowMetadataResponse represents the aggregated metadata response from /flow/meta.
 type FlowMetadataResponse struct {
 	IsRegistrationFlowEnabled bool                 `json:"isRegistrationFlowEnabled"`
@@ -68,7 +73,7 @@ type I18nMetadata struct {
 
 // ErrorResponse represents an error response from the API.
 type ErrorResponse struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Description string `json:"description,omitempty"`
+	Code        string      `json:"code"`
+	Message     I18nMessage `json:"message"`
+	Description I18nMessage `json:"description,omitempty"`
 }

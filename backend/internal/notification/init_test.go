@@ -27,9 +27,10 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/tests/mocks/jose/jwtmock"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/tests/mocks/jose/jwtmock"
+	"github.com/thunder-id/thunderid/tests/mocks/templatemock"
 )
 
 const (
@@ -38,8 +39,9 @@ const (
 
 type InitTestSuite struct {
 	suite.Suite
-	mockJWTService *jwtmock.JWTServiceInterfaceMock
-	mux            *http.ServeMux
+	mockJWTService      *jwtmock.JWTServiceInterfaceMock
+	mockTemplateService *templatemock.TemplateServiceInterfaceMock
+	mux                 *http.ServeMux
 }
 
 func TestInitTestSuite(t *testing.T) {
@@ -47,7 +49,7 @@ func TestInitTestSuite(t *testing.T) {
 }
 
 func (suite *InitTestSuite) SetupSuite() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Issuer:         "test-issuer",
@@ -60,28 +62,29 @@ func (suite *InitTestSuite) SetupSuite() {
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 	}
-	err := config.InitializeThunderRuntime("", testConfig)
+	err := config.InitializeServerRuntime("", testConfig)
 	if err != nil {
-		suite.T().Fatalf("Failed to initialize ThunderRuntime: %v", err)
+		suite.T().Fatalf("Failed to initialize server runtime: %v", err)
 	}
 }
 
 func (suite *InitTestSuite) SetupTest() {
 	suite.mockJWTService = jwtmock.NewJWTServiceInterfaceMock(suite.T())
+	suite.mockTemplateService = templatemock.NewTemplateServiceInterfaceMock(suite.T())
 	suite.mux = http.NewServeMux()
 }
 
 func (suite *InitTestSuite) TearDownSuite() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func (suite *InitTestSuite) TestInitialize() {
-	mgtService, otpService, _, err := Initialize(suite.mux, suite.mockJWTService)
+	mgtService, otpService, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	suite.NotNil(mgtService)
@@ -146,7 +149,7 @@ properties:
 	suite.NoError(err)
 
 	// Reset and initialize config with declarative resources enabled
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Issuer:         "test-issuer",
@@ -161,7 +164,7 @@ properties:
 			Enabled: true,
 		},
 	}
-	err = config.InitializeThunderRuntime(tmpDir, testConfig)
+	err = config.InitializeServerRuntime(tmpDir, testConfig)
 	suite.NoError(err)
 
 	// Verify files can be loaded using the file-based runtime
@@ -192,7 +195,7 @@ properties:
 	suite.True(hasNonSecretProp, "Expected at least one non-secret property")
 
 	// Clean up - reset config and reinitialize with suite's test config
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	suiteConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Issuer:         "test-issuer",
@@ -205,17 +208,17 @@ properties:
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 	}
-	err = config.InitializeThunderRuntime("", suiteConfig)
+	err = config.InitializeServerRuntime("", suiteConfig)
 	suite.NoError(err)
 }
 
 func (suite *InitTestSuite) TestRegisterRoutes_ListEndpoint() {
-	_, _, _, err := Initialize(suite.mux, suite.mockJWTService)
+	_, _, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	req := httptest.NewRequest(http.MethodGet, "/notification-senders/message", nil)
@@ -227,7 +230,7 @@ func (suite *InitTestSuite) TestRegisterRoutes_ListEndpoint() {
 }
 
 func (suite *InitTestSuite) TestRegisterRoutes_CreateEndpoint() {
-	_, _, _, err := Initialize(suite.mux, suite.mockJWTService)
+	_, _, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	req := httptest.NewRequest(http.MethodPost, "/notification-senders/message", nil)
@@ -239,7 +242,7 @@ func (suite *InitTestSuite) TestRegisterRoutes_CreateEndpoint() {
 }
 
 func (suite *InitTestSuite) TestRegisterRoutes_GetByIDEndpoint() {
-	_, _, _, err := Initialize(suite.mux, suite.mockJWTService)
+	_, _, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	req := httptest.NewRequest(http.MethodGet, "/notification-senders/message/test-id", nil)
@@ -251,7 +254,7 @@ func (suite *InitTestSuite) TestRegisterRoutes_GetByIDEndpoint() {
 }
 
 func (suite *InitTestSuite) TestRegisterRoutes_UpdateEndpoint() {
-	_, _, _, err := Initialize(suite.mux, suite.mockJWTService)
+	_, _, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	req := httptest.NewRequest(http.MethodPut, "/notification-senders/message/test-id", nil)
@@ -263,7 +266,7 @@ func (suite *InitTestSuite) TestRegisterRoutes_UpdateEndpoint() {
 }
 
 func (suite *InitTestSuite) TestRegisterRoutes_DeleteEndpoint() {
-	_, _, _, err := Initialize(suite.mux, suite.mockJWTService)
+	_, _, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	req := httptest.NewRequest(http.MethodDelete, "/notification-senders/message/test-id", nil)
@@ -275,7 +278,7 @@ func (suite *InitTestSuite) TestRegisterRoutes_DeleteEndpoint() {
 }
 
 func (suite *InitTestSuite) TestRegisterRoutes_SendOTPEndpoint() {
-	_, _, _, err := Initialize(suite.mux, suite.mockJWTService)
+	_, _, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	req := httptest.NewRequest(http.MethodPost, "/notification-senders/otp/send", nil)
@@ -287,7 +290,7 @@ func (suite *InitTestSuite) TestRegisterRoutes_SendOTPEndpoint() {
 }
 
 func (suite *InitTestSuite) TestRegisterRoutes_VerifyOTPEndpoint() {
-	_, _, _, err := Initialize(suite.mux, suite.mockJWTService)
+	_, _, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	req := httptest.NewRequest(http.MethodPost, "/notification-senders/otp/verify", nil)
@@ -299,7 +302,7 @@ func (suite *InitTestSuite) TestRegisterRoutes_VerifyOTPEndpoint() {
 }
 
 func (suite *InitTestSuite) TestRegisterRoutes_CORSPreflight() {
-	_, _, _, err := Initialize(suite.mux, suite.mockJWTService)
+	_, _, _, _, err := Initialize(suite.mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.NoError(err)
 
 	paths := []string{
@@ -485,7 +488,7 @@ func (suite *InitTestSuite) TestInitialize_WithDeclarativeResourcesEnabled_Inval
 	err = os.WriteFile(filepath.Join(senderDir, "invalid-sender.yaml"), []byte(invalidYAML), 0600)
 	suite.NoError(err)
 
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Issuer:         "test-issuer",
@@ -498,26 +501,26 @@ func (suite *InitTestSuite) TestInitialize_WithDeclarativeResourcesEnabled_Inval
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		DeclarativeResources: config.DeclarativeResources{
 			Enabled: true,
 		},
 	}
-	err = config.InitializeThunderRuntime(tmpDir, testConfig)
+	err = config.InitializeServerRuntime(tmpDir, testConfig)
 	suite.NoError(err)
 
 	mux := http.NewServeMux()
 
 	// Initialize should return an error due to invalid YAML
-	_, _, _, err = Initialize(mux, suite.mockJWTService)
+	_, _, _, _, err = Initialize(mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.Error(err)
 	suite.Contains(err.Error(), "failed to load notification sender resources")
 
 	// Clean up
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	suiteConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Issuer:         "test-issuer",
@@ -530,12 +533,12 @@ func (suite *InitTestSuite) TestInitialize_WithDeclarativeResourcesEnabled_Inval
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 	}
-	err = config.InitializeThunderRuntime("", suiteConfig)
+	err = config.InitializeServerRuntime("", suiteConfig)
 	suite.NoError(err)
 }
 
@@ -563,7 +566,7 @@ properties:
 	err = os.WriteFile(filepath.Join(senderDir, "invalid-sender.yaml"), []byte(invalidSenderYAML), 0600)
 	suite.NoError(err)
 
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Issuer:         "test-issuer",
@@ -576,26 +579,26 @@ properties:
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		DeclarativeResources: config.DeclarativeResources{
 			Enabled: true,
 		},
 	}
-	err = config.InitializeThunderRuntime(tmpDir, testConfig)
+	err = config.InitializeServerRuntime(tmpDir, testConfig)
 	suite.NoError(err)
 
 	mux := http.NewServeMux()
 
 	// Initialize should return an error due to validation failure
-	_, _, _, err = Initialize(mux, suite.mockJWTService)
+	_, _, _, _, err = Initialize(mux, suite.mockJWTService, suite.mockTemplateService)
 	suite.Error(err)
 	suite.Contains(err.Error(), "failed to load notification sender resources")
 
 	// Clean up
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	suiteConfig := &config.Config{
 		JWT: config.JWTConfig{
 			Issuer:         "test-issuer",
@@ -608,11 +611,11 @@ properties:
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 	}
-	err = config.InitializeThunderRuntime("", suiteConfig)
+	err = config.InitializeServerRuntime("", suiteConfig)
 	suite.NoError(err)
 }

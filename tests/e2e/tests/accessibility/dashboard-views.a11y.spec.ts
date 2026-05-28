@@ -36,7 +36,7 @@ import {
 } from "../../utils/accessibility";
 
 /**
- * Known accessibility violations in the current Thunder app.
+ * Known accessibility violations in the current app.
  * TODO: Remove these exclusions as the product fixes each issue.
  */
 const KNOWN_VIOLATIONS = ["document-title", "html-has-lang"];

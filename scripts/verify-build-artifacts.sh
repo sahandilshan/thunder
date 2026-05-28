@@ -1,6 +1,6 @@
 #!/bin/bash
 # verify-build-artifacts.sh
-# Verifies that all expected Thunder build artifacts were created for all platforms
+# Verifies that all expected product build artifacts were created for all platforms
 #
 # Usage: ./scripts/verify-build-artifacts.sh
 #
@@ -9,6 +9,9 @@
 #   1 - One or more artifacts missing
 
 set -e
+
+PRODUCT_NAME="ThunderID"
+PRODUCT_NAME_LOWERCASE="$(echo "$PRODUCT_NAME" | tr '[:upper:]' '[:lower:]')"
 
 echo "✅ Verifying all build artifacts were created..."
 
@@ -37,7 +40,7 @@ for platform in "${PLATFORMS[@]}"; do
   fi
 
   # Build the expected file pattern with specific architecture
-  EXPECTED_PATTERN="target/dist/thunder-*-${PACKAGE_OS}-${PACKAGE_ARCH}.zip"
+  EXPECTED_PATTERN="target/dist/${PRODUCT_NAME_LOWERCASE}-*-${PACKAGE_OS}-${PACKAGE_ARCH}.zip"
 
   # Expand glob once into an array (nullglob ensures empty array if no match)
   shopt -s nullglob

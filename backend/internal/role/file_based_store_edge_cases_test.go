@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 )
 
 // RoleFileBasedStoreEdgeCaseTestSuite contains edge case tests for the file-based role store.
@@ -137,7 +137,7 @@ func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetRoleAssignments_ZeroLim
 		Name: "Admin",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 		},
 	})
 
@@ -248,7 +248,7 @@ func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetAuthorizedPermissions_E
 		Name: "Admin",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 		},
 		Permissions: []ResourcePermissions{
 			{ResourceServerID: "rs1", Permissions: []string{"perm1"}},
@@ -300,7 +300,7 @@ func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetAuthorizedPermissions_M
 		Name: "Admin",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 		},
 		Permissions: []ResourcePermissions{
 			{ResourceServerID: "rs1", Permissions: []string{"read", "write"}},
@@ -312,7 +312,7 @@ func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetAuthorizedPermissions_M
 		Name: "Editor",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 		},
 		Permissions: []ResourcePermissions{
 			{ResourceServerID: "rs1", Permissions: []string{"write"}},
@@ -340,7 +340,7 @@ func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetAuthorizedPermissions_M
 		Name: "Admin",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 		},
 		Permissions: []ResourcePermissions{
 			{ResourceServerID: "rs1", Permissions: []string{"perm1", "perm2", "perm3"}},
@@ -418,9 +418,9 @@ func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetRoleAssignments_Paginat
 		Name: "Admin",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
-			{ID: "user2", Type: AssigneeTypeUser},
-			{ID: "user3", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
+			{ID: "user2", Type: assigneeTypeEntity},
+			{ID: "user3", Type: assigneeTypeEntity},
 		},
 	})
 
@@ -438,4 +438,157 @@ func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetRoleAssignments_Paginat
 	page2, err := suite.store.GetRoleAssignments(context.Background(), "role1", 2, 2)
 	assert.NoError(suite.T(), err)
 	assert.Len(suite.T(), page2, 1)
+}
+
+// Test app entity role assignment matching via GetAuthorizedPermissions.
+func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetAuthorizedPermissions_AppAssignment() {
+	suite.seedRole(RoleWithPermissionsAndAssignments{
+		ID:   "role1",
+		Name: "APIRole",
+		OUID: "ou1",
+		Assignments: []RoleAssignment{
+			{ID: "app-uuid-123", Type: assigneeTypeEntity},
+		},
+		Permissions: []ResourcePermissions{
+			{ResourceServerID: "rs1", Permissions: []string{"read:docs", "write:docs", "delete:docs"}},
+		},
+	})
+
+	perms, err := suite.store.GetAuthorizedPermissions(
+		context.Background(),
+		"app-uuid-123",
+		[]string{},
+		[]string{"read:docs", "write:docs", "admin:docs"},
+	)
+
+	assert.NoError(suite.T(), err)
+	assert.ElementsMatch(suite.T(), []string{"read:docs", "write:docs"}, perms)
+}
+
+// Test app assignment does not match a different entity ID.
+func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetAuthorizedPermissions_AppAssignment_NoMatch() {
+	suite.seedRole(RoleWithPermissionsAndAssignments{
+		ID:   "role1",
+		Name: "APIRole",
+		OUID: "ou1",
+		Assignments: []RoleAssignment{
+			{ID: "app-uuid-123", Type: assigneeTypeEntity},
+		},
+		Permissions: []ResourcePermissions{
+			{ResourceServerID: "rs1", Permissions: []string{"read:docs"}},
+		},
+	})
+
+	perms, err := suite.store.GetAuthorizedPermissions(
+		context.Background(),
+		"different-app-uuid",
+		[]string{},
+		[]string{"read:docs"},
+	)
+
+	assert.NoError(suite.T(), err)
+	assert.Empty(suite.T(), perms)
+}
+
+// Test mixed user and app assignments on the same role.
+func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetAuthorizedPermissions_MixedUserAndAppAssignments() {
+	suite.seedRole(RoleWithPermissionsAndAssignments{
+		ID:   "role1",
+		Name: "SharedRole",
+		OUID: "ou1",
+		Assignments: []RoleAssignment{
+			{ID: "user-uuid-1", Type: assigneeTypeEntity},
+			{ID: "app-uuid-1", Type: assigneeTypeEntity},
+			{ID: "group1", Type: AssigneeTypeGroup},
+		},
+		Permissions: []ResourcePermissions{
+			{ResourceServerID: "rs1", Permissions: []string{"perm1", "perm2"}},
+		},
+	})
+
+	// App entity resolves permissions via entity ID.
+	appPerms, err := suite.store.GetAuthorizedPermissions(
+		context.Background(), "app-uuid-1", []string{}, []string{"perm1", "perm2", "perm3"})
+	assert.NoError(suite.T(), err)
+	assert.ElementsMatch(suite.T(), []string{"perm1", "perm2"}, appPerms)
+
+	// User entity resolves permissions via entity ID.
+	userPerms, err := suite.store.GetAuthorizedPermissions(
+		context.Background(), "user-uuid-1", []string{}, []string{"perm1", "perm2", "perm3"})
+	assert.NoError(suite.T(), err)
+	assert.ElementsMatch(suite.T(), []string{"perm1", "perm2"}, userPerms)
+
+	// Group-only resolution still works.
+	groupPerms, err := suite.store.GetAuthorizedPermissions(
+		context.Background(), "", []string{"group1"}, []string{"perm1"})
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), []string{"perm1"}, groupPerms)
+}
+
+// Test app assignment with multiple roles.
+func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetAuthorizedPermissions_AppMultipleRoles() {
+	suite.seedRole(RoleWithPermissionsAndAssignments{
+		ID:   "role1",
+		Name: "ReaderRole",
+		OUID: "ou1",
+		Assignments: []RoleAssignment{
+			{ID: "app-uuid-1", Type: assigneeTypeEntity},
+		},
+		Permissions: []ResourcePermissions{
+			{ResourceServerID: "rs1", Permissions: []string{"read:docs"}},
+		},
+	})
+	suite.seedRole(RoleWithPermissionsAndAssignments{
+		ID:   "role2",
+		Name: "WriterRole",
+		OUID: "ou1",
+		Assignments: []RoleAssignment{
+			{ID: "app-uuid-1", Type: assigneeTypeEntity},
+		},
+		Permissions: []ResourcePermissions{
+			{ResourceServerID: "rs1", Permissions: []string{"write:docs"}},
+		},
+	})
+
+	perms, err := suite.store.GetAuthorizedPermissions(
+		context.Background(),
+		"app-uuid-1",
+		[]string{},
+		[]string{"read:docs", "write:docs", "delete:docs"},
+	)
+
+	assert.NoError(suite.T(), err)
+	assert.ElementsMatch(suite.T(), []string{"read:docs", "write:docs"}, perms)
+}
+
+// Test GetUserRoles works for app entities.
+func (suite *RoleFileBasedStoreEdgeCaseTestSuite) TestGetUserRoles_AppEntity() {
+	suite.seedRole(RoleWithPermissionsAndAssignments{
+		ID:   "role1",
+		Name: "AppRole",
+		OUID: "ou1",
+		Assignments: []RoleAssignment{
+			{ID: "app-uuid-1", Type: assigneeTypeEntity},
+		},
+		Permissions: []ResourcePermissions{
+			{ResourceServerID: "rs1", Permissions: []string{"perm1"}},
+		},
+	})
+	suite.seedRole(RoleWithPermissionsAndAssignments{
+		ID:   "role2",
+		Name: "UserRole",
+		OUID: "ou1",
+		Assignments: []RoleAssignment{
+			{ID: "user-uuid-1", Type: assigneeTypeEntity},
+		},
+		Permissions: []ResourcePermissions{
+			{ResourceServerID: "rs1", Permissions: []string{"perm2"}},
+		},
+	})
+
+	roles, err := suite.store.GetUserRoles(context.Background(), "app-uuid-1", []string{})
+
+	assert.NoError(suite.T(), err)
+	assert.Len(suite.T(), roles, 1)
+	assert.Equal(suite.T(), "AppRole", roles[0])
 }

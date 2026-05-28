@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Flow Execution API for App Native Authentication
-  description: This API is used to execute app native authentication flows.
+  description: Drive app-native authentication flows step by step. The caller initiates a flow, receives a step descriptor, submits the required input, and repeats until the flow reaches a success or failure terminal state.
   version: "1.0"
   license:
     name: Apache 2.0
@@ -16,13 +16,19 @@ servers:
       port:
         default: "8090"
 
+tags:
+  - name: Flow Execution
+    description: Execute app native authentication and registration flow steps.
+
+security: []
+
 paths:
   /flow/execute:
     post:
       summary: Execute a flow step
       description: Execute a step in an authentication flow.
       tags:
-        - Execute a flow step
+        - Flow Execution
       requestBody:
         required: true
         content:
@@ -32,7 +38,7 @@ paths:
                 - $ref: '#/components/schemas/InitialFlowRequest'
                 - $ref: '#/components/schemas/SubSequentFlowRequest'
             examples:
-              initialRequestExample:
+              initialRequest:
                 summary: Initial request
                 value:
                   applicationId: "550e8400-e29b-41d4-a716-446655440000"
@@ -40,15 +46,18 @@ paths:
               subSequentRequestExample:
                 summary: Subsequent request
                 value:
-                  flowId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
-                  actionId: "basic_auth"
+                  executionId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
+                  challengeToken: "a3f2e1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2"
+                  action: "basic_auth"
                   inputs: {
                     "username": "thor",
                     "password": "thor@123"
                   }
       responses:
         "200":
-          description: Flow step executed successfully
+          description: |
+            Flow step executed successfully.
+            Flow-level failures are returned with HTTP 200 and `flowStatus: ERROR` in the response body.
           content:
             application/json:
               schema:
@@ -56,37 +65,113 @@ paths:
                   - $ref: '#/components/schemas/IncompleteFlowResponse'
                   - $ref: '#/components/schemas/CompleteFlowResponse'
                   - $ref: '#/components/schemas/ErrorFlowResponse'
+                discriminator:
+                  propertyName: flowStatus
+                  mapping:
+                    INCOMPLETE: '#/components/schemas/IncompleteFlowResponse'
+                    COMPLETE: '#/components/schemas/CompleteFlowResponse'
+                    ERROR: '#/components/schemas/ErrorFlowResponse'
               examples:
                 incompleteFlow:
-                  summary: Incomplete flow
+                  summary: Incomplete flow (prompt for user input)
                   value:
-                    flowId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
-                    flowStatus: "PROMPT_ONLY"
+                    executionId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
+                    flowStatus: "INCOMPLETE"
+                    stepId: "3071b6c6-0119-465c-b00b-3a0e6f88a730"
+                    challengeToken: "a3f2e1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2"
+                    type: "VIEW"
+                    data:
+                      inputs:
+                        - ref: "input_username"
+                          identifier: "username"
+                          type: "TEXT_INPUT"
+                          required: true
+                          validation:
+                            - type: "regex"
+                              value: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+                              message: "{{i18n(validation:email.invalid)}}"
+                        - ref: "input_password"
+                          identifier: "password"
+                          type: "PASSWORD_INPUT"
+                          required: true
+                          validation:
+                            - type: "minLength"
+                              value: 8
+                              message: "{{i18n(validation:password.minLength.invalid)}}"
+                            - type: "maxLength"
+                              value: 128
+                              message: "{{i18n(validation:password.maxLength.invalid)}}"
+                      actions:
+                        - ref: "action_submit"
+                          nextNode: "node_bs12"
+                validationFailedFlow:
+                  summary: Incomplete flow (input validation failed)
+                  value:
+                    executionId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
+                    flowStatus: "INCOMPLETE"
+                    stepId: "3071b6c6-0119-465c-b00b-3a0e6f88a730"
+                    challengeToken: "b4f3e2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3"
+                    type: "VIEW"
+                    data:
+                      inputs:
+                        - ref: "input_username"
+                          identifier: "username"
+                          type: "TEXT_INPUT"
+                          required: true
+                          validation:
+                            - type: "regex"
+                              value: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+                              message: "{{i18n(validation:email.invalid)}}"
+                        - ref: "input_password"
+                          identifier: "password"
+                          type: "PASSWORD_INPUT"
+                          required: true
+                          validation:
+                            - type: "minLength"
+                              value: 8
+                              message: "{{i18n(validation:password.minLength.invalid)}}"
+                            - type: "maxLength"
+                              value: 128
+                              message: "{{i18n(validation:password.maxLength.invalid)}}"
+                      actions:
+                        - ref: "action_submit"
+                          nextNode: "node_bs12"
+                      fieldErrors:
+                        - identifier: "username"
+                          message: "{{i18n(validation:email.invalid)}}"
+                        - identifier: "password"
+                          message: "{{i18n(validation:password.minLength.invalid)}}"
+                displayOnlyFlow:
+                  summary: Incomplete flow (display-only prompt)
+                  value:
+                    executionId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
+                    flowStatus: "INCOMPLETE"
                     stepId: "3071b6c6-0119-465c-b00b-3a0e6f88a730"
                     type: "VIEW"
                     data:
-                      inputs: [
-                        {
-                          name: "username",
-                          type: "string",
-                          required: true
-                        },
-                        {
-                          name: "password",
-                          type: "string",
-                          required: true
-                        }
-                      ]
+                      meta:
+                        components:
+                          - id: heading_001
+                            type: TEXT
+                            category: DISPLAY
+                            variant: HEADING_3
+                            label: "You're All Set"
+                          - id: body_001
+                            type: TEXT
+                            category: DISPLAY
+                            variant: BODY_1
+                            label: "You have successfully completed the registration."
+                      message: "You have successfully completed the registration."
                 completeFlow:
                   summary: Complete flow
                   value:
-                    flowId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
+                    executionId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
                     flowStatus: "COMPLETE"
                     assertion: "<jwt_token>"
                 errorFlow:
                   summary: Erroneous flow
                   value:
-                    flowId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
+                    executionId: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
                     flowStatus: "ERROR"
                     failureReason: "Invalid credentials"
         
@@ -95,13 +180,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
 
 components:
   schemas:
@@ -121,49 +206,70 @@ components:
           enum:
             - AUTHENTICATION
             - REGISTRATION
+            - RECOVERY
           example: "AUTHENTICATION"
+        verbose:
+          type: boolean
+          description: When true, the response includes full UI metadata (meta/components) for prompt nodes
+          example: false
 
     SubSequentFlowRequest:
       type: object
       required:
-        - flowId
+        - executionId
       properties:
-        flowId:
+        executionId:
           type: string
           description: Identifier of an existing flow execution
           example: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
-        actionId:
+        challengeToken:
           type: string
-          description: Identifier of the action to execute in the flow
+          description: Per-step challenge token received from the previous flow response
+          example: "a3f2e1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2"
+        action:
+          type: string
+          description: Reference of the action to execute in the flow
           example: "basic_auth"
         inputs:
           type: object
           description: Input data provided for the flow step execution
+          additionalProperties:
+            type: string
           example: {
             "username": "thor",
             "password": "thor@123"
           }
+        verbose:
+          type: boolean
+          description: When true, the response includes full UI metadata (meta/components) for prompt nodes
+          example: false
 
     IncompleteFlowResponse:
       type: object
       required:
-        - flowId
+        - executionId
         - flowStatus
         - stepId
         - type
       properties:
-        flowId:
+        executionId:
           type: string
           description: Unique identifier of the flow execution
           example: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
         flowStatus:
           type: string
           description: Status of the flow execution
-          example: "PROMPT_ONLY"
+          enum:
+            - INCOMPLETE
+          example: "INCOMPLETE"
         stepId:
           type: string
           description: Identifier of the current flow step
           example: "3071b6c6-0119-465c-b00b-3a0e6f88a730"
+        challengeToken:
+          type: string
+          description: Per-step challenge token to be included in the next request
+          example: "a3f2e1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2"
         type:
           type: string
           description: Type of flow step response
@@ -176,18 +282,20 @@ components:
     CompleteFlowResponse:
       type: object
       required:
-        - flowId
+        - executionId
         - flowStatus
         - assertion
       properties:
-        flowId:
+        executionId:
           type: string
           description: Unique identifier of the flow execution
           example: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
         flowStatus:
           type: string
           description: Status of the flow execution
-          example: "PROMPT_ONLY"
+          enum:
+            - COMPLETE
+          example: "COMPLETE"
         assertion:
           type: string
           description: Authentication assertion. This will be the JWT authentication token
@@ -196,11 +304,11 @@ components:
     ErrorFlowResponse:
       type: object
       required:
-        - flowId
+        - executionId
         - flowStatus
         - failureReason
       properties:
-        flowId:
+        executionId:
           type: string
           description: Unique identifier of the flow execution
           example: "2c6d4c45-3de9-4a70-ae6b-ba1d034af6bc"
@@ -219,7 +327,7 @@ components:
         inputs:
           type: array
           items:
-            $ref: '#/components/schemas/InputData'
+            $ref: '#/components/schemas/Input'
           description: Required input data for the next flow step
         redirectURL:
           type: string
@@ -238,70 +346,168 @@ components:
           items:
             $ref: '#/components/schemas/Action'
           description: Available actions for the current flow step
+        meta:
+          type: object
+          description: |
+            UI rendering metadata for display-only PROMPT nodes, returned when executing in verbose mode.
+            Contains a `components` array describing the elements to render (headings, body text, images, etc.).
+          example:
+            components:
+              - id: heading_001
+                type: TEXT
+                category: DISPLAY
+                variant: HEADING_3
+                label: "You're All Set"
+              - id: body_001
+                type: TEXT
+                category: DISPLAY
+                variant: BODY_1
+                label: "You have successfully completed the registration."
+        fieldErrors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+          description: >-
+            Per-field validation failures returned when one or more submitted
+            values violate the rules declared on `data.inputs[].validation`. Each
+            failing rule produces a separate entry. The server discards the
+            submitted values for the failing fields and re-presents the same step
+            (`inputs` and `actions` arrays remain populated) so the client can
+            re-render the form and the user can resubmit corrected values.
+          example:
+            - identifier: "username"
+              message: "{{i18n(validation:email.invalid)}}"
+            - identifier: "password"
+              message: "{{i18n(validation:password.minLength.invalid)}}"
 
     Action:
       type: object
       properties:
+        ref:
+          type: string
+          description: Reference name of the action, used for mapping user actions to the flow definition
+          example: "action_credentials"
+        nextNode:
+          type: string
+          description: Identifier of the next node in the flow to execute when this action is taken
+          example: "node_bs12"
         type:
           type: string
-          description: Type of the action
-          example: ""
-        executor:
-          $ref: '#/components/schemas/ExecutorModel'
+          description: |
+            Action type forwarded from the PROMPT node definition. Predefined values are
+            `SUBMIT` (approve/confirm) and `REJECT` (deny/cancel). Custom strings are also
+            accepted for executor-specific routing.
+          example: "SUBMIT"
 
-    ExecutorModel:
+    Input:
       type: object
-      description: Executor configuration for the action
       properties:
-        name:
+        ref:
           type: string
-          description: Name of the executor
-          example: ""
-
-    InputData:
-      type: object
-      properties:
-        name:
+          description: Reference name of the input field, used for mapping user inputs to the meta components
+          example: "input_username"
+        identifier:
           type: string
           description: Name of the input field
           example: "username"
         type:
           type: string
           description: Type of the input field
-          example: "string"
+          example: "TEXT_INPUT"
         required:
           type: boolean
           description: Whether the input is required
           example: true
+        options:
+          type: array
+          items:
+            type: string
+          description: Allowed values for SELECT-type inputs
+          example: ["option1", "option2"]
+        validation:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationRule'
+          description: >-
+            Server-enforced validation rules applied to the submitted value
+            after the required-input presence check. When any rule fails, the
+            response returns `flowStatus: INCOMPLETE` with the failing rules
+            listed under `data.fieldErrors`.
 
-    ClientErrorResponse:
+    ValidationRule:
+      type: object
+      required:
+        - type
+        - value
+      properties:
+        type:
+          type: string
+          description: Constraint type. Each rule object carries exactly one constraint.
+          enum:
+            - regex
+            - minLength
+            - maxLength
+          example: "regex"
+        value:
+          description: |
+            Constraint parameter. `regex` takes a regex pattern string. `minLength` and
+            `maxLength` take a non-negative integer applied to the Unicode code point
+            count of the submitted value.
+          oneOf:
+            - type: string
+            - type: integer
+              minimum: 0
+          example: "^[0-9]{10}$"
+        message:
+          type: string
+          description: |
+            Message returned in `data.fieldErrors` when the rule fails. Accepts a
+            literal string or an i18n key (for example,
+            `{{i18n(validation:phone.pattern.invalid)}}`). The server returns the
+            value as is. When omitted, the server returns a default key for the
+            rule type (`validation.pattern.invalid`, `validation.minLength.invalid`,
+            or `validation.maxLength.invalid`).
+          example: "{{i18n(validation:phone.pattern.invalid)}}"
+
+    FieldError:
+      type: object
+      required:
+        - identifier
+        - message
+      properties:
+        identifier:
+          type: string
+          description: Identifier of the input field whose validation rule failed
+          example: "username"
+        message:
+          type: string
+          description: |
+            Message from the failing validation rule, returned as is from the
+            rule's `message` field or the default i18n key for the rule type.
+          example: "{{i18n(validation:email.invalid)}}"
+
+    Error:
       type: object
       properties:
         code:
           type: string
-          description: Error code
+          description: "Error code. Client errors follow the FES-XXXX convention; server errors use SSE-XXXX."
           example: "FES-1003"
         message:
-          type: string
-          description: Error message
-          example: "Invalid request"
+          $ref: '#/components/schemas/I18nMessage'
         description:
-          type: string
-          description: Detailed error description
-          example: "Invalid app ID provided in the request"
+          $ref: '#/components/schemas/I18nMessage'
 
-    ServerErrorResponse:
+    I18nMessage:
       type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
       properties:
-        code:
+        key:
           type: string
-          description: Error code
-          example: "SSE-5000"
-        message:
+          description: Translation key for fetching localized message.
+        defaultValue:
           type: string
-          description: Error message
-          example: "Internal server error"
-        description:
-          type: string
-          description: Detailed error description
-          example: "An unexpected error occurred while processing the request"
+          description: Default message in English (fallback).

@@ -19,8 +19,13 @@
 package group
 
 import (
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 )
+
+type I18nMessage struct {
+	Key          string `json:"key,omitempty"`
+	DefaultValue string `json:"defaultValue,omitempty"`
+}
 
 const (
 	testServerURL = "https://localhost:8095"
@@ -42,10 +47,10 @@ type Member struct {
 
 // GroupBasic represents the basic information of a group.
 type GroupBasic struct {
-	Id                 string `json:"id"`
-	Name               string `json:"name"`
-	Description        string `json:"description,omitempty"`
-	OUID               string `json:"ouId"`
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	OUID        string `json:"ouId"`
 }
 
 // Group represents a complete group with members.
@@ -56,17 +61,17 @@ type Group struct {
 
 // CreateGroupRequest represents the request body for creating a group.
 type CreateGroupRequest struct {
-	Name               string   `json:"name"`
-	Description        string   `json:"description,omitempty"`
-	OUID               string   `json:"ouId"`
-	Members            []Member `json:"members,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	OUID        string   `json:"ouId"`
+	Members     []Member `json:"members,omitempty"`
 }
 
 // UpdateGroupRequest represents the request body for updating a group.
 type UpdateGroupRequest struct {
-	Name               string `json:"name"`
-	Description        string `json:"description,omitempty"`
-	OUID               string `json:"ouId"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	OUID        string `json:"ouId"`
 }
 
 // GroupListResponse represents the response for listing groups with pagination.
@@ -101,7 +106,7 @@ type MembersRequest struct {
 
 // ErrorResponse represents an error response.
 type ErrorResponse struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Description string `json:"description,omitempty"`
+	Code        string      `json:"code"`
+	Message     I18nMessage `json:"message"`
+	Description I18nMessage `json:"description,omitempty"`
 }

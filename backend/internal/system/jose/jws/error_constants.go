@@ -18,35 +18,62 @@
 
 package jws
 
-import "github.com/asgardeo/thunder/internal/system/error/serviceerror"
+import (
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+)
 
 // Client errors for JWS operations
 var (
 	ErrorUnsupportedAlgorithm = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "JWS-1001",
-		Error:            "Unsupported JWS algorithm",
-		ErrorDescription: "The specified JWS algorithm is not supported",
+		Type: serviceerror.ClientErrorType,
+		Code: "JWS-1001",
+		Error: core.I18nMessage{
+			Key:          "error.jwsservice.unsupported_algorithm",
+			DefaultValue: "Unsupported JWS algorithm",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.jwsservice.unsupported_algorithm_description",
+			DefaultValue: "The specified JWS algorithm is not supported",
+		},
 	}
 
 	ErrorInvalidSignature = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "JWS-1002",
-		Error:            "Invalid signature",
-		ErrorDescription: "The signature is invalid",
+		Type: serviceerror.ClientErrorType,
+		Code: "JWS-1002",
+		Error: core.I18nMessage{
+			Key:          "error.jwsservice.invalid_signature",
+			DefaultValue: "Invalid signature",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.jwsservice.invalid_signature_description",
+			DefaultValue: "The signature is invalid",
+		},
 	}
 
 	ErrorInvalidFormat = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "JWS-1003",
-		Error:            "Invalid JWS format",
-		ErrorDescription: "The JWS token format is invalid",
+		Type: serviceerror.ClientErrorType,
+		Code: "JWS-1003",
+		Error: core.I18nMessage{
+			Key:          "error.jwsservice.invalid_format",
+			DefaultValue: "Invalid JWS format",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.jwsservice.invalid_format_description",
+			DefaultValue: "The JWS token format is invalid",
+		},
 	}
 
 	ErrorDecodingHeader = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "JWS-1004",
-		Error:            "JWS decode error",
-		ErrorDescription: "Error occurred while decoding JWS header",
+		Type: serviceerror.ClientErrorType,
+		Code: "JWS-1004",
+		Error: core.I18nMessage{
+			Key:          "error.jwsservice.decoding_header_error",
+			DefaultValue: "JWS decode error",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.jwsservice.decoding_header_error_description",
+			DefaultValue: "Error occurred while decoding JWS header",
+		},
 	}
 )

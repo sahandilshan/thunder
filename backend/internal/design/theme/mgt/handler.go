@@ -23,11 +23,11 @@ import (
 	"net/url"
 	"strconv"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const handlerLoggerComponentName = "ThemeMgtHandler"
@@ -101,7 +101,12 @@ func (th *themeMgtHandler) HandleThemePostRequest(w http.ResponseWriter, r *http
 		return
 	}
 
-	createdTheme, svcErr := th.themeMgtService.CreateTheme(*createRequest)
+	createdTheme, svcErr := th.themeMgtService.CreateTheme(CreateThemeRequestWithID{
+		Handle:      createRequest.Handle,
+		DisplayName: createRequest.DisplayName,
+		Description: createRequest.Description,
+		Theme:       createRequest.Theme,
+	})
 	if svcErr != nil {
 		handleError(w, svcErr)
 		return

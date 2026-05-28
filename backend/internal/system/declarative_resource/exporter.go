@@ -21,8 +21,8 @@ package declarativeresource
 import (
 	"context"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // ResourceRules defines variables and array variables to parameterize for a resource type.
@@ -54,6 +54,14 @@ type ResourceExporter interface {
 
 	// GetResourceRules returns the parameterization rules for this resource type
 	GetResourceRules() *ResourceRules
+}
+
+// PerResourceRuler is an optional interface that an exporter can implement to provide
+// resource-instance-specific parameterization rules. When implemented, the export service
+// will call GetResourceRulesForResource instead of GetResourceRules, allowing the exporter
+// to tailor rules based on the resource's own data (e.g. omit client_secret for public clients).
+type PerResourceRuler interface {
+	GetResourceRulesForResource(resource interface{}) *ResourceRules
 }
 
 // ExportError represents errors that occurred during export.

@@ -22,10 +22,12 @@ package jws
 type Algorithm string
 
 const (
-	// RS256 represents RSA signature with SHA-256 hash for JWS
+	// RS256 represents RSA PKCS1v15 signature with SHA-256 hash for JWS
 	RS256 Algorithm = "RS256"
-	// RS512 represents RSA signature with SHA-512 hash for JWS
+	// RS512 represents RSA PKCS1v15 signature with SHA-512 hash for JWS
 	RS512 Algorithm = "RS512"
+	// PS256 represents RSA-PSS signature with SHA-256 hash for JWS
+	PS256 Algorithm = "PS256"
 	// ES256 represents ECDSA signature with SHA-256 hash for JWS
 	ES256 Algorithm = "ES256"
 	// ES384 represents ECDSA signature with SHA-384 hash for JWS

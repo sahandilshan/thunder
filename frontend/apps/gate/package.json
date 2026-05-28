@@ -1,0 +1,82 @@
+{
+  "private": true,
+  "name": "@thunderid/gate",
+  "version": "0.0.0",
+  "description": "⚡️ ThunderID Gate Application - The main app handles gateway operations such as authentication, registrations and account recovery in ThunderID.",
+  "keywords": [
+    "thunderid",
+    "gate",
+    "app",
+    "wso2"
+  ],
+  "homepage": "https://github.com/thunder-id/thunderid/tree/main/frontend/apps/gate#readme",
+  "bugs": {
+    "url": "https://github.com/thunder-id/thunderid/issues"
+  },
+  "author": "WSO2",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thunder-id/thunderid",
+    "directory": "frontend/apps/gate"
+  },
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "clean": "pnpm clean:dist && pnpm clean:node_modules",
+    "clean:dist": "rimraf dist",
+    "clean:node_modules": "rimraf node_modules",
+    "dev": "vite",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.app.json"
+  },
+  "dependencies": {
+    "@thunderid/react": "workspace:^",
+    "@thunderid/react-router": "workspace:^",
+    "@fontsource-variable/inter": "5.2.8",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-query-devtools": "catalog:",
+    "@thunderid/components": "workspace:^",
+    "@thunderid/contexts": "workspace:^",
+    "@thunderid/logger": "workspace:^",
+    "@thunderid/design": "workspace:^",
+    "@thunderid/i18n": "workspace:^",
+    "@thunderid/hooks": "workspace:^",
+    "@thunderid/utils": "workspace:^",
+    "@wso2/oxygen-ui": "catalog:",
+    "@wso2/oxygen-ui-icons-react": "catalog:",
+    "dompurify": "catalog:",
+    "i18next": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-i18next": "catalog:",
+    "react-router": "catalog:"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@thunderid/eslint-plugin": "workspace:^",
+    "@thunderid/prettier-config": "workspace:^",
+    "@thunderid/test-utils": "workspace:^",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-basic-ssl": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "babel-plugin-react-compiler": "catalog:",
+    "eslint": "catalog:",
+    "jsdom": "catalog:",
+    "rimraf": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-svgr": "catalog:",
+    "vitest": "catalog:"
+  }
+}

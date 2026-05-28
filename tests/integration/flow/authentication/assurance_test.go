@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -308,14 +308,14 @@ var (
 		},
 	}
 
-	assuranceUserSchema = testutils.UserSchema{
+	assuranceEntityType = testutils.UserType{
 		Name: "assurance_test_user",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 			"email": map[string]interface{}{
@@ -328,7 +328,7 @@ var (
 	}
 
 	assuranceTestUser = testutils.User{
-		Type: assuranceUserSchema.Name,
+		Type: assuranceEntityType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "assurance_user",
 			"password": "testpassword123",
@@ -340,7 +340,7 @@ var (
 
 var (
 	assuranceTestAppID       string
-	assuranceUserSchemaID    string
+	assuranceEntityTypeID    string
 	assuranceTestSenderID    string
 	assuranceSMSOnlyFlowID   string
 	assuranceMFAFlowID       string
@@ -372,13 +372,13 @@ func (ts *AssuranceTestSuite) SetupSuite() {
 	}
 	assuranceTestOU.ID = ouID
 
-	// Create test user schema
-	assuranceUserSchema.OUID = ouID
-	schemaID, err := testutils.CreateUserType(assuranceUserSchema)
+	// Create test user type
+	assuranceEntityType.OUID = ouID
+	schemaID, err := testutils.CreateUserType(assuranceEntityType)
 	if err != nil {
-		ts.T().Fatalf("Failed to create test user schema: %v", err)
+		ts.T().Fatalf("Failed to create test user type: %v", err)
 	}
-	assuranceUserSchemaID = schemaID
+	assuranceEntityTypeID = schemaID
 
 	// Start mock notification server
 	ts.mockServer = testutils.NewMockNotificationServer(assuranceMockNotificationServerPort)
@@ -442,6 +442,7 @@ func (ts *AssuranceTestSuite) SetupSuite() {
 
 	// Create test application
 	assuranceTestApp.AuthFlowID = smsOnlyFlowID
+	assuranceTestApp.OUID = assuranceTestOU.ID
 	appID, err := testutils.CreateApplication(assuranceTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application: %v", err)
@@ -474,8 +475,8 @@ func (ts *AssuranceTestSuite) TearDownSuite() {
 		_ = testutils.DeleteOrganizationUnit(assuranceTestOU.ID)
 	}
 
-	if assuranceUserSchemaID != "" {
-		_ = testutils.DeleteUserType(assuranceUserSchemaID)
+	if assuranceEntityTypeID != "" {
+		_ = testutils.DeleteUserType(assuranceEntityTypeID)
 	}
 }
 
@@ -500,7 +501,8 @@ func (ts *AssuranceTestSuite) TestAssurance_SMSOTPOnly() {
 		"mobileNumber": userAttrs["mobileNumber"].(string),
 	}
 
-	otpFlowStep, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	otpFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err)
 	ts.Require().Equal("INCOMPLETE", otpFlowStep.FlowStatus)
 
@@ -514,7 +516,8 @@ func (ts *AssuranceTestSuite) TestAssurance_SMSOTPOnly() {
 
 	// Step 3: Submit OTP
 	otpInputs := map[string]string{"otp": lastMessage.OTP}
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, otpInputs, "action_002")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, otpInputs, "action_002",
+		otpFlowStep.ChallengeToken)
 	ts.Require().NoError(err)
 	ts.Require().Equal("COMPLETE", completeFlowStep.FlowStatus)
 	ts.Require().NotEmpty(completeFlowStep.Assertion)
@@ -554,7 +557,8 @@ func (ts *AssuranceTestSuite) TestAssurance_CredentialsPlusSMSOTP() {
 		"password": userAttrs["password"].(string),
 	}
 
-	otpFlowStep, err := common.CompleteFlow(flowStep.FlowID, credInputs, "action_001")
+	otpFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, credInputs, "action_001",
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err)
 	ts.Require().Equal("INCOMPLETE", otpFlowStep.FlowStatus)
 
@@ -568,7 +572,8 @@ func (ts *AssuranceTestSuite) TestAssurance_CredentialsPlusSMSOTP() {
 
 	// Step 3: Submit OTP
 	otpInputs := map[string]string{"otp": lastMessage.OTP}
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, otpInputs, "action_002")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, otpInputs, "action_002",
+		otpFlowStep.ChallengeToken)
 	ts.Require().NoError(err)
 	ts.Require().Equal("COMPLETE", completeFlowStep.FlowStatus)
 	ts.Require().NotEmpty(completeFlowStep.Assertion)
@@ -605,7 +610,8 @@ func (ts *AssuranceTestSuite) TestAssurance_BasicAuthOnly() {
 		"password": userAttrs["password"].(string),
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowStep.FlowID, credInputs, "action_001")
+	completeFlowStep, err := common.CompleteFlow(flowStep.ExecutionID, credInputs, "action_001",
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err)
 	ts.Require().Equal("COMPLETE", completeFlowStep.FlowStatus)
 	ts.Require().NotEmpty(completeFlowStep.Assertion)

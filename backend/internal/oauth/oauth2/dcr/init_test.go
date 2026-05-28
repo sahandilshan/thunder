@@ -26,13 +26,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/tests/mocks/applicationmock"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/tests/mocks/applicationmock"
+	"github.com/thunder-id/thunderid/tests/mocks/oumock"
 )
 
 type InitTestSuite struct {
 	suite.Suite
 	mockAppService *applicationmock.ApplicationServiceInterfaceMock
+	mockOUService  *oumock.OrganizationUnitServiceInterfaceMock
 }
 
 func TestInitTestSuite(t *testing.T) {
@@ -40,26 +42,27 @@ func TestInitTestSuite(t *testing.T) {
 }
 
 func (suite *InitTestSuite) SetupTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	suite.mockAppService = applicationmock.NewApplicationServiceInterfaceMock(suite.T())
+	suite.mockOUService = oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
 	testConfig := &config.Config{
 		Database: config.DatabaseConfig{
-			Config:  config.DataSource{Type: "sqlite", Path: "thunder_test.db"},
-			Runtime: config.DataSource{Type: "sqlite", Path: "thunder_test.db"},
-			User:    config.DataSource{Type: "sqlite", Path: "thunder_test.db"},
+			Config:  config.DataSource{Type: "sqlite", SQLite: config.SQLiteDataSource{Path: "test.db"}},
+			Runtime: config.DataSource{Type: "sqlite", SQLite: config.SQLiteDataSource{Path: "test.db"}},
+			User:    config.DataSource{Type: "sqlite", SQLite: config.SQLiteDataSource{Path: "test.db"}},
 		},
 	}
-	_ = config.InitializeThunderRuntime("", testConfig)
+	_ = config.InitializeServerRuntime("", testConfig)
 }
 
 func (suite *InitTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func (suite *InitTestSuite) TestInitialize() {
 	mux := http.NewServeMux()
 
-	service := Initialize(mux, suite.mockAppService, &MockTransactioner{})
+	service := Initialize(mux, suite.mockAppService, suite.mockOUService, nil, &MockTransactioner{})
 
 	assert.NotNil(suite.T(), service)
 	assert.Implements(suite.T(), (*DCRServiceInterface)(nil), service)
@@ -68,7 +71,7 @@ func (suite *InitTestSuite) TestInitialize() {
 func (suite *InitTestSuite) TestInitialize_RegistersRoutes() {
 	mux := http.NewServeMux()
 
-	Initialize(mux, suite.mockAppService, &MockTransactioner{})
+	Initialize(mux, suite.mockAppService, suite.mockOUService, nil, &MockTransactioner{})
 
 	// Verify that the routes are registered by attempting to get a handler for them.
 	// The pattern includes the method because of CORS middleware wrapping.

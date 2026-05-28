@@ -23,10 +23,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -39,8 +39,8 @@ const (
 // attributeCollector is an executor that collects user attributes and updates the user profile.
 type attributeCollector struct {
 	core.ExecutorInterface
-	userProvider userprovider.UserProviderInterface
-	logger       *log.Logger
+	entityProvider entityprovider.EntityProviderInterface
+	logger         *log.Logger
 }
 
 var _ core.ExecutorInterface = (*attributeCollector)(nil)
@@ -48,7 +48,7 @@ var _ core.ExecutorInterface = (*attributeCollector)(nil)
 // newAttributeCollector creates a new instance of AttributeCollector.
 func newAttributeCollector(
 	flowFactory core.FlowFactoryInterface,
-	userProvider userprovider.UserProviderInterface,
+	entityProvider entityprovider.EntityProviderInterface,
 ) *attributeCollector {
 	prerequisites := []common.Input{
 		{
@@ -65,14 +65,14 @@ func newAttributeCollector(
 
 	return &attributeCollector{
 		ExecutorInterface: base,
-		userProvider:      userProvider,
+		entityProvider:    entityProvider,
 		logger:            logger,
 	}
 }
 
 // Execute executes the attribute collection logic.
 func (a *attributeCollector) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := a.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := a.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing attribute collect executor")
 
 	execResp := &common.ExecutorResponse{
@@ -122,7 +122,7 @@ func (a *attributeCollector) Execute(ctx *core.NodeContext) (*common.ExecutorRes
 // missing inputs to the executor response. Returns true if required inputs are found, otherwise false.
 func (a *attributeCollector) HasRequiredInputs(ctx *core.NodeContext,
 	execResp *common.ExecutorResponse) bool {
-	logger := a.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := a.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Checking inputs for the attribute collector")
 
 	if a.ExecutorInterface.HasRequiredInputs(ctx, execResp) {
@@ -225,7 +225,7 @@ func (a *attributeCollector) HasRequiredInputs(ctx *core.NodeContext,
 
 // getUserAttributes retrieves the user attributes from the user profile.
 func (a *attributeCollector) getUserAttributes(ctx *core.NodeContext) (map[string]interface{}, error) {
-	logger := a.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := a.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Retrieving user attributes from the user profile")
 
 	user, err := a.getUserFromStore(ctx)
@@ -252,7 +252,7 @@ func (a *attributeCollector) getUserAttributes(ctx *core.NodeContext) (map[strin
 
 // updateUserInStore updates the user profile with the collected attributes.
 func (a *attributeCollector) updateUserInStore(ctx *core.NodeContext) error {
-	logger := a.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := a.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Updating user attributes")
 
 	user, err := a.getUserFromStore(ctx)
@@ -262,7 +262,7 @@ func (a *attributeCollector) updateUserInStore(ctx *core.NodeContext) error {
 	if user == nil {
 		return fmt.Errorf("user not found")
 	}
-	userID := user.UserID
+	userID := user.ID
 
 	updateRequired, updatedUser, err := a.getUpdatedUserObject(ctx, user)
 	if err != nil {
@@ -276,22 +276,22 @@ func (a *attributeCollector) updateUserInStore(ctx *core.NodeContext) error {
 		return errors.New("failed to create updated user object")
 	}
 
-	if _, err := a.userProvider.UpdateUser(userID, updatedUser); err != nil {
+	if err := a.entityProvider.UpdateAttributes(userID, updatedUser.Attributes); err != nil {
 		return fmt.Errorf("failed to update user attributes: %s", err.Message)
 	}
-	logger.Debug("User attributes updated successfully", log.String("userID", userID))
+	logger.Debug("User attributes updated successfully", log.MaskedString(log.LoggerKeyUserID, userID))
 
 	return nil
 }
 
 // getUserFromStore retrieves the user profile from the user store.
-func (a *attributeCollector) getUserFromStore(ctx *core.NodeContext) (*userprovider.User, error) {
+func (a *attributeCollector) getUserFromStore(ctx *core.NodeContext) (*entityprovider.Entity, error) {
 	userID := a.GetUserIDFromContext(ctx)
 	if userID == "" {
 		return nil, errors.New("user ID is not available in the context")
 	}
 
-	user, err := a.userProvider.GetUser(userID)
+	user, err := a.entityProvider.GetEntity(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by ID: %s", err.Message)
 	}
@@ -301,13 +301,15 @@ func (a *attributeCollector) getUserFromStore(ctx *core.NodeContext) (*userprovi
 
 // getUpdatedUserObject creates a new user object with the updated attributes.
 func (a *attributeCollector) getUpdatedUserObject(ctx *core.NodeContext,
-	userData *userprovider.User) (bool, *userprovider.User, error) {
-	logger := a.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	userData *entityprovider.Entity) (bool, *entityprovider.Entity, error) {
+	logger := a.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 
-	updatedUser := &userprovider.User{
-		UserID:   userData.UserID,
+	updatedUser := &entityprovider.Entity{
+		ID:       userData.ID,
+		Category: userData.Category,
 		OUID:     userData.OUID,
-		UserType: userData.UserType,
+		Type:     userData.Type,
+		State:    userData.State,
 	}
 
 	// Get the existing attributes

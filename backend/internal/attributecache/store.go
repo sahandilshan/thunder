@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	dbprovider "github.com/asgardeo/thunder/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	dbprovider "github.com/thunder-id/thunderid/internal/system/database/provider"
 )
 
 // attributeCacheStoreInterface defines the interface for the attribute cache store.
@@ -55,7 +55,7 @@ type attributeCacheStore struct {
 func newAttributeCacheStore() attributeCacheStoreInterface {
 	return &attributeCacheStore{
 		dbProvider:   dbprovider.GetDBProvider(),
-		deploymentID: config.GetThunderRuntime().Config.Server.Identifier,
+		deploymentID: config.GetServerRuntime().Config.Server.Identifier,
 	}
 }
 

@@ -20,8 +20,10 @@
 package tokenservice
 
 import (
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	oauth2model "github.com/asgardeo/thunder/internal/oauth/oauth2/model"
+	"context"
+
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	oauth2model "github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
 )
 
 // TokenType represents the type of token being processed.
@@ -43,72 +45,87 @@ type TokenConfig struct {
 }
 
 // AccessTokenBuildContext contains all the information needed to build an access token.
+// The aud claim is serialized as a JSON array when Audiences has 2+ entries, and as a string
+// when it has a single entry.
 type AccessTokenBuildContext struct {
+	Context          context.Context
 	Subject          string
-	Audience         string
+	Audiences        []string
 	ClientID         string
 	Scopes           []string
 	UserAttributes   map[string]interface{}
 	AttributeCacheID string
 	GrantType        string
-	OAuthApp         *appmodel.OAuthAppConfigProcessedDTO
+	OAuthApp         *inboundmodel.OAuthClient
 	ActorClaims      *SubjectTokenClaims
 	ClaimsRequest    *oauth2model.ClaimsRequest
 	ClaimsLocales    string
+	ClientAttributes map[string]interface{}
+	// DPoPJkt, when set, sender-constrains the access token to the supplied JWK thumbprint.
+	// The token receives a `cnf.jkt` claim and is issued with `token_type=DPoP`.
+	DPoPJkt string
 }
 
 // RefreshTokenBuildContext contains all the information needed to build a refresh token.
 type RefreshTokenBuildContext struct {
-	ClientID            string
-	Scopes              []string
-	GrantType           string
-	AccessTokenSubject  string
-	AccessTokenAudience string
-	AttributeCacheID    string
-	OAuthApp            *appmodel.OAuthAppConfigProcessedDTO
-	ClaimsRequest       *oauth2model.ClaimsRequest
-	ClaimsLocales       string
+	Context              context.Context
+	ClientID             string
+	Scopes               []string
+	GrantType            string
+	AccessTokenSubject   string
+	AccessTokenAudiences []string
+	AttributeCacheID     string
+	OAuthApp             *inboundmodel.OAuthClient
+	ClaimsRequest        *oauth2model.ClaimsRequest
+	ClaimsLocales        string
+	DPoPJkt              string
 }
 
 // IDTokenBuildContext contains all the information needed to build an ID token (OIDC).
 type IDTokenBuildContext struct {
+	Context        context.Context
 	Subject        string
 	Audience       string
 	Scopes         []string
 	UserAttributes map[string]interface{}
 	AuthTime       int64
-	OAuthApp       *appmodel.OAuthAppConfigProcessedDTO
+	OAuthApp       *inboundmodel.OAuthClient
 	ClaimsRequest  *oauth2model.ClaimsRequest
 	Nonce          string
+	CompletedACR   string
 }
 
 // RefreshTokenClaims represents the validated claims from a refresh token.
 type RefreshTokenClaims struct {
 	Sub              string
-	Aud              string
+	Audiences        []string
 	GrantType        string
 	Scopes           []string
 	AttributeCacheID string
 	Iat              int64
 	ClaimsRequest    *oauth2model.ClaimsRequest
 	ClaimsLocales    string
+	DPoPJkt          string
 }
 
 // SubjectTokenClaims represents the validated claims from a subject token (for token exchange).
 type SubjectTokenClaims struct {
 	Sub            string
 	Iss            string
-	Aud            string
+	Aud            []string
 	Scopes         []string
 	UserAttributes map[string]interface{}
 	NestedAct      map[string]interface{}
+	// CnfJkt is the JWK thumbprint extracted from the subject token's cnf.jkt claim.
+	// Empty when the subject token is not DPoP-bound.
+	CnfJkt string
 }
 
 // AccessTokenClaims represents the validated claims from an access token.
 type AccessTokenClaims struct {
 	Sub       string
 	Iss       string
-	Aud       string
+	Aud       []string
 	GrantType string
 	Scopes    []string
 	ClientID  string

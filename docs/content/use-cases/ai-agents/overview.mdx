@@ -1,0 +1,147 @@
+---
+title: Identity for AI Agents
+description: Identify common AI agent identity needs - protecting your agent, calling services, and orchestrating multi-agent workflows.
+sidebar_position: 1
+---
+
+import { AIAgentIdentityRoadmap } from '../../../src/components/AIAgentIdentityJourney';
+
+# Identity for AI Agents
+
+AI agents don't just answer questions - they take actions. They call APIs, access user data, and delegate work to other agents. Every one of these interactions is an identity decision: who is this agent, what can it access, and on whose behalf?
+
+<div className="uc-b2b-intro-panel">
+  <div className="uc-b2b-intro-kicker">When to use this pattern</div>
+  <div className="uc-b2b-intro-text">
+    Use this pattern when you are building or deploying AI agents that need identity - whether they accept requests from clients, call protected services on their own or on behalf of a user, or delegate work to other agents in a chain.
+  </div>
+</div>
+
+## The Four A's of Agent Identity
+
+<div className="uc-fact-grid uc-fact-grid--ai">
+	<article className="uc-fact-card">
+		<h3>Administer</h3>
+		<p>Treat every agent as a distinct identity with its own provisioning, grouping, and decommissioning lifecycle.</p>
+	</article>
+	<article className="uc-fact-card">
+		<h3>Authenticate</h3>
+		<p>Give each agent verifiable credentials so callers and services can confirm who is making the request.</p>
+	</article>
+	<article className="uc-fact-card">
+		<h3>Authorize</h3>
+		<p>Decide what each agent can access - on its own and on behalf of a user - and enforce that decision at every hop.</p>
+	</article>
+	<article className="uc-fact-card">
+		<h3>Audit</h3>
+		<p>Make every agent action traceable so "who did this, and on whose authority?" always has an answer.</p>
+	</article>
+</div>
+
+## How the Model Works
+
+- **AI agent**: an autonomous or user-driven program that takes actions. Treated as a first-class identity in <ProductName />, with its own credentials and assigned permissions.
+- **Agent caller**: the application, user, or other agent that invokes your agent's capabilities. Each caller authenticates and presents a token scoped to what it is allowed to use.
+- **Services**: the MCP servers, APIs, databases, or tools the agent reaches during its work. They protect themselves by validating tokens and checking scopes.
+- **Identity product**: issues credentials to agents and callers, runs the token flows that bind one to the other, and validates scopes at every hop.
+- **End user (optional)**: the human whose identity an agent may carry when acting on their behalf. The user grants delegated access through a consent flow; the agent's token then identifies both.
+
+## Agent Identity Journey
+
+From an agent developer's perspective, you need to solve identity in three directions at once: inbound (who calls your agent), outbound (which services your agent calls), and lateral (which other agents your agent delegates to). The three patterns below map to those directions and cover the full lifecycle of an agent's interactions.
+
+<AIAgentIdentityRoadmap />
+
+### Protect Your Agent
+
+You built an AI agent and deployed it. It exposes multiple capabilities - some low-risk, some sensitive, some that should only be available to specific consumers. Now other applications need to use it: a web app, a mobile client, another backend service, an MCP host. The question is straightforward: when a request arrives at your agent, how do you know whether the caller is allowed to be there, and whether they are allowed to use that specific capability?
+
+Treating the entire agent as a single "all or nothing" resource is not enough. Agents often combine multiple capabilities behind a single deployment, each with a different sensitivity level. A general conversation capability might be low-risk, but a capability that exposes internal reasoning traces or processes confidential documents carries real consequences if accessed by the wrong party. You also need to grant and revoke access per consumer without redeploying the agent, and keep authorization decisions in one place rather than scattered across allowlists.
+
+For example, a customer-facing chat widget calls your support agent for general questions and receives a token carrying only `agent:chat`. An internal admin tool calls the same agent but receives a token carrying `agent:chat` and `agent:analytics` so it can reach the analytics endpoints. When the chat widget is decommissioned, its <ProductName /> registration is disabled and the agent stops accepting its calls immediately, without affecting the admin tool.
+
+**Capabilities Involved**
+
+- Identify the caller via OAuth2 token validation.
+- Define per-capability scopes (e.g., `agent:chat`, `agent:analytics`).
+- Bundle scopes into roles and assign roles to consumers.
+- Grant and revoke a single consumer's access without redeploying.
+- Centralize authorization in <ProductName />; the agent only enforces.
+
+See it running: [Try It Out - Protect Your Agent](../try-it-out).
+
+### Connect to Services
+
+Your agent needs to do things. It calls APIs, queries databases, reads from knowledge bases, invokes tools. The services it calls are not open - they sit behind authentication and authorization. The agent needs credentials, and those credentials need to carry the right identity.
+
+The question is whose identity the agent carries when it makes a call. Sometimes the answer is simple: a background agent running a nightly data sync has no user behind it, so the service needs to know "this is Agent X, and Agent X is allowed to read this data." Other times the answer depends on context: an agent responding to a user's request should only access what that user can access, so the service needs to know "this is Agent X acting on behalf of User Y, and User Y is allowed to read this data." Getting this wrong creates real risk - an agent with its own broad permissions acting on behalf of any user becomes a privilege escalation path; an agent with no identity at all relies on shared API keys that cannot be scoped, rotated, or revoked per agent.
+
+For example, an autonomous reporting agent runs at midnight and pulls aggregated metrics using its own credentials. A user-facing assistant runs during business hours; when a junior employee asks for a sales report, the assistant uses a token that identifies the employee as the subject and the assistant as the actor, so the sales API enforces the employee's row-level filter - not the assistant's broader access. A background workflow that needs to access sensitive data sends a CIBA request to the user's phone for approval before continuing.
+
+**Capabilities Involved**
+
+- Register the agent as a first-class identity with its own Client ID and Client Secret.
+- Issue M2M tokens for autonomous calls (client credentials grant).
+- Issue delegated tokens that identify the user as subject and the agent as actor.
+- Enforce scope intersection: the delegated token never exceeds what the user can do.
+- Request user approval out-of-band for background agents (CIBA, coming soon).
+- Manage credential lifecycle: rotate, revoke, expire.
+
+See it running: [Try It Out - Connect to Services](../try-it-out).
+
+### Multi-Agent Workflows
+
+Agents don't always work alone. One agent delegates a task to another, which may delegate further to a third. These are multi-agent workflows - chains of agents collaborating to complete a task that no single agent handles end to end.
+
+The identity challenge multiplies at every hop. The first agent might hold a token that represents a user. When it delegates to a second agent, that second agent needs a token too - but it should not receive the same token. It should receive a narrower one, scoped to only what it needs and locked to only the service it will call. If every agent in the chain shares the same token, a compromised agent anywhere in the chain has access to everything the first agent could reach. If tokens are not restricted to their intended target, any agent can replay a token against a service it was never meant to call. And if no agent carries the user's identity, there is no way to trace the final action back to the person who initiated it.
+
+For example, a research orchestrator agent receives a user's request and delegates the data-gathering step to a search agent. Before delegating, the orchestrator exchanges its token with <ProductName /> for a new token carrying only `search:web` - narrower than its own permissions - and audience-locked to the search service. The search agent later delegates a summarization step to a third agent with an even narrower token. The final summary carries a delegation chain showing the user initiated the request, the orchestrator delegated to search, and search delegated to summarize. The audit log makes every hop traceable.
+
+**Capabilities Involved**
+
+- Exchange a token for a narrower one (token exchange).
+- Downscope: subset of the parent's scopes, never a superset.
+- Lock the new token to a specific target service (audience / resource indicator).
+- Preserve the original user identity through the chain (subject).
+- Track each hop's actor in a delegation chain.
+
+## Cross-Cutting Capabilities
+
+Beyond the three core patterns, a few capabilities run across them. They are not separate patterns but choices and behaviors that shape every agent interaction. Treat them as horizontal concerns that you decide on once and apply everywhere.
+
+### Audit and Delegation Chain
+
+Every action an agent takes should be traceable back to the consumer or user that originated it. Tokens carry both the subject (who the request is for) and the actor (which agent is making the request). When agents delegate to other agents, each hop adds to an actor chain that the final service can inspect. Without this, accountability breaks down - you cannot tell whether an action was taken by a user directly, by an agent on the user's behalf, or by an agent that delegated to another agent.
+
+### Credential Lifecycle
+
+Each agent has its own Client ID and Client Secret. Treat these like any other credential: issue them at registration, rotate them on a schedule, and revoke them immediately when the agent is decommissioned or compromised. Because every agent is a distinct identity, revoking one agent's credentials does not affect any other agent's ability to operate.
+
+### Audience Locking
+
+A token issued for one service should not be usable against another. <ProductName /> binds each issued token to its intended target via the audience claim or resource indicator. If a downstream agent receives a token meant for one service, that token is rejected by any other service. This prevents a compromised agent from replaying tokens across the system.
+
+### Consent for Delegation
+
+When an agent acts on behalf of a user, the user must explicitly authorize the delegation. <ProductName /> runs a consent flow that describes what the agent is requesting and what scopes it will receive. The user can review or revoke that consent later. For background agents that cannot redirect the user, backchannel authorization (CIBA) sends the approval request to a separate device.
+
+### Scope Intersection
+
+A delegated token's effective permissions are the intersection of what the agent is allowed to do and what the user is allowed to do - never the union. <ProductName /> enforces this at issuance, so an agent cannot request scopes the user does not have, even if the agent itself does.
+
+---
+
+## Next Steps
+
+Once you know which patterns apply, the next decision is how to integrate. See **[Solution Patterns](../solution-patterns)** to compare token flows and choose what fits your agent.
+
+## Related Capabilities
+
+<div className="uc-cap-grid">
+  <article className="uc-cap-card"><h3>Agent Identity</h3><p>First-class identity for each agent with its own credentials.</p></article>
+  <article className="uc-cap-card"><h3>OAuth2 Flows</h3><p>Client credentials, authorization code, and token exchange.</p></article>
+  <article className="uc-cap-card"><h3>Delegation</h3><p>Acting on behalf of a user with consent and scope intersection.</p></article>
+  <article className="uc-cap-card"><h3>Audit Chain</h3><p>End-to-end traceability across every hop.</p></article>
+  <article className="uc-cap-card"><h3>Resource Servers</h3><p>Group capabilities into protected resources with named scopes.</p></article>
+  <article className="uc-cap-card"><h3>Credential Lifecycle</h3><p>Issue, rotate, and revoke per-agent credentials.</p></article>
+</div>

@@ -26,13 +26,14 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/notification"
-	"github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/tests/mocks/notification/notificationmock"
+	"github.com/thunder-id/thunderid/internal/notification"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/tests/mocks/notification/notificationmock"
 )
 
 // NotificationSenderExporterTestSuite tests the notificationSenderExporter.
@@ -84,7 +85,7 @@ func (s *NotificationSenderExporterTestSuite) TestGetAllResourceIDs_Success() {
 func (s *NotificationSenderExporterTestSuite) TestGetAllResourceIDs_Error() {
 	expectedError := &serviceerror.ServiceError{
 		Code:  "ERR_CODE",
-		Error: "test error",
+		Error: i18ncore.I18nMessage{DefaultValue: "test error"},
 	}
 
 	s.mockService.EXPECT().ListSenders(mock.Anything).Return(nil, expectedError)
@@ -124,7 +125,7 @@ func (s *NotificationSenderExporterTestSuite) TestGetResourceByID_Success() {
 func (s *NotificationSenderExporterTestSuite) TestGetResourceByID_Error() {
 	expectedError := &serviceerror.ServiceError{
 		Code:  "ERR_CODE",
-		Error: "test error",
+		Error: i18ncore.I18nMessage{DefaultValue: "test error"},
 	}
 
 	s.mockService.EXPECT().GetSender(mock.Anything, "sender1").Return(nil, expectedError)

@@ -22,8 +22,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -134,21 +134,21 @@ var (
 		},
 	}
 
-	sensitiveCleanupUserSchema = testutils.UserSchema{
+	sensitiveCleanupEntityType = testutils.UserType{
 		Name: "sensitive_cleanup_user",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 		},
 	}
 
 	sensitiveCleanupTestUser = testutils.User{
-		Type: sensitiveCleanupUserSchema.Name,
+		Type: sensitiveCleanupEntityType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "sensitiveuser",
 			"password": "sensitivepassword"
@@ -179,11 +179,11 @@ func (ts *SensitiveInputCleanupTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "Failed to create test organization unit")
 	ts.ouID = ouID
 
-	// Create test user schema
-	sensitiveCleanupUserSchema.OUID = ts.ouID
-	schemaID, err := testutils.CreateUserType(sensitiveCleanupUserSchema)
+	// Create test user type
+	sensitiveCleanupEntityType.OUID = ts.ouID
+	schemaID, err := testutils.CreateUserType(sensitiveCleanupEntityType)
 	if err != nil {
-		ts.T().Fatalf("Failed to create test user schema during setup: %v", err)
+		ts.T().Fatalf("Failed to create test user type during setup: %v", err)
 	}
 	sensitiveCleanupSchemaID = schemaID
 
@@ -194,6 +194,7 @@ func (ts *SensitiveInputCleanupTestSuite) SetupSuite() {
 	sensitiveCleanupTestApp.AuthFlowID = flowID
 
 	// Create test application
+	sensitiveCleanupTestApp.OUID = ts.ouID
 	appID, err := testutils.CreateApplication(sensitiveCleanupTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
@@ -229,7 +230,7 @@ func (ts *SensitiveInputCleanupTestSuite) TearDownSuite() {
 
 	if sensitiveCleanupSchemaID != "" {
 		if err := testutils.DeleteUserType(sensitiveCleanupSchemaID); err != nil {
-			ts.T().Logf("Failed to delete test user schema during teardown: %v", err)
+			ts.T().Logf("Failed to delete test user type during teardown: %v", err)
 		}
 	}
 
@@ -251,7 +252,7 @@ func (ts *SensitiveInputCleanupTestSuite) TestPasswordClearedAfterAuthExecution(
 
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("VIEW", flowStep.Type, "Expected flow type to be VIEW")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Verify both username and password are requested
 	ts.Require().True(common.HasInput(flowStep.Data.Inputs, "username"),
@@ -272,7 +273,7 @@ func (ts *SensitiveInputCleanupTestSuite) TestPasswordClearedAfterAuthExecution(
 	// After basic_auth completes, password should be cleared from context.
 	// The second prompt node (prompt_password_again) should detect the missing password
 	// and return INCOMPLETE, asking for it again.
-	step2, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+	step2, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete flow step 2")
 
 	ts.Require().Equal("INCOMPLETE", step2.FlowStatus,
@@ -291,7 +292,7 @@ func (ts *SensitiveInputCleanupTestSuite) TestPasswordClearedAfterAuthExecution(
 		"password": userAttrs["password"].(string),
 	}
 
-	step3, err := common.CompleteFlow(flowStep.FlowID, inputs, "action_002")
+	step3, err := common.CompleteFlow(flowStep.ExecutionID, inputs, "action_002", step2.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete flow step 3")
 
 	ts.Require().Equal("COMPLETE", step3.FlowStatus, "Expected flow to complete after re-submitting password")

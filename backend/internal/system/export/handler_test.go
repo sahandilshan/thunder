@@ -30,23 +30,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/application"
-	"github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/notification"
-	"github.com/asgardeo/thunder/internal/system/config"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userschema"
-	"github.com/asgardeo/thunder/tests/mocks/applicationmock"
-	"github.com/asgardeo/thunder/tests/mocks/idp/idpmock"
-	"github.com/asgardeo/thunder/tests/mocks/notification/notificationmock"
-	"github.com/asgardeo/thunder/tests/mocks/userschemamock"
+	"github.com/thunder-id/thunderid/internal/application"
+	"github.com/thunder-id/thunderid/internal/application/model"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/idp"
+	"github.com/thunder-id/thunderid/internal/notification"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/cors"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/tests/mocks/applicationmock"
+	"github.com/thunder-id/thunderid/tests/mocks/entitytypemock"
+	"github.com/thunder-id/thunderid/tests/mocks/idp/idpmock"
+	"github.com/thunder-id/thunderid/tests/mocks/notification/notificationmock"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	yaml "gopkg.in/yaml.v3"
 )
 
 // HandlerTestSuite contains comprehensive tests for the export handler functions.
@@ -55,32 +58,35 @@ type HandlerTestSuite struct {
 	mockAppService          *applicationmock.ApplicationServiceInterfaceMock
 	mockIDPService          *idpmock.IDPServiceInterfaceMock
 	mockNotificationService *notificationmock.NotificationSenderMgtSvcInterfaceMock
-	mockUserSchemaService   *userschemamock.UserSchemaServiceInterfaceMock
+	mockEntityTypeService   *entitytypemock.EntityTypeServiceInterfaceMock
 	exportService           ExportServiceInterface
 	handler                 *exportHandler
 }
 
 func (suite *HandlerTestSuite) SetupTest() {
 	// Initialize config for tests
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	var allowedOrigins cors.OriginEntries
+	suite.Require().NoError(yaml.Unmarshal([]byte(`
+- https://localhost:3000
+`), &allowedOrigins))
 	testConfig := &config.Config{
-		CORS: config.CORSConfig{
-			AllowedOrigins: []string{"https://localhost:3000"},
-		},
+		CORS: config.CORSConfig{AllowedOrigins: allowedOrigins},
 	}
-	err := config.InitializeThunderRuntime("/tmp/test", testConfig)
+	suite.Require().NoError(cors.InitializeMatcher(testConfig.CORS.AllowedOrigins))
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
 	suite.Require().NoError(err)
 
 	// Setup services and handler
 	suite.mockAppService = applicationmock.NewApplicationServiceInterfaceMock(suite.T())
 	suite.mockIDPService = idpmock.NewIDPServiceInterfaceMock(suite.T())
 	suite.mockNotificationService = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(suite.T())
-	suite.mockUserSchemaService = userschemamock.NewUserSchemaServiceInterfaceMock(suite.T())
+	suite.mockEntityTypeService = entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(suite.mockAppService),
 		idp.NewIDPExporterForTest(suite.mockIDPService),
 		notification.NewNotificationSenderExporterForTest(suite.mockNotificationService),
-		userschema.NewUserSchemaExporterForTest(suite.mockUserSchemaService),
+		entitytype.NewEntityTypeExporterForTest(suite.mockEntityTypeService),
 	}
 	parameterizer := newParameterizer(templatingRules{})
 	suite.exportService = newExportService(exporters, parameterizer)
@@ -88,7 +94,7 @@ func (suite *HandlerTestSuite) SetupTest() {
 }
 
 func (suite *HandlerTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func TestHandlerTestSuite(t *testing.T) {
@@ -112,6 +118,11 @@ func (suite *HandlerTestSuite) TestGenerateAndSendZipResponse_Success() {
 				Content:    "name: test-app-2\ndescription: Test Application 2",
 				Size:       42,
 			},
+		},
+		EnvFile: &EnvironmentFile{
+			FileName: ".env",
+			Content:  "TEST_APP_CLIENT_ID=\nTEST_APP_CLIENT_SECRET=\n",
+			Size:     44,
 		},
 		Summary: &ExportSummary{
 			TotalFiles: 2,
@@ -142,7 +153,7 @@ func (suite *HandlerTestSuite) TestGenerateAndSendZipResponse_Success() {
 	// Read and verify ZIP contents
 	zipReader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
 	assert.NoError(suite.T(), err)
-	assert.Len(suite.T(), zipReader.File, 2)
+	assert.Len(suite.T(), zipReader.File, 3)
 
 	// Verify first file
 	file1 := zipReader.File[0]
@@ -164,6 +175,17 @@ func (suite *HandlerTestSuite) TestGenerateAndSendZipResponse_Success() {
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "name: test-app-2\ndescription: Test Application 2", string(content2))
 	err = reader2.Close()
+	assert.NoError(suite.T(), err)
+
+	// Verify env file
+	envFile := zipReader.File[2]
+	assert.Equal(suite.T(), ".env", envFile.Name)
+	envReader, err := envFile.Open()
+	assert.NoError(suite.T(), err)
+	envContent, err := io.ReadAll(envReader)
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), "TEST_APP_CLIENT_ID=\nTEST_APP_CLIENT_SECRET=\n", string(envContent))
+	err = envReader.Close()
 	assert.NoError(suite.T(), err)
 }
 
@@ -354,26 +376,29 @@ func (suite *HandlerTestSuite) TestGenerateAndSendZipResponse_DeepFolderStructur
 func TestGenerateAndSendZipResponse_Standalone(t *testing.T) {
 	logger := log.GetLogger()
 	// Setup config
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	var allowedOrigins cors.OriginEntries
+	assert.NoError(t, yaml.Unmarshal([]byte(`
+- https://localhost:3000
+`), &allowedOrigins))
 	testConfig := &config.Config{
-		CORS: config.CORSConfig{
-			AllowedOrigins: []string{"*"},
-		},
+		CORS: config.CORSConfig{AllowedOrigins: allowedOrigins},
 	}
-	err := config.InitializeThunderRuntime("/tmp/test", testConfig)
+	require.NoError(t, cors.InitializeMatcher(testConfig.CORS.AllowedOrigins))
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
 	assert.NoError(t, err)
-	defer config.ResetThunderRuntime()
+	defer config.ResetServerRuntime()
 
 	// Setup handler
 	mockAppService := applicationmock.NewApplicationServiceInterfaceMock(t)
 	mockIDPService := idpmock.NewIDPServiceInterfaceMock(t)
 	mockNotificationService := notificationmock.NewNotificationSenderMgtSvcInterfaceMock(t)
-	mockUserSchemaService := userschemamock.NewUserSchemaServiceInterfaceMock(t)
+	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(t)
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(mockAppService),
 		idp.NewIDPExporterForTest(mockIDPService),
 		notification.NewNotificationSenderExporterForTest(mockNotificationService),
-		userschema.NewUserSchemaExporterForTest(mockUserSchemaService),
+		entitytype.NewEntityTypeExporterForTest(mockEntityTypeService),
 	}
 	parameterizer := newParameterizer(templatingRules{})
 	exportService := newExportService(exporters, parameterizer)
@@ -407,12 +432,12 @@ func TestNewExportHandler(t *testing.T) {
 	mockAppService := applicationmock.NewApplicationServiceInterfaceMock(t)
 	mockIDPService := idpmock.NewIDPServiceInterfaceMock(t)
 	mockNotificationService := notificationmock.NewNotificationSenderMgtSvcInterfaceMock(t)
-	mockUserSchemaService := userschemamock.NewUserSchemaServiceInterfaceMock(t)
+	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(t)
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(mockAppService),
 		idp.NewIDPExporterForTest(mockIDPService),
 		notification.NewNotificationSenderExporterForTest(mockNotificationService),
-		userschema.NewUserSchemaExporterForTest(mockUserSchemaService),
+		entitytype.NewEntityTypeExporterForTest(mockEntityTypeService),
 	}
 	parameterizer := newParameterizer(templatingRules{})
 	exportService := newExportService(exporters, parameterizer)
@@ -425,7 +450,7 @@ func TestNewExportHandler(t *testing.T) {
 
 // Handler Function Tests
 
-// TestHandleExportRequest_Success tests successful YAML export.
+// TestHandleExportRequest_Success tests successful JSON export on the /export endpoint.
 func (suite *HandlerTestSuite) TestHandleExportRequest_Success() {
 	// Setup mock expectations
 	suite.mockAppService.EXPECT().GetApplication(mock.Anything, "app1").Return(&model.Application{
@@ -455,12 +480,15 @@ func (suite *HandlerTestSuite) TestHandleExportRequest_Success() {
 
 	// Assert response
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	assert.Equal(suite.T(), "application/yaml", w.Header().Get("Content-Type"))
+	assert.Equal(suite.T(), "application/json", w.Header().Get("Content-Type"))
 
-	responseBody := w.Body.String()
-	assert.NotEmpty(suite.T(), responseBody)
-	assert.Contains(suite.T(), responseBody, "# File:")
-	assert.Contains(suite.T(), responseBody, "name: Test App 1")
+	var response JSONExportResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(suite.T(), err)
+	assert.Contains(suite.T(), response.Resources, "# File: Test_App_1.yaml")
+	assert.Contains(suite.T(), response.Resources, "# resource_type: application")
+	assert.Contains(suite.T(), response.Resources, "name: Test App 1")
+	assert.Equal(suite.T(), "", response.EnvironmentVariables)
 }
 
 // TestHandleExportRequest_InvalidJSON tests invalid JSON request handling.
@@ -481,7 +509,7 @@ func (suite *HandlerTestSuite) TestHandleExportRequest_InvalidJSON() {
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "EXP-1001", errResp["code"])
-	assert.Equal(suite.T(), "Invalid export request", errResp["message"])
+	assert.Equal(suite.T(), "Invalid export request", errResp["message"].(map[string]interface{})["defaultValue"])
 }
 
 // Helper function to test service error responses
@@ -505,8 +533,6 @@ func (suite *HandlerTestSuite) testServiceErrorResponse(
 	switch endpoint {
 	case "/export":
 		suite.handler.HandleExportRequest(w, req)
-	case "/export/json":
-		suite.handler.HandleExportJSONRequest(w, req)
 	case "/export/zip":
 		suite.handler.HandleExportZipRequest(w, req)
 	}
@@ -526,7 +552,7 @@ func (suite *HandlerTestSuite) TestHandleExportRequest_ServiceError() {
 	suite.testServiceErrorResponse("POST", "/export", "app1", &ErrorNoResourcesFound, "EXP-1002")
 }
 
-// TestHandleExportRequest_MultipleFiles tests YAML export with multiple files.
+// TestHandleExportRequest_MultipleFiles tests JSON export with multiple files.
 func (suite *HandlerTestSuite) TestHandleExportRequest_MultipleFiles() {
 	// Setup mock expectations for multiple applications
 	suite.mockAppService.EXPECT().GetApplication(mock.Anything, "app1").Return(&model.Application{
@@ -554,16 +580,20 @@ func (suite *HandlerTestSuite) TestHandleExportRequest_MultipleFiles() {
 
 	// Assert response
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	responseBody := w.Body.String()
+	assert.Equal(suite.T(), "application/json", w.Header().Get("Content-Type"))
 
-	// Verify YAML separator between files
-	assert.Contains(suite.T(), responseBody, "---")
-	assert.Contains(suite.T(), responseBody, "name: App One")
-	assert.Contains(suite.T(), responseBody, "name: App Two")
+	var response JSONExportResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(suite.T(), err)
+	assert.Contains(suite.T(), response.Resources, "# File: App_One.yaml")
+	assert.Contains(suite.T(), response.Resources, "# File: App_Two.yaml")
+	assert.Contains(suite.T(), response.Resources, "name: App One")
+	assert.Contains(suite.T(), response.Resources, "name: App Two")
+	assert.Contains(suite.T(), response.Resources, "---")
+	assert.Equal(suite.T(), "", response.EnvironmentVariables)
 
-	// Count file headers
-	fileHeaders := strings.Count(responseBody, "# File:")
-	assert.Equal(suite.T(), 2, fileHeaders)
+	resourceTypeHeaders := strings.Count(response.Resources, "# resource_type: application")
+	assert.Equal(suite.T(), 2, resourceTypeHeaders)
 }
 
 // TestHandleExportJSONRequest_Success tests successful JSON export.
@@ -585,37 +615,34 @@ func (suite *HandlerTestSuite) TestHandleExportJSONRequest_Success() {
 	requestJSON, _ := json.Marshal(requestBody)
 
 	// Create HTTP request
-	req := httptest.NewRequest("POST", "/export/json", bytes.NewReader(requestJSON))
+	req := httptest.NewRequest("POST", "/export", bytes.NewReader(requestJSON))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	// Execute
-	suite.handler.HandleExportJSONRequest(w, req)
+	suite.handler.HandleExportRequest(w, req)
 
 	// Assert response
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
 	assert.Equal(suite.T(), "application/json", w.Header().Get("Content-Type"))
 
-	var response ExportResponse
+	var response JSONExportResponse
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
-	assert.Len(suite.T(), response.Files, 1)
-	// Note: Service currently generates YAML files even with JSON format (fallback behavior)
-	assert.Equal(suite.T(), "Test_App_JSON.yaml", response.Files[0].FileName)
-	assert.Contains(suite.T(), response.Files[0].Content, "Test App JSON")
-	assert.NotNil(suite.T(), response.Summary)
-	assert.Equal(suite.T(), 1, response.Summary.TotalFiles)
+	assert.Contains(suite.T(), response.Resources, "# File: Test_App_JSON.yaml")
+	assert.Contains(suite.T(), response.Resources, "name: Test App JSON")
+	assert.Equal(suite.T(), "", response.EnvironmentVariables)
 }
 
 // TestHandleExportJSONRequest_InvalidJSON tests invalid JSON handling for JSON export.
 func (suite *HandlerTestSuite) TestHandleExportJSONRequest_InvalidJSON() {
 	// Create malformed JSON request
-	req := httptest.NewRequest("POST", "/export/json", strings.NewReader("invalid"))
+	req := httptest.NewRequest("POST", "/export", strings.NewReader("invalid"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	// Execute
-	suite.handler.HandleExportJSONRequest(w, req)
+	suite.handler.HandleExportRequest(w, req)
 
 	// Assert error response
 	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
@@ -630,7 +657,7 @@ func (suite *HandlerTestSuite) TestHandleExportJSONRequest_InvalidJSON() {
 // TestHandleExportJSONRequest_ServiceError tests service error handling for JSON export.
 func (suite *HandlerTestSuite) TestHandleExportJSONRequest_ServiceError() {
 	// Setup mock to return service error
-	suite.testServiceErrorResponse("POST", "/export/json", "app1", &ErrorInternalServerError, "EXP-1002")
+	suite.testServiceErrorResponse("POST", "/export", "app1", &serviceerror.InternalServerError, "EXP-1002")
 }
 
 // TestHandleExportZipRequest_Success tests successful ZIP export.
@@ -721,8 +748,9 @@ func (suite *HandlerTestSuite) TestHandleError_ClientError() {
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "EXP-1002", errResp["code"])
-	assert.Equal(suite.T(), "No resources found", errResp["message"])
-	assert.Equal(suite.T(), "No valid resources found for the provided identifiers", errResp["description"])
+	assert.Equal(suite.T(), "No resources found", errResp["message"].(map[string]interface{})["defaultValue"])
+	assert.Equal(suite.T(), "No valid resources found for the provided identifiers",
+		errResp["description"].(map[string]interface{})["defaultValue"])
 }
 
 // TestHandleError_ServerError tests error handling for server errors.
@@ -730,7 +758,7 @@ func (suite *HandlerTestSuite) TestHandleError_ServerError() {
 	w := httptest.NewRecorder()
 
 	// Create server error
-	serverErr := &ErrorInternalServerError
+	serverErr := &serviceerror.InternalServerError
 
 	// Execute
 	suite.handler.handleError(w, serverErr)
@@ -742,9 +770,10 @@ func (suite *HandlerTestSuite) TestHandleError_ServerError() {
 	var errResp map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), "EXP-5001", errResp["code"])
-	assert.Equal(suite.T(), "Internal server error", errResp["message"])
-	assert.Equal(suite.T(), "An unexpected error occurred while processing the export request", errResp["description"])
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, errResp["code"])
+	assert.Equal(suite.T(), "Internal server error", errResp["message"].(map[string]interface{})["defaultValue"])
+	assert.Equal(suite.T(), "An unexpected error occurred while processing the request",
+		errResp["description"].(map[string]interface{})["defaultValue"])
 }
 
 // Edge case tests
@@ -788,7 +817,7 @@ func (suite *HandlerTestSuite) TestHandleExportRequest_NilOptions() {
 
 	// Assert successful response with default behavior
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	assert.Equal(suite.T(), "application/yaml", w.Header().Get("Content-Type"))
+	assert.Equal(suite.T(), "application/json", w.Header().Get("Content-Type"))
 }
 
 // TestHandleExportJSONRequest_EmptyFiles tests JSON export with no files.
@@ -800,12 +829,12 @@ func (suite *HandlerTestSuite) TestHandleExportJSONRequest_EmptyFiles() {
 	requestJSON, _ := json.Marshal(requestBody)
 
 	// Create HTTP request
-	req := httptest.NewRequest("POST", "/export/json", bytes.NewReader(requestJSON))
+	req := httptest.NewRequest("POST", "/export", bytes.NewReader(requestJSON))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	// Execute
-	suite.handler.HandleExportJSONRequest(w, req)
+	suite.handler.HandleExportRequest(w, req)
 
 	// Assert error response (empty applications list returns NoResourcesFound error)
 	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
@@ -815,7 +844,7 @@ func (suite *HandlerTestSuite) TestHandleExportJSONRequest_EmptyFiles() {
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "EXP-1002", errResp["code"]) // NoResourcesFound
-	assert.Equal(suite.T(), "No resources found", errResp["message"])
+	assert.Equal(suite.T(), "No resources found", errResp["message"].(map[string]interface{})["defaultValue"])
 }
 
 // Benchmark tests
@@ -824,20 +853,20 @@ func (suite *HandlerTestSuite) TestHandleExportJSONRequest_EmptyFiles() {
 func BenchmarkGenerateAndSendZipResponse(b *testing.B) {
 	logger := log.GetLogger()
 	// Setup
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{}
-	_ = config.InitializeThunderRuntime("/tmp/test", testConfig)
-	defer config.ResetThunderRuntime()
+	_ = config.InitializeServerRuntime("/tmp/test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mockAppService := applicationmock.NewApplicationServiceInterfaceMock(b)
 	mockIDPService := idpmock.NewIDPServiceInterfaceMock(b)
 	mockNotificationService := notificationmock.NewNotificationSenderMgtSvcInterfaceMock(b)
-	mockUserSchemaService := userschemamock.NewUserSchemaServiceInterfaceMock(b)
+	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(b)
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(mockAppService),
 		idp.NewIDPExporterForTest(mockIDPService),
 		notification.NewNotificationSenderExporterForTest(mockNotificationService),
-		userschema.NewUserSchemaExporterForTest(mockUserSchemaService),
+		entitytype.NewEntityTypeExporterForTest(mockEntityTypeService),
 	}
 	parameterizer := newParameterizer(templatingRules{})
 	exportService := newExportService(exporters, parameterizer)
@@ -864,20 +893,20 @@ func BenchmarkGenerateAndSendZipResponse(b *testing.B) {
 // Helper function for benchmark tests
 func setupBenchmarkTest(b *testing.B) (*exportHandler, []byte) {
 	// Setup
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{}
-	_ = config.InitializeThunderRuntime("/tmp/test", testConfig)
-	b.Cleanup(func() { config.ResetThunderRuntime() })
+	_ = config.InitializeServerRuntime("/tmp/test", testConfig)
+	b.Cleanup(func() { config.ResetServerRuntime() })
 
 	mockAppService := applicationmock.NewApplicationServiceInterfaceMock(b)
 	mockIDPService := idpmock.NewIDPServiceInterfaceMock(b)
 	mockNotificationService := notificationmock.NewNotificationSenderMgtSvcInterfaceMock(b)
-	mockUserSchemaService := userschemamock.NewUserSchemaServiceInterfaceMock(b)
+	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(b)
 	exporters := []declarativeresource.ResourceExporter{
 		application.NewApplicationExporterForTest(mockAppService),
 		idp.NewIDPExporterForTest(mockIDPService),
 		notification.NewNotificationSenderExporterForTest(mockNotificationService),
-		userschema.NewUserSchemaExporterForTest(mockUserSchemaService),
+		entitytype.NewEntityTypeExporterForTest(mockEntityTypeService),
 	}
 	parameterizer := newParameterizer(templatingRules{})
 	exportService := newExportService(exporters, parameterizer)
@@ -917,9 +946,9 @@ func BenchmarkHandleExportJSONRequest(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("POST", "/export/json", bytes.NewReader(requestJSON))
+		req := httptest.NewRequest("POST", "/export", bytes.NewReader(requestJSON))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		handler.HandleExportJSONRequest(w, req)
+		handler.HandleExportRequest(w, req)
 	}
 }

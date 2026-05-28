@@ -22,38 +22,36 @@ import (
 	"net/http"
 	"strings"
 
-	oupkg "github.com/asgardeo/thunder/internal/ou"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/crypto/hash"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/middleware"
-	"github.com/asgardeo/thunder/internal/system/sysauthz"
-	"github.com/asgardeo/thunder/internal/system/transaction"
-	"github.com/asgardeo/thunder/internal/userschema"
+	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/system/sysauthz"
 )
 
 // Initialize initializes the user service and registers its routes.
 func Initialize(
 	mux *http.ServeMux,
+	entityService entity.EntityServiceInterface,
 	ouService oupkg.OrganizationUnitServiceInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
-	hashService hash.HashServiceInterface,
+	entityTypeService entitytype.EntityTypeServiceInterface,
 	authzService sysauthz.SystemAuthorizationServiceInterface,
 ) (UserServiceInterface, oupkg.OUUserResolver, declarativeresource.ResourceExporter, error) {
-	// Step 1: Determine store mode and initialize store and transactioner
-	storeMode := getUserStoreMode()
-	userStore, transactioner, err := initializeStore(storeMode)
-	if err != nil {
+	// Step 1: Create service with entity service
+	userService := newUserService(authzService, entityService, ouService, entityTypeService)
+
+	// Step 2: Load user-specific indexed attributes into the entity store.
+	if err := entityService.LoadIndexedAttributes(getUserIndexedAttributes()); err != nil {
 		return nil, nil, nil, err
 	}
 
-	// Step 2: Create service with store
-	userService := newUserService(authzService, userStore, ouService, userSchemaService, hashService, transactioner)
-	setUserService(userService) // Set the provider for backward compatibility
-
-	// Step 3: Load declarative resources into store (if applicable)
-	if storeMode == serverconst.StoreModeComposite || storeMode == serverconst.StoreModeDeclarative {
-		if err := loadDeclarativeUserResources(userStore); err != nil {
+	// Step 3: Load declarative resources if user store mode requires it.
+	storeMode := getUserStoreMode()
+	if storeMode == serverconst.StoreModeDeclarative || storeMode == serverconst.StoreModeComposite {
+		if err := entityService.LoadDeclarativeResources(makeUserDeclarativeConfig(userService)); err != nil {
 			return nil, nil, nil, err
 		}
 	}
@@ -62,93 +60,38 @@ func Initialize(
 	registerRoutes(mux, userHandler)
 
 	// Create resolver for OU package to query user data without cross-DB access
-	ouUserResolver := newOUUserResolver(userStore, userSchemaService)
+	ouUserResolver := newOUUserResolver(entityService, entityTypeService)
 
 	// Create and return exporter
-	exporter := newUserExporter(userService)
+	exporter := newUserExporter(userService, entityService)
 	return userService, ouUserResolver, exporter, nil
 }
 
-// Store Selection (based on user.store configuration):
-//
-// 1. MUTABLE mode (store: "mutable"):
-//   - Uses database store only
-//   - Supports full CRUD operations (Create/Read/Update/Delete)
-//   - All users are mutable
-//   - Export functionality exports DB-backed users
-//
-// 2. IMMUTABLE mode (store: "declarative"):
-//   - Uses file-based store only (from YAML resources)
-//   - All users are immutable (read-only)
-//   - No create/update/delete operations allowed
-//   - Export functionality not applicable
-//
-// 3. COMPOSITE mode (store: "composite" - hybrid):
-//   - Uses both file-based store (immutable) + database store (mutable)
-//   - YAML resources are loaded into file-based store (immutable, read-only)
-//   - Database store handles runtime users (mutable)
-//   - Reads check both stores (merged results)
-//   - Writes only go to database store
-//   - Declarative users cannot be updated or deleted
-//   - Export only exports DB-backed users (not YAML)
-//
-// Configuration Fallback:
-// - If user.store is not specified, falls back to global declarative_resources.enabled:
-//   - If declarative_resources.enabled = true: behaves as IMMUTABLE mode
-//   - If declarative_resources.enabled = false: behaves as MUTABLE mode
-func initializeStore(storeMode serverconst.StoreMode) (userStoreInterface, transaction.Transactioner, error) {
-	switch storeMode {
-	case serverconst.StoreModeComposite:
-		fileStore, _ := newUserFileBasedStore()
-		dbStore, transactioner, err := newUserStore()
-		if err != nil {
-			return nil, nil, err
-		}
-		return newCompositeUserStore(fileStore.(*userFileBasedStore), dbStore), transactioner, nil
-
-	case serverconst.StoreModeDeclarative:
-		fileStore, transactioner := newUserFileBasedStore()
-		return fileStore, transactioner, nil
-
-	default:
-		return newUserStore()
+// getUserStoreMode determines the store mode for users from config.
+func getUserStoreMode() serverconst.StoreMode {
+	store := strings.ToLower(strings.TrimSpace(config.GetServerRuntime().Config.User.Store))
+	switch serverconst.StoreMode(store) {
+	case serverconst.StoreModeMutable, serverconst.StoreModeDeclarative, serverconst.StoreModeComposite:
+		return serverconst.StoreMode(store)
 	}
+	if declarativeresource.IsDeclarativeModeEnabled() {
+		return serverconst.StoreModeDeclarative
+	}
+	return serverconst.StoreModeMutable
 }
 
-// loadDeclarativeUserResources loads declarative user resources from files.
-func loadDeclarativeUserResources(userStore userStoreInterface) error {
-	var fileStore userStoreInterface
-	var dbStore userStoreInterface
-
-	// Determine store type and extract file store
-	switch store := userStore.(type) {
-	case *compositeUserStore:
-		// Composite mode: extract file store and db store from composite
-		fileStore = store.fileStore
-		dbStore = store.dbStore
-	case *userFileBasedStore:
-		// Declarative-only mode: only file store available
-		fileStore = store
-		dbStore = nil
-	default:
-		return nil // Mutable mode: no declarative resources to load
-	}
-
-	// Type assert to access Storer interface for resource loading
-	fileBasedStore, ok := fileStore.(*userFileBasedStore)
-	if !ok {
-		return nil // Not a file-based store
-	}
-
-	return loadDeclarativeResources(fileBasedStore, dbStore)
+// getUserIndexedAttributes returns the indexed attributes configured for users.
+func getUserIndexedAttributes() []string {
+	return config.GetServerRuntime().Config.User.IndexedAttributes
 }
 
 // registerRoutes registers the routes for user management operations.
 func registerRoutes(mux *http.ServeMux, userHandler *userHandler) {
 	opts1 := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("POST /users", userHandler.HandleUserPostRequest, opts1))
 	mux.HandleFunc(middleware.WithCORS("GET /users", userHandler.HandleUserListRequest, opts1))
@@ -157,9 +100,10 @@ func registerRoutes(mux *http.ServeMux, userHandler *userHandler) {
 	}, opts1))
 
 	opts2 := middleware.CORSOptions{
-		AllowedMethods:   "GET, PUT, DELETE",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "PUT", "DELETE"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("GET /users/",
 		func(w http.ResponseWriter, r *http.Request) {
@@ -182,9 +126,10 @@ func registerRoutes(mux *http.ServeMux, userHandler *userHandler) {
 	}, opts2))
 
 	optsSelf := middleware.CORSOptions{
-		AllowedMethods:   "GET, PUT",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "PUT"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("GET /users/me", userHandler.HandleSelfUserGetRequest, optsSelf))
 	mux.HandleFunc(middleware.WithCORS("PUT /users/me", userHandler.HandleSelfUserPutRequest, optsSelf))
@@ -193,9 +138,10 @@ func registerRoutes(mux *http.ServeMux, userHandler *userHandler) {
 	}, optsSelf))
 
 	optsSelfCredentials := middleware.CORSOptions{
-		AllowedMethods:   "POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("POST /users/me/update-credentials",
 		userHandler.HandleSelfUserCredentialUpdateRequest, optsSelfCredentials))
@@ -205,9 +151,10 @@ func registerRoutes(mux *http.ServeMux, userHandler *userHandler) {
 		}, optsSelfCredentials))
 
 	opts3 := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 	mux.HandleFunc(middleware.WithCORS("GET /users/tree/{path...}",
 		userHandler.HandleUserListByPathRequest, opts3))

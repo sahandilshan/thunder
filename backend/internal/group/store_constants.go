@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"strings"
 
-	dbmodel "github.com/asgardeo/thunder/internal/system/database/model"
+	dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
 )
 
 var (
@@ -133,8 +133,10 @@ func buildGetGroupsByOUIDsQuery(
 var (
 	// QueryCreateGroup is the query to create a new group.
 	QueryCreateGroup = dbmodel.DBQuery{
-		ID:    "GRQ-GROUP_MGT-05",
-		Query: `INSERT INTO "GROUP" (ID, OU_ID, NAME, DESCRIPTION, DEPLOYMENT_ID) VALUES ($1, $2, $3, $4, $5)`,
+		ID: "GRQ-GROUP_MGT-05",
+		Query: `INSERT INTO "GROUP" ` +
+			`(ID, OU_ID, NAME, DESCRIPTION, DEPLOYMENT_ID, CREATED_AT, UPDATED_AT) ` +
+			`VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 	}
 
 	// QueryGetGroupByID is the query to get a group by id.
@@ -146,20 +148,21 @@ var (
 	// QueryGetGroupMembers is the query to get members assigned to a group.
 	QueryGetGroupMembers = dbmodel.DBQuery{
 		ID: "GRQ-GROUP_MGT-07",
-		Query: `SELECT MEMBER_ID, MEMBER_TYPE FROM GROUP_MEMBER_REFERENCE WHERE GROUP_ID = $1 AND DEPLOYMENT_ID = $4 ` +
-			`ORDER BY MEMBER_TYPE, MEMBER_ID LIMIT $2 OFFSET $3`,
+		Query: `SELECT MEMBER_ID, MEMBER_TYPE FROM "GROUP_MEMBER_REFERENCE" ` +
+			`WHERE GROUP_ID = $1 AND DEPLOYMENT_ID = $4 ORDER BY MEMBER_TYPE, MEMBER_ID LIMIT $2 OFFSET $3`,
 	}
 
 	// QueryGetGroupMemberCount is the query to get total count of members in a group.
 	QueryGetGroupMemberCount = dbmodel.DBQuery{
 		ID:    "GRQ-GROUP_MGT-08",
-		Query: `SELECT COUNT(*) as total FROM GROUP_MEMBER_REFERENCE WHERE GROUP_ID = $1 AND DEPLOYMENT_ID = $2`,
+		Query: `SELECT COUNT(*) as total FROM "GROUP_MEMBER_REFERENCE" WHERE GROUP_ID = $1 AND DEPLOYMENT_ID = $2`,
 	}
 
 	// QueryUpdateGroup is the query to update a group.
 	QueryUpdateGroup = dbmodel.DBQuery{
-		ID:    "GRQ-GROUP_MGT-09",
-		Query: `UPDATE "GROUP" SET OU_ID = $2, NAME = $3, DESCRIPTION = $4 WHERE ID = $1 AND DEPLOYMENT_ID = $5`,
+		ID: "GRQ-GROUP_MGT-09",
+		Query: `UPDATE "GROUP" SET OU_ID = $2, NAME = $3, DESCRIPTION = $4, UPDATED_AT = $5 ` +
+			`WHERE ID = $1 AND DEPLOYMENT_ID = $6`,
 	}
 
 	// QueryDeleteGroup is the query to delete a group.
@@ -171,14 +174,16 @@ var (
 	// QueryDeleteGroupMembers is the query to delete all members assigned to a group.
 	QueryDeleteGroupMembers = dbmodel.DBQuery{
 		ID:    "GRQ-GROUP_MGT-11",
-		Query: `DELETE FROM GROUP_MEMBER_REFERENCE WHERE GROUP_ID = $1 AND DEPLOYMENT_ID = $2`,
+		Query: `DELETE FROM "GROUP_MEMBER_REFERENCE" WHERE GROUP_ID = $1 AND DEPLOYMENT_ID = $2`,
 	}
 
 	// QueryAddMemberToGroup is the query to assign member to a group.
 	QueryAddMemberToGroup = dbmodel.DBQuery{
 		ID: "GRQ-GROUP_MGT-12",
-		Query: `INSERT INTO GROUP_MEMBER_REFERENCE (GROUP_ID, MEMBER_TYPE, MEMBER_ID, DEPLOYMENT_ID) ` +
-			`VALUES ($1, $2, $3, $4) ON CONFLICT (GROUP_ID, MEMBER_TYPE, MEMBER_ID, DEPLOYMENT_ID) DO NOTHING`,
+		Query: `INSERT INTO "GROUP_MEMBER_REFERENCE" ` +
+			`(GROUP_ID, MEMBER_TYPE, MEMBER_ID, DEPLOYMENT_ID, CREATED_AT, UPDATED_AT) ` +
+			`VALUES ($1, $2, $3, $4, $5, $6) ` +
+			`ON CONFLICT (GROUP_ID, MEMBER_TYPE, MEMBER_ID, DEPLOYMENT_ID) DO NOTHING`,
 	}
 
 	// QueryCheckGroupNameConflict is the query to check if a group name conflicts within the same organization unit.
@@ -210,7 +215,7 @@ var (
 	// QueryDeleteGroupMember is the query to delete a specific member from a group.
 	QueryDeleteGroupMember = dbmodel.DBQuery{
 		ID: "GRQ-GROUP_MGT-17",
-		Query: `DELETE FROM GROUP_MEMBER_REFERENCE ` +
+		Query: `DELETE FROM "GROUP_MEMBER_REFERENCE" ` +
 			`WHERE GROUP_ID = $1 AND MEMBER_TYPE = $2 AND MEMBER_ID = $3 AND DEPLOYMENT_ID = $4`,
 	}
 )
@@ -253,7 +258,7 @@ func buildGroupINClauseQuery(
 func buildBulkGroupExistsQuery(groupIDs []string, deploymentID string) (dbmodel.DBQuery, []interface{}, error) {
 	return buildGroupINClauseQuery(
 		"GRQ-GROUP_MGT-18",
-		"SELECT ID FROM \"GROUP\" WHERE ID IN (%s) AND DEPLOYMENT_ID = %s",
+		`SELECT ID FROM "GROUP" WHERE ID IN (%s) AND DEPLOYMENT_ID = %s`,
 		groupIDs, deploymentID,
 	)
 }
@@ -262,7 +267,7 @@ func buildBulkGroupExistsQuery(groupIDs []string, deploymentID string) (dbmodel.
 func buildGetGroupsByIDsQuery(groupIDs []string, deploymentID string) (dbmodel.DBQuery, []interface{}, error) {
 	return buildGroupINClauseQuery(
 		"GRQ-GROUP_MGT-19",
-		"SELECT ID, OU_ID, NAME, DESCRIPTION FROM \"GROUP\" WHERE ID IN (%s) AND DEPLOYMENT_ID = %s",
+		`SELECT ID, OU_ID, NAME, DESCRIPTION FROM "GROUP" WHERE ID IN (%s) AND DEPLOYMENT_ID = %s`,
 		groupIDs, deploymentID,
 	)
 }

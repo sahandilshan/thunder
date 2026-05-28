@@ -19,24 +19,25 @@
 package executor
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/userprovider"
-	"github.com/asgardeo/thunder/tests/mocks/flow/coremock"
-	"github.com/asgardeo/thunder/tests/mocks/userprovidermock"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/tests/mocks/entityprovidermock"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
 )
 
 type IdentifyingExecutorTestSuite struct {
 	suite.Suite
-	mockUserProvider *userprovidermock.UserProviderInterfaceMock
-	mockFlowFactory  *coremock.FlowFactoryInterfaceMock
-	executor         *identifyingExecutor
+	mockEntityProvider *entityprovidermock.EntityProviderInterfaceMock
+	mockFlowFactory    *coremock.FlowFactoryInterfaceMock
+	executor           *identifyingExecutor
 }
 
 func TestIdentifyingExecutorSuite(t *testing.T) {
@@ -44,7 +45,7 @@ func TestIdentifyingExecutorSuite(t *testing.T) {
 }
 
 func (suite *IdentifyingExecutorTestSuite) SetupTest() {
-	suite.mockUserProvider = userprovidermock.NewUserProviderInterfaceMock(suite.T())
+	suite.mockEntityProvider = entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
 	suite.mockFlowFactory = coremock.NewFlowFactoryInterfaceMock(suite.T())
 
 	mockExec := createMockExecutor(suite.T(), ExecutorNameIdentifying, common.ExecutorTypeUtility)
@@ -52,12 +53,12 @@ func (suite *IdentifyingExecutorTestSuite) SetupTest() {
 		[]common.Input{}, []common.Input{}).Return(mockExec)
 
 	suite.executor = newIdentifyingExecutor(ExecutorNameIdentifying, []common.Input{},
-		[]common.Input{}, suite.mockFlowFactory, suite.mockUserProvider)
+		[]common.Input{}, suite.mockFlowFactory, suite.mockEntityProvider)
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestNewIdentifyingExecutor() {
 	assert.NotNil(suite.T(), suite.executor)
-	assert.NotNil(suite.T(), suite.executor.userProvider)
+	assert.NotNil(suite.T(), suite.executor.entityProvider)
 
 	// Test default name
 	exec := newIdentifyingExecutor(
@@ -65,7 +66,7 @@ func (suite *IdentifyingExecutorTestSuite) TestNewIdentifyingExecutor() {
 		[]common.Input{},
 		[]common.Input{},
 		suite.mockFlowFactory,
-		suite.mockUserProvider,
+		suite.mockEntityProvider,
 	)
 	assert.NotNil(suite.T(), exec)
 }
@@ -77,14 +78,14 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_Success() {
 	}
 	// Use package-level testUserID constant
 	userID := testUserID
-	suite.mockUserProvider.On("IdentifyUser", filters).Return(&userID, nil)
+	suite.mockEntityProvider.On("IdentifyEntity", filters).Return(&userID, nil)
 
 	result, err := suite.executor.IdentifyUser(filters, execResp)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), testUserID, *result)
-	suite.mockUserProvider.AssertExpectations(suite.T())
+	suite.mockEntityProvider.AssertExpectations(suite.T())
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_UserNotFound() {
@@ -93,8 +94,8 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_UserNotFound() {
 		RuntimeData: make(map[string]string),
 	}
 
-	suite.mockUserProvider.On("IdentifyUser", filters).Return(nil,
-		userprovider.NewUserProviderError(userprovider.ErrorCodeUserNotFound, "", ""))
+	suite.mockEntityProvider.On("IdentifyEntity", filters).Return(nil,
+		entityprovider.NewEntityProviderError(entityprovider.ErrorCodeEntityNotFound, "", ""))
 
 	result, err := suite.executor.IdentifyUser(filters, execResp)
 
@@ -102,7 +103,7 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_UserNotFound() {
 	assert.Nil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, execResp.Status)
 	assert.Equal(suite.T(), failureReasonUserNotFound, execResp.FailureReason)
-	suite.mockUserProvider.AssertExpectations(suite.T())
+	suite.mockEntityProvider.AssertExpectations(suite.T())
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_ServiceError() {
@@ -111,8 +112,8 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_ServiceError() {
 		RuntimeData: make(map[string]string),
 	}
 
-	suite.mockUserProvider.On("IdentifyUser", filters).Return(nil,
-		userprovider.NewUserProviderError(userprovider.ErrorCodeSystemError, "", ""))
+	suite.mockEntityProvider.On("IdentifyEntity", filters).Return(nil,
+		entityprovider.NewEntityProviderError(entityprovider.ErrorCodeSystemError, "", ""))
 
 	result, err := suite.executor.IdentifyUser(filters, execResp)
 
@@ -120,7 +121,7 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_ServiceError() {
 	assert.Nil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, execResp.Status)
 	assert.Contains(suite.T(), execResp.FailureReason, "Failed to identify user")
-	suite.mockUserProvider.AssertExpectations(suite.T())
+	suite.mockEntityProvider.AssertExpectations(suite.T())
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_EmptyUserID() {
@@ -130,7 +131,7 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_EmptyUserID() {
 	}
 	emptyID := ""
 
-	suite.mockUserProvider.On("IdentifyUser", filters).Return(&emptyID, nil)
+	suite.mockEntityProvider.On("IdentifyEntity", filters).Return(&emptyID, nil)
 
 	result, err := suite.executor.IdentifyUser(filters, execResp)
 
@@ -138,7 +139,7 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_EmptyUserID() {
 	assert.Nil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, execResp.Status)
 	assert.Equal(suite.T(), failureReasonUserNotFound, execResp.FailureReason)
-	suite.mockUserProvider.AssertExpectations(suite.T())
+	suite.mockEntityProvider.AssertExpectations(suite.T())
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_FilterNonSearchableAttributes() {
@@ -153,7 +154,7 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_FilterNonSearchableA
 		RuntimeData: make(map[string]string),
 	}
 	// Use package-level testUserID constant
-	suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 		"username": "testuser",
 	}).Return(func() *string {
 		userID := testUserID
@@ -165,7 +166,7 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_FilterNonSearchableA
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), testUserID, *result)
-	suite.mockUserProvider.AssertExpectations(suite.T())
+	suite.mockEntityProvider.AssertExpectations(suite.T())
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_WithEmail() {
@@ -175,14 +176,14 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_WithEmail() {
 	}
 	emailUserID := "user-456"
 
-	suite.mockUserProvider.On("IdentifyUser", filters).Return(&emailUserID, nil)
+	suite.mockEntityProvider.On("IdentifyEntity", filters).Return(&emailUserID, nil)
 
 	result, err := suite.executor.IdentifyUser(filters, execResp)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), "user-456", *result)
-	suite.mockUserProvider.AssertExpectations(suite.T())
+	suite.mockEntityProvider.AssertExpectations(suite.T())
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_WithMobileNumber() {
@@ -192,20 +193,20 @@ func (suite *IdentifyingExecutorTestSuite) TestIdentifyUser_WithMobileNumber() {
 	}
 	mobileUserID := "user-789"
 
-	suite.mockUserProvider.On("IdentifyUser", filters).Return(&mobileUserID, nil)
+	suite.mockEntityProvider.On("IdentifyEntity", filters).Return(&mobileUserID, nil)
 
 	result, err := suite.executor.IdentifyUser(filters, execResp)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), "user-789", *result)
-	suite.mockUserProvider.AssertExpectations(suite.T())
+	suite.mockEntityProvider.AssertExpectations(suite.T())
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_UserInputs() {
 	ctx := &core.NodeContext{
-		FlowID:     "flow-123",
-		UserInputs: map[string]string{"username": "testuser"},
+		ExecutionID: "flow-123",
+		UserInputs:  map[string]string{"username": "testuser"},
 	}
 	// Use package-level testUserID constant
 	// Configure mock base executor
@@ -215,7 +216,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_UserInputs() {
 		{Identifier: "username", Type: "string", Required: true},
 	})
 
-	suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 		"username": "testuser",
 	}).Return(func() *string {
 		userID := testUserID
@@ -232,7 +233,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_UserInputs() {
 
 func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_RuntimeData() {
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		UserInputs:  make(map[string]string),
 		RuntimeData: map[string]string{"username": "testuser"},
 	}
@@ -243,7 +244,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_RuntimeData() {
 		{Identifier: "username", Type: "string", Required: true},
 	})
 
-	suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 		"username": "testuser",
 	}).Return(func() *string {
 		userID := testUserID
@@ -260,8 +261,8 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_RuntimeData() {
 
 func (suite *IdentifyingExecutorTestSuite) TestExecute_UserInputRequired() {
 	ctx := &core.NodeContext{
-		FlowID:     "flow-123",
-		UserInputs: map[string]string{},
+		ExecutionID: "flow-123",
+		UserInputs:  map[string]string{},
 	}
 
 	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
@@ -276,8 +277,8 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_UserInputRequired() {
 
 func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_IdentifyUserError() {
 	ctx := &core.NodeContext{
-		FlowID:     "flow-123",
-		UserInputs: map[string]string{"username": "testuser"},
+		ExecutionID: "flow-123",
+		UserInputs:  map[string]string{"username": "testuser"},
 	}
 
 	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
@@ -286,9 +287,9 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_IdentifyUserError
 		{Identifier: "username", Type: "string", Required: true},
 	})
 
-	suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 		"username": "testuser",
-	}).Return(nil, userprovider.NewUserProviderError(userprovider.ErrorCodeUserNotFound, "", ""))
+	}).Return(nil, entityprovider.NewEntityProviderError(entityprovider.ErrorCodeEntityNotFound, "", ""))
 
 	resp, err := suite.executor.Execute(ctx)
 
@@ -297,14 +298,14 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_IdentifyUserError
 	// IdentifyUser method in implementation swallows the error and returns nil, nil.
 	// Then Execute checks for nil userID and returns UserNotFound.
 	// So we should expect failureReasonUserNotFound
-	assert.Equal(suite.T(), common.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
 	assert.Equal(suite.T(), failureReasonUserNotFound, resp.FailureReason)
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_UserNotFound() {
 	ctx := &core.NodeContext{
-		FlowID:     "flow-123",
-		UserInputs: map[string]string{"username": "nonexistent"},
+		ExecutionID: "flow-123",
+		UserInputs:  map[string]string{"username": "nonexistent"},
 	}
 
 	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
@@ -314,7 +315,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_UserNotFound() {
 	})
 
 	emptyID := ""
-	suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 		"username": "nonexistent",
 	}).Return(&emptyID, nil)
 
@@ -322,7 +323,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_UserNotFound() {
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), resp)
-	assert.Equal(suite.T(), common.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
 	assert.Equal(suite.T(), failureReasonUserNotFound, resp.FailureReason)
 }
 
@@ -342,8 +343,8 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_WithVariousAttrib
 		suite.Run(tc.name, func() {
 			suite.SetupTest()
 			ctx := &core.NodeContext{
-				FlowID:     "flow-123",
-				UserInputs: map[string]string{tc.attribute: tc.value},
+				ExecutionID: "flow-123",
+				UserInputs:  map[string]string{tc.attribute: tc.value},
 			}
 
 			mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
@@ -352,7 +353,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_WithVariousAttrib
 				{Identifier: tc.attribute, Type: "string", Required: true},
 			})
 
-			suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+			suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 				tc.attribute: tc.value,
 			}).Return(&tc.expectedID, nil)
 
@@ -362,14 +363,14 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_WithVariousAttrib
 			assert.NotNil(suite.T(), resp)
 			assert.Equal(suite.T(), common.ExecComplete, resp.Status)
 			assert.Equal(suite.T(), tc.expectedID, resp.RuntimeData[userAttributeUserID])
-			suite.mockUserProvider.AssertExpectations(suite.T())
+			suite.mockEntityProvider.AssertExpectations(suite.T())
 		})
 	}
 }
 
 func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_WithMultipleAttributes() {
 	ctx := &core.NodeContext{
-		FlowID: "flow-123",
+		ExecutionID: "flow-123",
 		UserInputs: map[string]string{
 			"username": "testuser",
 			"email":    "test@example.com",
@@ -384,7 +385,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_WithMultipleAttri
 		{Identifier: "email", Type: "string", Required: true},
 	})
 
-	suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 		"username": "testuser",
 		"email":    "test@example.com",
 	}).Return(&multiAttrUserID, nil)
@@ -395,7 +396,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_WithMultipleAttri
 	assert.NotNil(suite.T(), resp)
 	assert.Equal(suite.T(), common.ExecComplete, resp.Status)
 	assert.Equal(suite.T(), multiAttrUserID, resp.RuntimeData[userAttributeUserID])
-	suite.mockUserProvider.AssertExpectations(suite.T())
+	suite.mockEntityProvider.AssertExpectations(suite.T())
 }
 
 // TestExecute_Failure_UserNotFoundByAttribute tests failure handling when user is not found by different attributes.
@@ -413,8 +414,8 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_UserNotFoundByAtt
 		suite.Run(tc.name, func() {
 			suite.SetupTest()
 			ctx := &core.NodeContext{
-				FlowID:     "flow-123",
-				UserInputs: map[string]string{tc.attribute: tc.value},
+				ExecutionID: "flow-123",
+				UserInputs:  map[string]string{tc.attribute: tc.value},
 			}
 
 			mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
@@ -423,17 +424,17 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_UserNotFoundByAtt
 				{Identifier: tc.attribute, Type: "string", Required: true},
 			})
 
-			suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+			suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 				tc.attribute: tc.value,
-			}).Return(nil, userprovider.NewUserProviderError(userprovider.ErrorCodeUserNotFound, "", ""))
+			}).Return(nil, entityprovider.NewEntityProviderError(entityprovider.ErrorCodeEntityNotFound, "", ""))
 
 			resp, err := suite.executor.Execute(ctx)
 
 			assert.NoError(suite.T(), err)
 			assert.NotNil(suite.T(), resp)
-			assert.Equal(suite.T(), common.ExecFailure, resp.Status)
+			assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
 			assert.Equal(suite.T(), failureReasonUserNotFound, resp.FailureReason)
-			suite.mockUserProvider.AssertExpectations(suite.T())
+			suite.mockEntityProvider.AssertExpectations(suite.T())
 		})
 	}
 }
@@ -454,7 +455,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_FromRuntimeData()
 		suite.Run(tc.name, func() {
 			suite.SetupTest()
 			ctx := &core.NodeContext{
-				FlowID:      "flow-123",
+				ExecutionID: "flow-123",
 				UserInputs:  make(map[string]string),
 				RuntimeData: map[string]string{tc.attribute: tc.value},
 			}
@@ -465,7 +466,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_FromRuntimeData()
 				{Identifier: tc.attribute, Type: "string", Required: true},
 			})
 
-			suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+			suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 				tc.attribute: tc.value,
 			}).Return(&tc.expectedID, nil)
 
@@ -475,7 +476,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Success_FromRuntimeData()
 			assert.NotNil(suite.T(), resp)
 			assert.Equal(suite.T(), common.ExecComplete, resp.Status)
 			assert.Equal(suite.T(), tc.expectedID, resp.RuntimeData[userAttributeUserID])
-			suite.mockUserProvider.AssertExpectations(suite.T())
+			suite.mockEntityProvider.AssertExpectations(suite.T())
 		})
 	}
 }
@@ -494,8 +495,8 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_EmptyInput() {
 		suite.Run(tc.name, func() {
 			suite.SetupTest()
 			ctx := &core.NodeContext{
-				FlowID:     "flow-123",
-				UserInputs: map[string]string{tc.attribute: ""},
+				ExecutionID: "flow-123",
+				UserInputs:  map[string]string{tc.attribute: ""},
 			}
 
 			mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
@@ -505,7 +506,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_EmptyInput() {
 			})
 
 			emptyID := ""
-			suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+			suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 				tc.attribute: "",
 			}).Return(&emptyID, nil)
 
@@ -513,9 +514,9 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_Failure_EmptyInput() {
 
 			assert.NoError(suite.T(), err)
 			assert.NotNil(suite.T(), resp)
-			assert.Equal(suite.T(), common.ExecFailure, resp.Status)
+			assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
 			assert.Equal(suite.T(), failureReasonUserNotFound, resp.FailureReason)
-			suite.mockUserProvider.AssertExpectations(suite.T())
+			suite.mockEntityProvider.AssertExpectations(suite.T())
 		})
 	}
 }
@@ -539,7 +540,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_UserInputsPriorityOverRun
 			// Both UserInputs and RuntimeData have the same key
 			// UserInputs should take priority
 			ctx := &core.NodeContext{
-				FlowID:      "flow-123",
+				ExecutionID: "flow-123",
 				UserInputs:  map[string]string{tc.attribute: tc.userInputValue},
 				RuntimeData: map[string]string{tc.attribute: tc.runtimeValue},
 			}
@@ -551,7 +552,7 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_UserInputsPriorityOverRun
 			})
 
 			// The mock should be called with the UserInputs value, not the RuntimeData value
-			suite.mockUserProvider.On("IdentifyUser", map[string]interface{}{
+			suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
 				tc.attribute: tc.userInputValue,
 			}).Return(&tc.expectedID, nil)
 
@@ -561,7 +562,360 @@ func (suite *IdentifyingExecutorTestSuite) TestExecute_UserInputsPriorityOverRun
 			assert.NotNil(suite.T(), resp)
 			assert.Equal(suite.T(), common.ExecComplete, resp.Status)
 			assert.Equal(suite.T(), tc.expectedID, resp.RuntimeData[userAttributeUserID])
-			suite.mockUserProvider.AssertExpectations(suite.T())
+			suite.mockEntityProvider.AssertExpectations(suite.T())
 		})
 	}
+}
+
+// --- Resolve mode tests ---
+
+// Test user attribute JSON helpers to keep lines under 120 chars.
+var (
+	attrsAlexJohnson = json.RawMessage(
+		`{"given_name":"Alex","family_name":"Johnson"}`)
+	attrsAlexSmith = json.RawMessage(
+		`{"given_name":"Alex","family_name":"Smith"}`)
+	attrsAlex = json.RawMessage(`{"given_name":"Alex"}`)
+)
+
+func (suite *IdentifyingExecutorTestSuite) TestExecuteResolve_UniqueUser() {
+	ctx := &core.NodeContext{
+		ExecutionID:  "flow-123",
+		ExecutorMode: ExecutorModeResolve,
+		UserInputs:   map[string]string{"given_name": "Alex"},
+		RuntimeData:  make(map[string]string),
+	}
+
+	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+	mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+	mockBase.On("GetRequiredInputs", mock.Anything).Return([]common.Input{
+		{Identifier: "given_name", Type: "TEXT_INPUT", Required: true},
+	})
+
+	suite.mockEntityProvider.On("SearchEntities", map[string]interface{}{
+		"given_name": "Alex",
+	}).Return([]*entityprovider.Entity{
+		{ID: "user-1", Type: "Person", Attributes: attrsAlex},
+	}, nil)
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecComplete, resp.Status)
+	assert.Equal(suite.T(), "user-1", resp.RuntimeData[userAttributeUserID])
+}
+
+func (suite *IdentifyingExecutorTestSuite) TestExecuteResolve_AmbiguousUser() {
+	ctx := &core.NodeContext{
+		ExecutionID:  "flow-123",
+		ExecutorMode: ExecutorModeResolve,
+		UserInputs:   map[string]string{"given_name": "Alex"},
+		RuntimeData:  make(map[string]string),
+	}
+
+	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+	mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+	mockBase.On("GetRequiredInputs", mock.Anything).Return([]common.Input{
+		{Identifier: "given_name", Type: "TEXT_INPUT", Required: true},
+	})
+
+	suite.mockEntityProvider.On("SearchEntities", map[string]interface{}{
+		"given_name": "Alex",
+	}).Return([]*entityprovider.Entity{
+		{ID: "user-1", Type: "Person", Attributes: attrsAlexJohnson},
+		{ID: "user-2", Type: "Engineer", Attributes: attrsAlexSmith},
+	}, nil)
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
+	assert.NotEmpty(suite.T(), resp.RuntimeData[common.RuntimeKeyCandidateUsers])
+	assert.NotNil(suite.T(), resp.ForwardedData)
+}
+
+func (suite *IdentifyingExecutorTestSuite) TestExecuteResolve_FilteredToOne() {
+	candidates := []*entityprovider.Entity{
+		{ID: "user-1", Type: "Person", Attributes: attrsAlexJohnson},
+		{ID: "user-2", Type: "Person", Attributes: attrsAlexSmith},
+	}
+	candidatesJSON, _ := json.Marshal(candidates)
+
+	ctx := &core.NodeContext{
+		ExecutionID:  "flow-123",
+		ExecutorMode: ExecutorModeResolve,
+		UserInputs:   map[string]string{"given_name": "Alex", "family_name": "Smith"},
+		RuntimeData: map[string]string{
+			common.RuntimeKeyCandidateUsers: string(candidatesJSON),
+		},
+	}
+
+	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+	mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+	mockBase.On("GetRequiredInputs", mock.Anything).Return([]common.Input{
+		{Identifier: "given_name", Type: "TEXT_INPUT", Required: true},
+		{Identifier: "family_name", Type: "TEXT_INPUT", Required: true},
+	})
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecComplete, resp.Status)
+	assert.Equal(suite.T(), "user-2", resp.RuntimeData[userAttributeUserID])
+}
+
+func (suite *IdentifyingExecutorTestSuite) TestExecuteResolve_StillAmbiguous() {
+	candidates := []*entityprovider.Entity{
+		{ID: "user-1", Type: "Person", Attributes: attrsAlexSmith},
+		{ID: "user-2", Type: "Engineer", Attributes: attrsAlexSmith},
+	}
+	candidatesJSON, _ := json.Marshal(candidates)
+
+	ctx := &core.NodeContext{
+		ExecutionID:  "flow-123",
+		ExecutorMode: ExecutorModeResolve,
+		UserInputs:   map[string]string{"given_name": "Alex", "family_name": "Smith"},
+		RuntimeData: map[string]string{
+			common.RuntimeKeyCandidateUsers: string(candidatesJSON),
+		},
+	}
+
+	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+	mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+	mockBase.On("GetRequiredInputs", mock.Anything).Return([]common.Input{
+		{Identifier: "given_name", Type: "TEXT_INPUT", Required: true},
+		{Identifier: "family_name", Type: "TEXT_INPUT", Required: true},
+	})
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
+	assert.NotEmpty(suite.T(), resp.RuntimeData[common.RuntimeKeyCandidateUsers])
+}
+
+func (suite *IdentifyingExecutorTestSuite) TestExecuteResolve_FilteredToNone() {
+	candidates := []*entityprovider.Entity{
+		{ID: "user-1", Type: "Person", Attributes: attrsAlexJohnson},
+	}
+	candidatesJSON, _ := json.Marshal(candidates)
+
+	ctx := &core.NodeContext{
+		ExecutionID:  "flow-123",
+		ExecutorMode: ExecutorModeResolve,
+		UserInputs:   map[string]string{"given_name": "Alex", "family_name": "Williams"},
+		RuntimeData: map[string]string{
+			common.RuntimeKeyCandidateUsers: string(candidatesJSON),
+		},
+	}
+
+	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+	mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+	mockBase.On("GetRequiredInputs", mock.Anything).Return([]common.Input{
+		{Identifier: "given_name", Type: "TEXT_INPUT", Required: true},
+		{Identifier: "family_name", Type: "TEXT_INPUT", Required: true},
+	})
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
+	assert.Equal(suite.T(), failureReasonUserNotFound, resp.FailureReason)
+}
+
+func (suite *IdentifyingExecutorTestSuite) TestExecute_IdentifyMode_AmbiguousUser() {
+	ctx := &core.NodeContext{
+		ExecutionID:  "flow-123",
+		ExecutorMode: ExecutorModeIdentify,
+		UserInputs:   map[string]string{"given_name": "Alex"},
+		RuntimeData:  make(map[string]string),
+	}
+
+	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+	mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+	mockBase.On("GetRequiredInputs", mock.Anything).Return([]common.Input{
+		{Identifier: "given_name", Type: "TEXT_INPUT", Required: true},
+	})
+
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
+		"given_name": "Alex",
+	}).Return(nil, entityprovider.NewEntityProviderError(entityprovider.ErrorCodeAmbiguousEntity, "Ambiguous user", ""))
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), common.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), failureReasonAmbiguousUser, resp.FailureReason)
+	assert.Empty(suite.T(), resp.Inputs, "Inputs must not be populated for ambiguous user in identify mode")
+}
+
+func (suite *IdentifyingExecutorTestSuite) TestExecute_IdentifyMode_UserNotFound_PopulatesInputsForRetry() {
+	inputs := []common.Input{{Identifier: "username", Type: "TEXT_INPUT", Required: true}}
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		UserInputs:  map[string]string{"username": "nonexistent"},
+		RuntimeData: make(map[string]string),
+	}
+
+	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+	mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+	mockBase.On("GetRequiredInputs", mock.Anything).Return(inputs)
+
+	// IdentifyUser sets ExecFailure + userNotFound; executeIdentify must promote to UserInputRequired
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
+		"username": "nonexistent",
+	}).Return(nil, entityprovider.NewEntityProviderError(
+		entityprovider.ErrorCodeEntityNotFound, "not found", ""))
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), resp)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
+	assert.Equal(suite.T(), failureReasonUserNotFound, resp.FailureReason)
+	assert.NotEmpty(suite.T(), resp.Inputs, "Inputs must be populated for retry when user is not found")
+	suite.mockEntityProvider.AssertExpectations(suite.T())
+}
+
+func (suite *IdentifyingExecutorTestSuite) TestExecute_IdentifyMode_SystemError() {
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		UserInputs:  map[string]string{"username": "testuser"},
+		RuntimeData: make(map[string]string),
+	}
+
+	mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+	mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+	mockBase.On("GetRequiredInputs", mock.Anything).Return([]common.Input{
+		{Identifier: "username", Type: "TEXT_INPUT", Required: true},
+	})
+
+	suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
+		"username": "testuser",
+	}).Return(nil, entityprovider.NewEntityProviderError(
+		entityprovider.ErrorCodeSystemError, "System error", "db unavailable"))
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), resp)
+	assert.Equal(suite.T(), common.ExecFailure, resp.Status)
+	assert.Equal(suite.T(), failureReasonFailedToIdentifyUser, resp.FailureReason)
+	assert.Empty(suite.T(), resp.Inputs, "Inputs must not be populated for non-recoverable errors")
+	suite.mockEntityProvider.AssertExpectations(suite.T())
+}
+
+func TestFilterUsersByAttributes(t *testing.T) {
+	users := []*entityprovider.Entity{
+		{ID: "u1", Type: "Person", Attributes: attrsAlexJohnson},
+		{ID: "u2", Type: "Person", Attributes: attrsAlexSmith},
+		{ID: "u3", Type: "Engineer", Attributes: attrsAlexSmith},
+	}
+
+	result := filterUsersByAttributes(users, map[string]interface{}{"family_name": "Smith"})
+	assert.Len(t, result, 2)
+
+	result = filterUsersByAttributes(users, map[string]interface{}{"userType": "Engineer"})
+	assert.Len(t, result, 1)
+	assert.Equal(t, "u3", result[0].ID)
+
+	result = filterUsersByAttributes(users, map[string]interface{}{
+		"family_name": "Smith",
+		"userType":    "Person",
+	})
+	assert.Len(t, result, 1)
+	assert.Equal(t, "u2", result[0].ID)
+
+	result = filterUsersByAttributes(users, map[string]interface{}{"family_name": "Doe"})
+	assert.Empty(t, result)
+}
+
+func (suite *IdentifyingExecutorTestSuite) TestExecute_RetryableIdentificationErrors() {
+	tests := []struct {
+		name           string
+		attribute      string
+		value          string
+		entityError    *entityprovider.EntityProviderError
+		emptyID        bool
+		expectedReason string
+		message        string
+	}{
+		{
+			name:           "User not found",
+			attribute:      "username",
+			value:          "nonexistent",
+			entityError:    entityprovider.NewEntityProviderError(entityprovider.ErrorCodeEntityNotFound, "", ""),
+			expectedReason: failureReasonUserNotFound,
+			message:        "Should return inputs for retry when user is not found",
+		},
+		{
+			name:           "Empty user ID returned",
+			attribute:      "username",
+			value:          "testuser",
+			emptyID:        true,
+			expectedReason: failureReasonUserNotFound,
+			message:        "Should return inputs for retry when empty user ID is returned",
+		},
+	}
+
+	for _, tt := range tests {
+		suite.T().Run(tt.name, func(t *testing.T) {
+			suite.SetupTest()
+
+			inputs := []common.Input{{Identifier: tt.attribute, Type: "string", Required: true}}
+			ctx := &core.NodeContext{
+				ExecutionID: "flow-123",
+				UserInputs:  map[string]string{tt.attribute: tt.value},
+			}
+
+			mockBase := suite.executor.ExecutorInterface.(*coremock.ExecutorInterfaceMock)
+			mockBase.On("HasRequiredInputs", mock.Anything, mock.Anything).Return(true)
+			mockBase.On("GetRequiredInputs", mock.Anything).Return(inputs)
+
+			if tt.emptyID {
+				emptyID := ""
+				suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
+					tt.attribute: tt.value,
+				}).Return(&emptyID, nil)
+			} else {
+				suite.mockEntityProvider.On("IdentifyEntity", map[string]interface{}{
+					tt.attribute: tt.value,
+				}).Return(nil, tt.entityError)
+			}
+
+			resp, err := suite.executor.Execute(ctx)
+
+			assert.NoError(t, err)
+			assert.NotNil(t, resp)
+			assert.Equal(t, common.ExecUserInputRequired, resp.Status)
+			assert.Equal(t, tt.expectedReason, resp.FailureReason, tt.message)
+			assert.NotEmpty(t, resp.Inputs, "Inputs should be re-populated for retry")
+			suite.mockEntityProvider.AssertExpectations(t)
+		})
+	}
+}
+
+func TestExtractDisambiguationOptions(t *testing.T) {
+	candidates := []*entityprovider.Entity{
+		{ID: "u1", Type: "Person", Attributes: attrsAlexJohnson},
+		{ID: "u2", Type: "Person", Attributes: attrsAlexSmith},
+		{ID: "u3", Type: "Engineer", Attributes: attrsAlexSmith},
+	}
+
+	inputs := extractDisambiguationOptions(candidates)
+
+	inputsByKey := make(map[string]common.Input)
+	for _, input := range inputs {
+		inputsByKey[input.Identifier] = input
+	}
+
+	assert.Contains(t, inputsByKey, "userType")
+	assert.ElementsMatch(t, []string{"Person", "Engineer"}, inputsByKey["userType"].Options)
+	assert.Equal(t, common.InputTypeSelect, inputsByKey["userType"].Type)
+
+	assert.Contains(t, inputsByKey, "family_name")
+	assert.ElementsMatch(t, []string{"Johnson", "Smith"}, inputsByKey["family_name"].Options)
+	assert.Equal(t, common.InputTypeSelect, inputsByKey["family_name"].Type)
+
+	assert.NotContains(t, inputsByKey, "given_name")
 }

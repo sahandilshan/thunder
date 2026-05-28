@@ -25,18 +25,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // RoleExporterTestSuite contains tests for the roleExporter.
 type RoleExporterTestSuite struct {
 	suite.Suite
-	mockService *RoleServiceInterfaceMock
-	exporter    declarativeresource.ResourceExporter
-	ctx         context.Context
+	mockService           *RoleServiceInterfaceMock
+	mockAssignmentService *RoleAssignmentServiceInterfaceMock
+	exporter              declarativeresource.ResourceExporter
+	ctx                   context.Context
 }
 
 func TestRoleExporterTestSuite(t *testing.T) {
@@ -45,7 +46,8 @@ func TestRoleExporterTestSuite(t *testing.T) {
 
 func (suite *RoleExporterTestSuite) SetupTest() {
 	suite.mockService = NewRoleServiceInterfaceMock(suite.T())
-	suite.exporter = newRoleExporter(suite.mockService)
+	suite.mockAssignmentService = NewRoleAssignmentServiceInterfaceMock(suite.T())
+	suite.exporter = newRoleExporter(suite.mockService, suite.mockAssignmentService)
 	suite.ctx = context.Background()
 }
 
@@ -203,16 +205,16 @@ func (suite *RoleExporterTestSuite) TestGetResourceByID_Success() {
 	suite.mockService.On("GetRoleWithPermissions", suite.ctx, "role1").Return(
 		roleWithPerms, nil,
 	)
-	suite.mockService.On(
+	suite.mockAssignmentService.On(
 		"GetRoleAssignments", suite.ctx, "role1", serverconst.MaxPageSize, 0, false,
 	).Return(&AssignmentList{
 		Assignments: []RoleAssignmentWithDisplay{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 			{ID: "group1", Type: AssigneeTypeGroup},
 		},
 		TotalResults: 2,
 	}, nil)
-	suite.mockService.On(
+	suite.mockAssignmentService.On(
 		"GetRoleAssignments", suite.ctx, "role1", serverconst.MaxPageSize, 2, false,
 	).Return(&AssignmentList{
 		Assignments:  []RoleAssignmentWithDisplay{},
@@ -225,7 +227,7 @@ func (suite *RoleExporterTestSuite) TestGetResourceByID_Success() {
 	assert.Equal(suite.T(), "Admin", name)
 	assert.NotNil(suite.T(), resource)
 
-	role, ok := resource.(*RoleWithPermissionsAndAssignments)
+	role, ok := resource.(*roleDeclarativeResource)
 	assert.True(suite.T(), ok)
 	assert.Equal(suite.T(), "role1", role.ID)
 	assert.Len(suite.T(), role.Assignments, 2)
@@ -246,7 +248,7 @@ func (suite *RoleExporterTestSuite) TestGetResourceByID_ErrorOnGetRoleWithPermis
 
 // Test ValidateResource - success
 func (suite *RoleExporterTestSuite) TestValidateResource_Success() {
-	resource := &RoleWithPermissionsAndAssignments{
+	resource := &roleDeclarativeResource{
 		ID:   "role1",
 		Name: "Admin",
 		OUID: "ou1",
@@ -337,12 +339,12 @@ func (suite *RoleExporterTestSuite) TestValidateRoleWrapper_ValidRole() {
 			{ResourceServerID: "rs1", Permissions: []string{"read"}},
 		},
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 		},
 	}
 
 	// Pass nil for fileStore to skip duplicate check (for unit test purposes)
-	err := validateRoleWrapper(role, nil, nil)
+	err := validateRoleWrapper(role, nil, nil, nil)
 
 	assert.NoError(suite.T(), err)
 }
@@ -354,7 +356,7 @@ func (suite *RoleExporterTestSuite) TestValidateRoleWrapper_MissingID() {
 		OUID: "ou1",
 	}
 
-	err := validateRoleWrapper(role, nil, nil)
+	err := validateRoleWrapper(role, nil, nil, nil)
 
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "role ID is required")
@@ -367,7 +369,7 @@ func (suite *RoleExporterTestSuite) TestValidateRoleWrapper_MissingName() {
 		OUID: "ou1",
 	}
 
-	err := validateRoleWrapper(role, nil, nil)
+	err := validateRoleWrapper(role, nil, nil, nil)
 
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "role name is required")
@@ -380,10 +382,10 @@ func (suite *RoleExporterTestSuite) TestValidateRoleWrapper_MissingOUID() {
 		Name: "Admin",
 	}
 
-	err := validateRoleWrapper(role, nil, nil)
+	err := validateRoleWrapper(role, nil, nil, nil)
 
 	assert.Error(suite.T(), err)
-	assert.Contains(suite.T(), err.Error(), "organization unit ID is required")
+	assert.Contains(suite.T(), err.Error(), "ou_id or ou_handle is required for role 'Admin'")
 }
 
 // Test validateRoleWrapper - invalid assignment type
@@ -397,7 +399,7 @@ func (suite *RoleExporterTestSuite) TestValidateRoleWrapper_InvalidAssignmentTyp
 		},
 	}
 
-	err := validateRoleWrapper(role, nil, nil)
+	err := validateRoleWrapper(role, nil, nil, nil)
 
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "invalid assignment type")
@@ -410,11 +412,11 @@ func (suite *RoleExporterTestSuite) TestValidateRoleWrapper_MissingAssignmentID(
 		Name: "Admin",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{Type: AssigneeTypeUser},
+			{Type: assigneeTypeEntity},
 		},
 	}
 
-	err := validateRoleWrapper(role, nil, nil)
+	err := validateRoleWrapper(role, nil, nil, nil)
 
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "assignment ID is required")
@@ -431,7 +433,7 @@ func (suite *RoleExporterTestSuite) TestValidateRoleWrapper_MissingResourceServe
 		},
 	}
 
-	err := validateRoleWrapper(role, nil, nil)
+	err := validateRoleWrapper(role, nil, nil, nil)
 
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "resource server ID is required")

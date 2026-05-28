@@ -16,14 +16,15 @@
  * under the License.
  */
 
-// Package cmodels provides common data models used across Thunder modules.
+// Package cmodels provides common data models used across server modules.
 package cmodels
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/system/crypto/encrypt"
+	"github.com/thunder-id/thunderid/internal/system/kmprovider/defaultkm"
 )
 
 // Property represents a generic property with name, value, and isSecret fields.
@@ -74,13 +75,16 @@ func (p *Property) GetValue() (string, error) {
 		return p.value, nil
 	}
 
-	cryptoService := encrypt.GetEncryptionService()
-	decryptedValue, err := cryptoService.DecryptString(p.value)
+	cryptoProvider, err := defaultkm.GetConfigCryptoService()
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize encryption service: %w", err)
+	}
+	decryptedBytes, err := cryptoProvider.Decrypt(context.Background(), []byte(p.value))
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt secret property %s: %w", p.GetName(), err)
 	}
 
-	return decryptedValue, nil
+	return string(decryptedBytes), nil
 }
 
 // Encrypt encrypts the value if it's a secret property
@@ -89,13 +93,16 @@ func (p *Property) Encrypt() error {
 		return nil
 	}
 
-	cryptoService := encrypt.GetEncryptionService()
-	encryptedValue, err := cryptoService.EncryptString(p.value)
+	cryptoProvider, err := defaultkm.GetConfigCryptoService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize encryption service: %w", err)
+	}
+	encryptedBytes, err := cryptoProvider.Encrypt(context.Background(), []byte(p.value))
 	if err != nil {
 		return fmt.Errorf("failed to encrypt secret property %s: %w", p.GetName(), err)
 	}
 
-	p.value = encryptedValue
+	p.value = string(encryptedBytes)
 	return nil
 }
 
@@ -140,6 +147,62 @@ func DeserializePropertiesFromJSON(propertiesJSON string) ([]Property, error) {
 			name:     propertyDTO.Name,
 			value:    propertyDTO.Value,
 			isSecret: propertyDTO.IsSecret,
+		}
+		properties = append(properties, property)
+	}
+
+	return properties, nil
+}
+
+// SerializePropertiesToJSONObject serializes an array of properties to a JSON object string
+func SerializePropertiesToJSONObject(properties []Property) (string, error) {
+	if len(properties) == 0 {
+		return "", nil
+	}
+
+	type propertyEntry struct {
+		Value    string `json:"value"`
+		IsSecret bool   `json:"isSecret"`
+	}
+
+	obj := make(map[string]propertyEntry, len(properties))
+	for _, property := range properties {
+		obj[property.GetName()] = propertyEntry{
+			Value:    property.value,
+			IsSecret: property.IsSecret(),
+		}
+	}
+
+	jsonBytes, err := json.Marshal(obj)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize properties to JSON object: %w", err)
+	}
+
+	return string(jsonBytes), nil
+}
+
+// DeserializePropertiesFromJSONObject deserializes properties from a JSON object string
+func DeserializePropertiesFromJSONObject(propertiesJSON string) ([]Property, error) {
+	if propertiesJSON == "" {
+		return []Property{}, nil
+	}
+
+	type propertyEntry struct {
+		Value    string `json:"value"`
+		IsSecret bool   `json:"isSecret"`
+	}
+
+	var obj map[string]propertyEntry
+	if err := json.Unmarshal([]byte(propertiesJSON), &obj); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal properties JSON object: %w", err)
+	}
+
+	properties := make([]Property, 0, len(obj))
+	for name, entry := range obj {
+		property := Property{
+			name:     name,
+			value:    entry.Value,
+			isSecret: entry.IsSecret,
 		}
 		properties = append(properties, property)
 	}

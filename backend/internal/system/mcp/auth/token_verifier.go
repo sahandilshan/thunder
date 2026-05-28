@@ -27,12 +27,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // NewTokenVerifier creates a TokenVerifier function that verifies tokens
-// issued by Thunder's OAuth server. This implements the auth.TokenVerifier
+// issued by the OAuth server. This implements the auth.TokenVerifier
 // function type from the MCP SDK.
 func NewTokenVerifier(
 	jwtService jwt.JWTServiceInterface,
@@ -44,7 +44,7 @@ func NewTokenVerifier(
 	return func(ctx context.Context, token string, req *http.Request) (*auth.TokenInfo, error) {
 		// Verify JWT signature and claims (iss, aud, exp, nbf)
 		if err := jwtService.VerifyJWT(token, mcpURL, issuer); err != nil {
-			logger.Error("JWT verification failed", log.String("error", err.Error))
+			logger.Error("JWT verification failed", log.String("error", err.Error.DefaultValue))
 			return nil, auth.ErrInvalidToken
 		}
 

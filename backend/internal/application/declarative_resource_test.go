@@ -19,20 +19,21 @@
 package application_test
 
 import (
-	"github.com/stretchr/testify/mock"
-
 	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/application"
-	"github.com/asgardeo/thunder/internal/application/model"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/tests/mocks/applicationmock"
+	"github.com/thunder-id/thunderid/internal/application"
+	"github.com/thunder-id/thunderid/internal/application/model"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/tests/mocks/applicationmock"
 )
 
 // ApplicationExporterTestSuite tests the applicationExporter.
@@ -84,17 +85,17 @@ func (s *ApplicationExporterTestSuite) TestGetAllResourceIDs_Success() {
 }
 
 func (s *ApplicationExporterTestSuite) TestGetAllResourceIDs_Error() {
-	expectedError := &serviceerror.ServiceError{
+	serviceError := &serviceerror.ServiceError{
 		Code:  "ERR_CODE",
-		Error: "test error",
+		Error: i18ncore.I18nMessage{DefaultValue: "test error"},
 	}
 
-	s.mockService.EXPECT().GetApplicationList(mock.Anything).Return(nil, expectedError)
+	s.mockService.EXPECT().GetApplicationList(mock.Anything).Return(nil, serviceError)
 
 	ids, err := s.exporter.GetAllResourceIDs(context.Background())
 
 	assert.Nil(s.T(), ids)
-	assert.Equal(s.T(), expectedError, err)
+	assert.Equal(s.T(), &serviceerror.InternalServerError, err)
 }
 
 func (s *ApplicationExporterTestSuite) TestGetAllResourceIDs_EmptyList() {
@@ -126,18 +127,18 @@ func (s *ApplicationExporterTestSuite) TestGetResourceByID_Success() {
 }
 
 func (s *ApplicationExporterTestSuite) TestGetResourceByID_Error() {
-	expectedError := &serviceerror.ServiceError{
+	serviceError := &serviceerror.ServiceError{
 		Code:  "ERR_CODE",
-		Error: "test error",
+		Error: i18ncore.I18nMessage{DefaultValue: "test error"},
 	}
 
-	s.mockService.EXPECT().GetApplication(mock.Anything, "app1").Return(nil, expectedError)
+	s.mockService.EXPECT().GetApplication(mock.Anything, "app1").Return(nil, serviceError)
 
 	resource, name, err := s.exporter.GetResourceByID(context.Background(), "app1")
 
 	assert.Nil(s.T(), resource)
 	assert.Empty(s.T(), name)
-	assert.Equal(s.T(), expectedError, err)
+	assert.Equal(s.T(), serviceError, err)
 }
 
 func (s *ApplicationExporterTestSuite) TestValidateResource_Success() {
@@ -178,4 +179,65 @@ func (s *ApplicationExporterTestSuite) TestValidateResource_EmptyName() {
 	assert.Equal(s.T(), "app1", err.ResourceID)
 	assert.Equal(s.T(), "APP_VALIDATION_ERROR", err.Code)
 	assert.Contains(s.T(), err.Error, "name is empty")
+}
+
+func (s *ApplicationExporterTestSuite) TestGetResourceRulesForResource_PublicClient() {
+	pr, ok := s.exporter.(declarativeresource.PerResourceRuler)
+	assert.True(s.T(), ok, "exporter should implement PerResourceRuler")
+
+	app := &model.Application{
+		ID:   "app1",
+		Name: "Public App",
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
+			{
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+					ClientID:     "client-id-1",
+					PublicClient: true,
+				},
+			},
+		},
+	}
+
+	rules := pr.GetResourceRulesForResource(app)
+
+	assert.NotNil(s.T(), rules)
+	assert.Contains(s.T(), rules.Variables, "InboundAuthConfig[].OAuthConfig.ClientID")
+	assert.NotContains(s.T(), rules.Variables, "InboundAuthConfig[].OAuthConfig.ClientSecret")
+	assert.Contains(s.T(), rules.ArrayVariables, "InboundAuthConfig[].OAuthConfig.RedirectURIs")
+}
+
+func (s *ApplicationExporterTestSuite) TestGetResourceRulesForResource_ConfidentialClient() {
+	pr, ok := s.exporter.(declarativeresource.PerResourceRuler)
+	assert.True(s.T(), ok, "exporter should implement PerResourceRuler")
+
+	app := &model.Application{
+		ID:   "app2",
+		Name: "Confidential App",
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
+			{
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+					ClientID:     "client-id-2",
+					PublicClient: false,
+				},
+			},
+		},
+	}
+
+	rules := pr.GetResourceRulesForResource(app)
+
+	assert.NotNil(s.T(), rules)
+	assert.Contains(s.T(), rules.Variables, "InboundAuthConfig[].OAuthConfig.ClientID")
+	assert.Contains(s.T(), rules.Variables, "InboundAuthConfig[].OAuthConfig.ClientSecret")
+	assert.Contains(s.T(), rules.ArrayVariables, "InboundAuthConfig[].OAuthConfig.RedirectURIs")
+}
+
+func (s *ApplicationExporterTestSuite) TestGetResourceRulesForResource_NonApplicationType() {
+	pr, ok := s.exporter.(declarativeresource.PerResourceRuler)
+	assert.True(s.T(), ok, "exporter should implement PerResourceRuler")
+
+	rules := pr.GetResourceRulesForResource("not-an-application")
+
+	assert.NotNil(s.T(), rules)
+	assert.Contains(s.T(), rules.Variables, "InboundAuthConfig[].OAuthConfig.ClientID")
+	assert.Contains(s.T(), rules.Variables, "InboundAuthConfig[].OAuthConfig.ClientSecret")
 }

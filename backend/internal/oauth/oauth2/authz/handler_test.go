@@ -30,9 +30,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	oauth2const "github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	oauth2model "github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	"github.com/asgardeo/thunder/internal/system/config"
+	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	oauth2model "github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 const (
@@ -50,7 +50,7 @@ func TestAuthorizeHandlerTestSuite(t *testing.T) {
 }
 
 func (suite *AuthorizeHandlerTestSuite) BeforeTest(suiteName, testName string) {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 
 	testConfig := &config.Config{
 		GateClient: config.GateClientConfig{
@@ -62,13 +62,16 @@ func (suite *AuthorizeHandlerTestSuite) BeforeTest(suiteName, testName string) {
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
+		},
+		JWT: config.JWTConfig{
+			Issuer: "https://localhost:8090",
 		},
 		OAuth: config.OAuthConfig{
 			AuthorizationCode: config.AuthorizationCodeConfig{
@@ -76,7 +79,7 @@ func (suite *AuthorizeHandlerTestSuite) BeforeTest(suiteName, testName string) {
 			},
 		},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	_ = config.InitializeServerRuntime("test", testConfig)
 }
 
 func (suite *AuthorizeHandlerTestSuite) SetupTest() {
@@ -85,7 +88,7 @@ func (suite *AuthorizeHandlerTestSuite) SetupTest() {
 }
 
 func (suite *AuthorizeHandlerTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func (suite *AuthorizeHandlerTestSuite) TestnewAuthorizeHandler() {
@@ -132,6 +135,60 @@ func (suite *AuthorizeHandlerTestSuite) TestGetOAuthMessageForGetRequest_WithCla
 		assert.Equal(suite.T(), "test-client", msg.RequestQueryParams["client_id"])
 		assert.Equal(suite.T(), "en-US fr-CA ja", msg.RequestQueryParams["claims_locales"])
 	}
+}
+
+// §8 — only the resource parameter is permitted to be repeated.
+
+func (suite *AuthorizeHandlerTestSuite) TestGetOAuthMessageForGetRequest_DuplicateNonResourceParam() {
+	// Repeated client_id must be rejected with an error.
+	req := httptest.NewRequest(http.MethodGet, "/auth?client_id=a&client_id=b", nil)
+
+	msg, err := suite.handler.getOAuthMessageForGetRequest(req)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), msg)
+	assert.Contains(suite.T(), err.Error(), "client_id")
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestGetOAuthMessageForGetRequest_MultipleResourceValues() {
+	// Repeated resource is allowed; both values must appear in msg.Resources.
+	req := httptest.NewRequest(http.MethodGet,
+		"/auth?client_id=test-client&resource=https%3A%2F%2Frs1.example.com&resource=https%3A%2F%2Frs2.example.com",
+		nil)
+
+	msg, err := suite.handler.getOAuthMessageForGetRequest(req)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), msg)
+	if msg != nil {
+		assert.Equal(suite.T(), 2, len(msg.Resources))
+		assert.Contains(suite.T(), msg.Resources, "https://rs1.example.com")
+		assert.Contains(suite.T(), msg.Resources, "https://rs2.example.com")
+		assert.Equal(suite.T(), "test-client", msg.RequestQueryParams["client_id"])
+	}
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestGetOAuthMessageForGetRequest_DuplicateScopeParam() {
+	// Repeated scope must be rejected — only resource may repeat.
+	req := httptest.NewRequest(http.MethodGet,
+		"/auth?client_id=test-client&resource=https%3A%2F%2Frs1.example.com&scope=openid&scope=profile",
+		nil)
+
+	msg, err := suite.handler.getOAuthMessageForGetRequest(req)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), msg)
+	assert.Contains(suite.T(), err.Error(), "scope")
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_DuplicateNonResourceParamReturns400() {
+	// End-to-end: repeated non-resource query param must produce HTTP 400 invalid_request.
+	req := httptest.NewRequest("GET", "/oauth2/authorize?client_id=a&client_id=b", nil)
+	rr := httptest.NewRecorder()
+
+	suite.handler.HandleAuthorizeGetRequest(rr, req)
+
+	assert.Equal(suite.T(), http.StatusBadRequest, rr.Code)
 }
 
 func (suite *AuthorizeHandlerTestSuite) TestGetOAuthMessageForPostRequest_MissingAuthID() {
@@ -197,9 +254,9 @@ func (suite *AuthorizeHandlerTestSuite) TestGetOAuthMessage_NilResponseWriter() 
 func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_Success() {
 	result := &AuthorizationInitResult{
 		QueryParams: map[string]string{
-			oauth2const.AuthID: testAuthID,
-			oauth2const.AppID:  "test-app-id",
-			oauth2const.FlowID: "test-flow-id",
+			oauth2const.AuthID:      testAuthID,
+			oauth2const.AppID:       "test-app-id",
+			oauth2const.ExecutionID: "test-flow-id",
 		},
 	}
 	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything).Return(result, nil)
@@ -254,6 +311,30 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_ServiceErr
 	location := rr.Header().Get("Location")
 	assert.Contains(suite.T(), location, "error=invalid_request")
 	assert.Contains(suite.T(), location, "state=test-state")
+	assert.Contains(suite.T(), location, "iss=https%3A%2F%2Flocalhost%3A8090")
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_IssAlwaysPresent() {
+	// RFC 9207 §2: iss is unconditional. State is absent here to confirm iss appears regardless.
+	authErr := &AuthorizationError{
+		Code:              oauth2const.ErrorInvalidRequest,
+		Message:           "Invalid response type",
+		SendErrorToClient: true,
+		ClientRedirectURI: "https://client.example.com/callback",
+	}
+	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything).Return(nil, authErr)
+
+	reqURL := "/oauth2/authorize?client_id=test-client" +
+		"&redirect_uri=https://client.example.com/callback&response_type=invalid"
+	req := httptest.NewRequest("GET", reqURL, nil)
+	rr := httptest.NewRecorder()
+
+	suite.handler.HandleAuthorizeGetRequest(rr, req)
+
+	assert.Equal(suite.T(), http.StatusFound, rr.Code)
+	location := rr.Header().Get("Location")
+	assert.Contains(suite.T(), location, "iss=https%3A%2F%2Flocalhost%3A8090")
+	assert.NotContains(suite.T(), location, "state=")
 }
 
 func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_GetOAuthMessageReturnsNil() {
@@ -350,6 +431,40 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthCallbackPostRequest_Servic
 	assert.Contains(suite.T(), resp.RedirectURI, "https://client.example.com/callback")
 	assert.Contains(suite.T(), resp.RedirectURI, "error=server_error")
 	assert.Contains(suite.T(), resp.RedirectURI, "state=test-state")
+	assert.Contains(suite.T(), resp.RedirectURI, "iss=https%3A%2F%2Flocalhost%3A8090")
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestHandleAuthCallbackPostRequest_ClientErrorIssAlwaysPresent() {
+	// RFC 9207 §2: iss is unconditional. Confirm iss is present even when state is absent.
+	authErr := &AuthorizationError{
+		Code:              oauth2const.ErrorServerError,
+		Message:           "Failed to process authorization request",
+		SendErrorToClient: true,
+		ClientRedirectURI: "https://client.example.com/callback",
+	}
+	suite.mockAuthzService.EXPECT().HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion").
+		Return("", authErr)
+
+	postData := AuthZPostRequest{
+		AuthID:    testAuthID,
+		Assertion: "test-assertion",
+	}
+	jsonData, _ := json.Marshal(postData)
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth2/auth/callback", bytes.NewReader(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	suite.handler.HandleAuthCallbackPostRequest(rr, req)
+
+	assert.Equal(suite.T(), http.StatusOK, rr.Code)
+	var resp AuthZPostResponse
+	err := json.NewDecoder(rr.Body).Decode(&resp)
+	assert.NoError(suite.T(), err)
+	assert.Contains(suite.T(), resp.RedirectURI, "https://client.example.com/callback")
+	assert.Contains(suite.T(), resp.RedirectURI, "error=server_error")
+	assert.Contains(suite.T(), resp.RedirectURI, "iss=https%3A%2F%2Flocalhost%3A8090")
+	assert.NotContains(suite.T(), resp.RedirectURI, "state=")
 }
 
 func (suite *AuthorizeHandlerTestSuite) TestHandleAuthCallbackPostRequest_InvalidRequestType() {
@@ -509,7 +624,6 @@ func (suite *AuthorizeHandlerTestSuite) TestGetAuthorizationCode_Success() {
 	assert.Equal(suite.T(), "openid profile read write", result.Scopes)
 	assert.Equal(suite.T(), AuthCodeStateActive, result.State)
 	assert.NotZero(suite.T(), result.TimeCreated)
-	assert.True(suite.T(), result.ExpiryTime.After(result.TimeCreated))
 }
 
 func (suite *AuthorizeHandlerTestSuite) TestGetAuthorizationCode_MissingClientID() {
@@ -587,8 +701,6 @@ func (suite *AuthorizeHandlerTestSuite) TestGetAuthorizationCode_ZeroAuthTime() 
 	afterCreation := time.Now()
 	assert.True(suite.T(), result.TimeCreated.After(beforeCreation) || result.TimeCreated.Equal(beforeCreation))
 	assert.True(suite.T(), result.TimeCreated.Before(afterCreation) || result.TimeCreated.Equal(afterCreation))
-	assert.True(suite.T(), result.ExpiryTime.After(result.TimeCreated))
-	assert.WithinDuration(suite.T(), result.TimeCreated.Add(10*time.Minute), result.ExpiryTime, time.Second)
 }
 
 func (suite *AuthorizeHandlerTestSuite) TestCreateAuthorizationCode_WithClaimsLocales() {
@@ -704,6 +816,29 @@ func (suite *AuthorizeHandlerTestSuite) TestDecodeAttributesFromAssertion_NonStr
 
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "JWT 'aci' claim is not a string")
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestDecodeAttributesFromAssertion_WithCompletedAuthClass() {
+	// JWT payload: {"sub":"test-user","completed_auth_class":"urn:thunder:acr:password"}
+	jwtToken := "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0." +
+		"eyJzdWIiOiJ0ZXN0LXVzZXIiLCJjb21wbGV0ZWRfYXV0aF9jbGFzcyI6InVybjp0aHVuZGVyOmFjcjpwYXNzd29yZCJ9."
+
+	clms, _, err := decodeAttributesFromAssertion(jwtToken)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), "test-user", clms.userID)
+	assert.Equal(suite.T(), "urn:thunder:acr:password", clms.completedACR)
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestDecodeAttributesFromAssertion_NonStringCompletedAuthClass() {
+	// JWT payload: {"sub":"test-user","completed_auth_class":12345}
+	jwtToken := "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0." +
+		"eyJzdWIiOiJ0ZXN0LXVzZXIiLCJjb21wbGV0ZWRfYXV0aF9jbGFzcyI6MTIzNDV9."
+
+	_, _, err := decodeAttributesFromAssertion(jwtToken)
+
+	assert.Error(suite.T(), err)
+	assert.Contains(suite.T(), err.Error(), "JWT 'completed_auth_class' claim is not a string")
 }
 
 func (suite *AuthorizeHandlerTestSuite) TestValidateSubClaimConstraint() {

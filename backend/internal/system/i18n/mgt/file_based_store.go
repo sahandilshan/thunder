@@ -19,10 +19,11 @@
 package mgt
 
 import (
+	"context"
 	"errors"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 )
 
 type fileBasedStore struct {
@@ -71,10 +72,11 @@ func (f *fileBasedStore) GetTranslations() (map[string]map[string]Translation, e
 		if langTrans, ok := item.Data.(*LanguageTranslations); ok {
 			for ns, nsTrans := range langTrans.Translations {
 				for key, value := range nsTrans {
-					if translations[key] == nil {
-						translations[key] = make(map[string]Translation)
+					compositeKey := ns + "|" + key
+					if translations[compositeKey] == nil {
+						translations[compositeKey] = make(map[string]Translation)
 					}
-					translations[key][langTrans.Language] = Translation{
+					translations[compositeKey][langTrans.Language] = Translation{
 						Key:       key,
 						Language:  langTrans.Language,
 						Namespace: ns,
@@ -102,10 +104,11 @@ func (f *fileBasedStore) GetTranslationsByNamespace(namespace string) (map[strin
 					continue
 				}
 				for k, v := range nsTrans {
-					if translations[k] == nil {
-						translations[k] = make(map[string]Translation)
+					compositeKey := ns + "|" + k
+					if translations[compositeKey] == nil {
+						translations[compositeKey] = make(map[string]Translation)
 					}
-					translations[k][langTrans.Language] = Translation{
+					translations[compositeKey][langTrans.Language] = Translation{
 						Key:       k,
 						Language:  langTrans.Language,
 						Namespace: ns,
@@ -160,6 +163,11 @@ func (f *fileBasedStore) UpsertTranslation(trans Translation) error {
 	return errors.New("UpsertTranslation is not supported in file-based store")
 }
 
+// UpsertTranslations is not supported in file-based store.
+func (f *fileBasedStore) UpsertTranslations(_ context.Context, _ []Translation) error {
+	return errors.New("UpsertTranslations is not supported in file-based store")
+}
+
 // DeleteTranslationsByLanguage is not supported in file-based store.
 func (f *fileBasedStore) DeleteTranslationsByLanguage(language string) error {
 	return errors.New("DeleteTranslationsByLanguage is not supported in file-based store")
@@ -168,6 +176,16 @@ func (f *fileBasedStore) DeleteTranslationsByLanguage(language string) error {
 // DeleteTranslation is not supported in file-based store.
 func (f *fileBasedStore) DeleteTranslation(language string, key string, namespace string) error {
 	return errors.New("DeleteTranslation is not supported in file-based store")
+}
+
+// DeleteTranslationsByNamespace is not supported in file-based store.
+func (f *fileBasedStore) DeleteTranslationsByNamespace(_ context.Context, _ string) error {
+	return errors.New("DeleteTranslationsByNamespace is not supported in file-based store")
+}
+
+// DeleteTranslationsByKey is not supported in file-based store.
+func (f *fileBasedStore) DeleteTranslationsByKey(_ context.Context, namespace string, key string) error {
+	return errors.New("DeleteTranslationsByKey is not supported in file-based store")
 }
 
 // IsTranslationDeclarative checks if a translation is immutable (exists in file store).

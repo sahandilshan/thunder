@@ -22,8 +22,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/asgardeo/thunder/internal/system/cache"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/cache"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const cacheBackedStoreLoggerComponentName = "CacheBackedCertificateStore"
@@ -36,10 +36,12 @@ type cacheBackedStore struct {
 }
 
 // NewCachedBackedCertificateStore creates a new instance of CachedBackedCertificateStore.
-func newCachedBackedCertificateStore() certificateStoreInterface {
+func newCachedBackedCertificateStore(
+	certByIDCache cache.CacheInterface[*Certificate],
+	certByReferenceCache cache.CacheInterface[*Certificate]) certificateStoreInterface {
 	return &cacheBackedStore{
-		certByIDCache:        cache.GetCache[*Certificate]("CertificateByIDCache"),
-		certByReferenceCache: cache.GetCache[*Certificate]("CertificateByReferenceCache"),
+		certByIDCache:        certByIDCache,
+		certByReferenceCache: certByReferenceCache,
 		store:                newCertificateStore(),
 	}
 }
@@ -69,12 +71,23 @@ func (s *cacheBackedStore) GetCertificateByReference(ctx context.Context, refTyp
 	cacheKey := getCertByReferenceCacheKey(refType, refID)
 	cachedCert, ok := s.certByReferenceCache.Get(ctx, cacheKey)
 	if ok {
+		if cachedCert == nil {
+			return nil, ErrCertificateNotFound
+		}
 		return cachedCert, nil
 	}
 
 	cert, err := s.store.GetCertificateByReference(ctx, refType, refID)
-	if err != nil || cert == nil {
-		return cert, err
+	if err != nil {
+		if errors.Is(err, ErrCertificateNotFound) {
+			// Cache the absence so subsequent lookups skip the DB.
+			_ = s.certByReferenceCache.Set(ctx, cacheKey, nil)
+		}
+		return nil, err
+	}
+	if cert == nil {
+		_ = s.certByReferenceCache.Set(ctx, cacheKey, nil)
+		return nil, ErrCertificateNotFound
 	}
 	s.cacheCertificate(ctx, cert)
 

@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 type InitTestSuite struct {
@@ -42,9 +42,9 @@ func (s *InitTestSuite) TestInitialize_ReturnsNonNilService() {
 			BaseURL: "http://consent.example.com",
 		},
 	}
-	config.ResetThunderRuntime()
-	require.NoError(s.T(), config.InitializeThunderRuntime("/tmp/test", cfg))
-	s.T().Cleanup(config.ResetThunderRuntime)
+	config.ResetServerRuntime()
+	require.NoError(s.T(), config.InitializeServerRuntime("/tmp/test", cfg))
+	s.T().Cleanup(config.ResetServerRuntime)
 
 	svc := Initialize()
 
@@ -58,9 +58,9 @@ func (s *InitTestSuite) TestInitialize_DisabledConsent() {
 			BaseURL: "",
 		},
 	}
-	config.ResetThunderRuntime()
-	require.NoError(s.T(), config.InitializeThunderRuntime("/tmp/test", cfg))
-	s.T().Cleanup(config.ResetThunderRuntime)
+	config.ResetServerRuntime()
+	require.NoError(s.T(), config.InitializeServerRuntime("/tmp/test", cfg))
+	s.T().Cleanup(config.ResetServerRuntime)
 
 	svc := Initialize()
 

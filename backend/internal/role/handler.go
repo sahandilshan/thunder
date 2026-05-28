@@ -23,24 +23,26 @@ import (
 	"net/url"
 	"strconv"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const handlerLoggerComponentName = "RoleHandler"
 
 // roleHandler is the handler for role management operations.
 type roleHandler struct {
-	roleService RoleServiceInterface
+	roleService       RoleServiceInterface
+	assignmentService RoleAssignmentServiceInterface
 }
 
 // newRoleHandler creates a new instance of roleHandler
-func newRoleHandler(roleService RoleServiceInterface) *roleHandler {
+func newRoleHandler(roleService RoleServiceInterface, assignmentService RoleAssignmentServiceInterface) *roleHandler {
 	return &roleHandler{
-		roleService: roleService,
+		roleService:       roleService,
+		assignmentService: assignmentService,
 	}
 }
 
@@ -195,7 +197,21 @@ func (rh *roleHandler) HandleRoleAssignmentsGetRequest(w http.ResponseWriter, r 
 	// Parse include parameter to check if display names should be included
 	includeDisplay := r.URL.Query().Get(sysutils.QueryParamInclude) == sysutils.IncludeValueDisplay
 
-	serviceResponse, svcErr := rh.roleService.GetRoleAssignments(ctx, id, limit, offset, includeDisplay)
+	// Parse optional type parameter to filter assignments by assignee type.
+	assigneeType := r.URL.Query().Get("type")
+	if assigneeType != "" && assigneeType != string(AssigneeTypeUser) && assigneeType != string(AssigneeTypeGroup) &&
+		assigneeType != string(AssigneeTypeApp) && assigneeType != string(AssigneeTypeAgent) {
+		handleError(w, &ErrorInvalidAssigneeType)
+		return
+	}
+
+	var serviceResponse *AssignmentList
+	if assigneeType != "" {
+		serviceResponse, svcErr = rh.assignmentService.GetRoleAssignmentsByType(
+			ctx, id, limit, offset, includeDisplay, assigneeType)
+	} else {
+		serviceResponse, svcErr = rh.assignmentService.GetRoleAssignments(ctx, id, limit, offset, includeDisplay)
+	}
 	if svcErr != nil {
 		handleError(w, svcErr)
 		return
@@ -220,6 +236,7 @@ func (rh *roleHandler) HandleRoleAssignmentsGetRequest(w http.ResponseWriter, r 
 	logger.Debug("Successfully retrieved role assignments", log.String("role id", id),
 		log.Int("limit", limit), log.Int("offset", offset),
 		log.Bool("includeDisplay", includeDisplay),
+		log.String("assigneeType", assigneeType),
 		log.Int("totalResults", assignmentListResponse.TotalResults),
 		log.Int("count", assignmentListResponse.Count))
 }
@@ -241,7 +258,7 @@ func (rh *roleHandler) HandleRoleAddAssignmentsRequest(w http.ResponseWriter, r 
 	// Convert HTTP request to service request
 	serviceRequest := rh.toRoleAssignments(sanitizedRequest)
 
-	svcErr := rh.roleService.AddAssignments(ctx, id, serviceRequest)
+	svcErr := rh.assignmentService.AddAssignments(ctx, id, serviceRequest)
 	if svcErr != nil {
 		handleError(w, svcErr)
 		return
@@ -268,7 +285,7 @@ func (rh *roleHandler) HandleRoleRemoveAssignmentsRequest(w http.ResponseWriter,
 	// Convert HTTP request to service request
 	serviceRequest := rh.toRoleAssignments(sanitizedRequest)
 
-	svcErr := rh.roleService.RemoveAssignments(ctx, id, serviceRequest)
+	svcErr := rh.assignmentService.RemoveAssignments(ctx, id, serviceRequest)
 	if svcErr != nil {
 		handleError(w, svcErr)
 		return
@@ -288,7 +305,7 @@ func handleError(w http.ResponseWriter,
 			statusCode = http.StatusNotFound
 		case ErrorRoleNameConflict.Code:
 			statusCode = http.StatusConflict
-		case ErrorOrganizationUnitNotFound.Code, ErrorCannotDeleteRole.Code,
+		case ErrorOrganizationUnitNotFound.Code,
 			ErrorInvalidRequestFormat.Code, ErrorMissingRoleID.Code,
 			ErrorInvalidLimit.Code, ErrorInvalidOffset.Code,
 			ErrorEmptyAssignments.Code,
@@ -450,6 +467,7 @@ func (rh *roleHandler) toHTTPCreateRoleResponse(role *RoleWithPermissionsAndAssi
 		Name:        role.Name,
 		Description: role.Description,
 		OUID:        role.OUID,
+		OUHandle:    role.OUHandle,
 		Permissions: role.Permissions,
 		Assignments: httpAssignments,
 	}

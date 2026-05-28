@@ -18,7 +18,7 @@
 
 package authz
 
-import dbmodel "github.com/asgardeo/thunder/internal/system/database/model"
+import dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
 
 // JSON keys for authorization request context serialization.
 const (
@@ -34,6 +34,7 @@ const (
 	jsonKeyClaimsRequest       = "claims_request"
 	jsonKeyClaimsLocales       = "claims_locales"
 	jsonKeyNonce               = "nonce"
+	jsonKeyDPoPJkt             = "dpop_jkt"
 )
 
 // Database column names for authorization request storage.
@@ -44,40 +45,40 @@ const (
 // queryInsertAuthorizationCode is the query to insert a new authorization code into the database.
 var queryInsertAuthorizationCode = dbmodel.DBQuery{
 	ID: "AZQ-ACS-01",
-	Query: "INSERT INTO AUTHORIZATION_CODE (CODE_ID, AUTHORIZATION_CODE, CLIENT_ID, STATE, AUTHZ_DATA, " +
-		"TIME_CREATED, EXPIRY_TIME, DEPLOYMENT_ID) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+	Query: `INSERT INTO "AUTHORIZATION_CODE" (CODE_ID, AUTHORIZATION_CODE, CLIENT_ID, STATE, AUTHZ_DATA, ` +
+		`TIME_CREATED, EXPIRY_TIME, DEPLOYMENT_ID) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 }
 
-// queryGetAuthorizationCode is the query to retrieve an authorization code by client ID and code.
+// queryGetAuthorizationCode is the query to retrieve an authorization code by code value.
 var queryGetAuthorizationCode = dbmodel.DBQuery{
 	ID: "AZQ-ACS-02",
-	Query: "SELECT CODE_ID, AUTHORIZATION_CODE, CLIENT_ID, STATE, AUTHZ_DATA, TIME_CREATED, " +
-		"EXPIRY_TIME FROM AUTHORIZATION_CODE WHERE CLIENT_ID = $1 AND AUTHORIZATION_CODE = $2 AND DEPLOYMENT_ID = $3",
+	Query: `SELECT CODE_ID, AUTHORIZATION_CODE, CLIENT_ID, STATE, AUTHZ_DATA, TIME_CREATED, ` +
+		`EXPIRY_TIME FROM "AUTHORIZATION_CODE" WHERE AUTHORIZATION_CODE = $1 AND DEPLOYMENT_ID = $2`,
 }
 
 // queryConsumeAuthorizationCode atomically consumes an authorization code (ACTIVE → INACTIVE).
 var queryConsumeAuthorizationCode = dbmodel.DBQuery{
 	ID: "AZQ-ACS-04",
-	Query: "UPDATE AUTHORIZATION_CODE SET STATE = $1 WHERE CLIENT_ID = $2 AND AUTHORIZATION_CODE = $3 " +
-		"AND STATE = $4 AND DEPLOYMENT_ID = $5",
+	Query: `UPDATE "AUTHORIZATION_CODE" SET STATE = $1 WHERE AUTHORIZATION_CODE = $2 ` +
+		`AND STATE = $3 AND DEPLOYMENT_ID = $4`,
 }
 
 // queryInsertAuthRequest is the query to insert a new authorization request context.
 var queryInsertAuthRequest = dbmodel.DBQuery{
 	ID: "AZQ-ARS-01",
-	Query: "INSERT INTO AUTHORIZATION_REQUEST (AUTH_ID, REQUEST_DATA, EXPIRY_TIME, DEPLOYMENT_ID) " +
-		"VALUES ($1, $2, $3, $4)",
+	Query: `INSERT INTO "AUTHORIZATION_REQUEST" (AUTH_ID, REQUEST_DATA, EXPIRY_TIME, DEPLOYMENT_ID) ` +
+		`VALUES ($1, $2, $3, $4)`,
 }
 
 // queryGetAuthRequest is the query to retrieve an authorization request context by ID.
 var queryGetAuthRequest = dbmodel.DBQuery{
 	ID: "AZQ-ARS-02",
-	Query: "SELECT AUTH_ID, REQUEST_DATA, EXPIRY_TIME " +
-		"FROM AUTHORIZATION_REQUEST WHERE AUTH_ID = $1 AND EXPIRY_TIME > $2 AND DEPLOYMENT_ID = $3",
+	Query: `SELECT AUTH_ID, REQUEST_DATA, EXPIRY_TIME ` +
+		`FROM "AUTHORIZATION_REQUEST" WHERE AUTH_ID = $1 AND EXPIRY_TIME > $2 AND DEPLOYMENT_ID = $3`,
 }
 
 // queryDeleteAuthRequest is the query to delete a specific authorization request context.
 var queryDeleteAuthRequest = dbmodel.DBQuery{
 	ID:    "AZQ-ARS-03",
-	Query: "DELETE FROM AUTHORIZATION_REQUEST WHERE AUTH_ID = $1 AND DEPLOYMENT_ID = $2",
+	Query: `DELETE FROM "AUTHORIZATION_REQUEST" WHERE AUTH_ID = $1 AND DEPLOYMENT_ID = $2`,
 }

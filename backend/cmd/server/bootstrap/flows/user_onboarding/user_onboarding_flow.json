@@ -6,20 +6,38 @@
         {
             "id": "start",
             "type": "START",
-            "onSuccess": "permission_validator"
+            "onSuccess": "permission_validator",
+            "layout": {
+                "size": {
+                    "width": 101,
+                    "height": 34
+                },
+                "position": {
+                    "x": 65,
+                    "y": 556
+                }
+            }
         },
         {
             "id": "permission_validator",
             "type": "TASK_EXECUTION",
             "properties": {
-                "requiredScopes": [
-                    "system"
-                ]
+                "requiredScopes": ["system"]
             },
             "executor": {
                 "name": "PermissionValidator"
             },
-            "onSuccess": "user_type_resolver"
+            "onSuccess": "user_type_resolver",
+            "layout": {
+                "size": {
+                    "width": 206,
+                    "height": 113
+                },
+                "position": {
+                    "x": 305,
+                    "y": 515
+                }
+            }
         },
         {
             "id": "user_type_resolver",
@@ -28,7 +46,17 @@
                 "name": "UserTypeResolver"
             },
             "onSuccess": "ou_selection",
-            "onIncomplete": "prompt_usertype"
+            "onIncomplete": "prompt_usertype",
+            "layout": {
+                "size": {
+                    "width": 205,
+                    "height": 113
+                },
+                "position": {
+                    "x": 702,
+                    "y": 515
+                }
+            }
         },
         {
             "id": "prompt_usertype",
@@ -45,7 +73,8 @@
                     {
                         "type": "TEXT",
                         "id": "subtitle_usertype",
-                        "label": "{{ t(onboarding:forms.user_type.subtitle) }}"
+                        "label": "{{ t(onboarding:forms.user_type.subtitle) }}",
+                        "variant": "HEADING_6"
                     },
                     {
                         "type": "BLOCK",
@@ -86,7 +115,17 @@
                         "nextNode": "user_type_resolver"
                     }
                 }
-            ]
+            ],
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 529
+                },
+                "position": {
+                    "x": 829,
+                    "y": -141
+                }
+            }
         },
         {
             "id": "ou_selection",
@@ -97,8 +136,18 @@
             "executor": {
                 "name": "OUResolverExecutor"
             },
-            "onSuccess": "prompt_email",
-            "onIncomplete": "prompt_ou_selection"
+            "onSuccess": "prompt_onboarding_mode",
+            "onIncomplete": "prompt_ou_selection",
+            "layout": {
+                "size": {
+                    "width": 200,
+                    "height": 113
+                },
+                "position": {
+                    "x": 1338,
+                    "y": 514
+                }
+            }
         },
         {
             "id": "prompt_ou_selection",
@@ -115,7 +164,8 @@
                     {
                         "type": "TEXT",
                         "id": "subtitle_ou_selection",
-                        "label": "{{ t(onboarding:forms.ou_selection.subtitle) }}"
+                        "label": "{{ t(onboarding:forms.ou_selection.subtitle) }}",
+                        "variant": "HEADING_6"
                     },
                     {
                         "type": "BLOCK",
@@ -154,7 +204,213 @@
                         "nextNode": "ou_selection"
                     }
                 }
-            ]
+            ],
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 525
+                },
+                "position": {
+                    "x": 1464,
+                    "y": -140
+                }
+            }
+        },
+        {
+            "id": "prompt_onboarding_mode",
+            "type": "PROMPT",
+            "meta": {
+                "components": [
+                    {
+                        "type": "TEXT",
+                        "id": "text_header_onboarding_mode",
+                        "label": "{{ t(onboarding:forms.onboarding_mode.title) }}",
+                        "variant": "HEADING_1",
+                        "align": "center"
+                    },
+                    {
+                        "type": "TEXT",
+                        "id": "text_subtitle_onboarding_mode",
+                        "label": "{{ t(onboarding:forms.onboarding_mode.subtitle) }}",
+                        "variant": "HEADING_6",
+                        "align": "center"
+                    },
+                    {
+                        "type": "BLOCK",
+                        "id": "block_onboarding_mode_actions",
+                        "components": [
+                            {
+                                "type": "STACK",
+                                "id": "stack_onboarding_mode_actions",
+                                "direction": "row",
+                                "justify": "center",
+                                "components": [
+                                    {
+                                        "type": "ACTION",
+                                        "id": "action_create_user_now",
+                                        "label": "{{ t(onboarding:forms.onboarding_mode.actions.create.label) }}",
+                                        "variant": "PRIMARY",
+                                        "eventType": "SUBMIT"
+                                    },
+                                    {
+                                        "type": "ACTION",
+                                        "id": "action_invite_user",
+                                        "label": "{{ t(onboarding:forms.onboarding_mode.actions.invite.label) }}",
+                                        "variant": "OUTLINED",
+                                        "eventType": "SUBMIT"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "prompts": [
+                {
+                    "action": {
+                        "ref": "action_create_user_now",
+                        "nextNode": "direct_create_provisioning"
+                    }
+                },
+                {
+                    "action": {
+                        "ref": "action_invite_user",
+                        "nextNode": "prompt_email"
+                    }
+                }
+            ],
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 566
+                },
+                "position": {
+                    "x": 1931,
+                    "y": 290
+                }
+            }
+        },
+        {
+            "id": "direct_create_provisioning",
+            "type": "TASK_EXECUTION",
+            "properties": {
+                "includeOptional": true,
+                "includeOptionalCredentials": true
+            },
+            "executor": {
+                "name": "ProvisioningExecutor"
+            },
+            "onSuccess": "admin_registration_complete",
+            "onIncomplete": "prompt_create_user_details",
+            "layout": {
+                "size": {
+                    "width": 200,
+                    "height": 113
+                },
+                "position": {
+                    "x": 2706,
+                    "y": 45
+                }
+            }
+        },
+        {
+            "id": "prompt_create_user_details",
+            "type": "PROMPT",
+            "meta": {
+                "components": [
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "text_header_create_user_details",
+                        "label": "{{ t(onboarding:forms.add_user.title) }}",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "text_subtitle_create_user_details",
+                        "label": "{{ t(onboarding:forms.add_user.subtitle) }}",
+                        "variant": "HEADING_6"
+                    },
+                    {
+                        "type": "BLOCK",
+                        "id": "block_create_user_details",
+                        "components": [
+                            {
+                                "type": "DYNAMIC_INPUT_PLACEHOLDER",
+                                "id": "dynamic_inputs_create_user_details"
+                            },
+                            {
+                                "type": "ACTION",
+                                "id": "action_create_user_details",
+                                "label": "{{ t(onboarding:forms.add_user.actions.submit.label) }}",
+                                "variant": "PRIMARY",
+                                "eventType": "SUBMIT"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "prompts": [
+                {
+                    "inputs": [],
+                    "action": {
+                        "ref": "action_create_user_details",
+                        "nextNode": "direct_create_provisioning"
+                    }
+                }
+            ],
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 724
+                },
+                "position": {
+                    "x": 2831,
+                    "y": -531
+                }
+            }
+        },
+        {
+            "id": "admin_registration_complete",
+            "type": "PROMPT",
+            "meta": {
+                "components": [
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "admin_registration_complete_icon",
+                        "label": "\u2705",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "admin_registration_complete_heading",
+                        "label": "{{ t(onboarding:forms.add_user_complete.title) }}",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "admin_registration_complete_message",
+                        "label": "{{ t(onboarding:forms.add_user_complete.description) }}",
+                        "variant": "HEADING_6"
+                    }
+                ]
+            },
+            "message": "User added successfully",
+            "next": "end",
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 358
+                },
+                "position": {
+                    "x": 4042,
+                    "y": -64
+                }
+            }
         },
         {
             "id": "prompt_email",
@@ -206,7 +462,17 @@
                         "nextNode": "check_email_uniqueness"
                     }
                 }
-            ]
+            ],
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 431
+                },
+                "position": {
+                    "x": 2481,
+                    "y": 896
+                }
+            }
         },
         {
             "id": "check_email_uniqueness",
@@ -214,17 +480,111 @@
             "executor": {
                 "name": "AttributeUniquenessValidator"
             },
-            "onSuccess": "invite_generate",
-            "onIncomplete": "prompt_email"
+            "onSuccess": "prompt_invite_method",
+            "onIncomplete": "prompt_email",
+            "layout": {
+                "size": {
+                    "width": 272,
+                    "height": 113
+                },
+                "position": {
+                    "x": 2931,
+                    "y": 1116
+                }
+            }
         },
         {
-            "id": "invite_generate",
+            "id": "prompt_invite_method",
+            "type": "PROMPT",
+            "meta": {
+                "components": [
+                    {
+                        "type": "TEXT",
+                        "id": "text_header_invite_method",
+                        "label": "{{ t(onboarding:forms.invite_mode.title) }}",
+                        "variant": "HEADING_1",
+                        "align": "center"
+                    },
+                    {
+                        "type": "TEXT",
+                        "id": "text_subtitle_invite_method",
+                        "label": "{{ t(onboarding:forms.invite_mode.subtitle) }}",
+                        "variant": "HEADING_6",
+                        "align": "center"
+                    },
+                    {
+                        "type": "BLOCK",
+                        "id": "block_invite_method_actions",
+                        "components": [
+                            {
+                                "type": "STACK",
+                                "id": "stack_invite_actions",
+                                "direction": "row",
+                                "justify": "center",
+                                "components": [
+                                    {
+                                        "type": "ACTION",
+                                        "id": "action_send_email_invite",
+                                        "label": "{{ t(onboarding:forms.invite_mode.actions.email.label) }}",
+                                        "variant": "PRIMARY",
+                                        "eventType": "SUBMIT"
+                                    },
+                                    {
+                                        "type": "ACTION",
+                                        "id": "action_share_manually",
+                                        "label": "{{ t(onboarding:forms.invite_mode.actions.link.label) }}",
+                                        "variant": "OUTLINED",
+                                        "eventType": "SUBMIT"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "prompts": [
+                {
+                    "action": {
+                        "ref": "action_send_email_invite",
+                        "nextNode": "invite_generate_email"
+                    }
+                },
+                {
+                    "action": {
+                        "ref": "action_share_manually",
+                        "nextNode": "invite_generate_manual"
+                    }
+                }
+            ],
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 566
+                },
+                "position": {
+                    "x": 3353,
+                    "y": 893
+                }
+            }
+        },
+        {
+            "id": "invite_generate_email",
             "type": "TASK_EXECUTION",
             "executor": {
                 "name": "InviteExecutor",
                 "mode": "generate"
             },
-            "onSuccess": "send_invite_email"
+            "onSuccess": "send_invite_email",
+            "layout": {
+                "size": {
+                    "width": 200,
+                    "height": 113
+                },
+                "position": {
+                    "x": 3886,
+                    "y": 1398
+                }
+            }
         },
         {
             "id": "send_invite_email",
@@ -236,7 +596,172 @@
                 "name": "EmailExecutor",
                 "mode": "send"
             },
-            "onSuccess": "invite_verify"
+            "onSuccess": "email_invite_status",
+            "onFailure": "invite_email_service_unavailable",
+            "layout": {
+                "size": {
+                    "width": 200,
+                    "height": 113
+                },
+                "position": {
+                    "x": 4213,
+                    "y": 1398
+                }
+            }
+        },
+        {
+            "id": "email_invite_status",
+            "type": "PROMPT",
+            "meta": {
+                "components": [
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "email_status_icon",
+                        "label": "\u2705",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "email_status_heading",
+                        "label": "{{ t(onboarding:forms.invite_email_sent.title) }}",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "email_status_message",
+                        "label": "{{ t(onboarding:forms.invite_email_sent.message) }}",
+                        "variant": "HEADING_6"
+                    }
+                ]
+            },
+            "message": "Invitation sent",
+            "next": "invite_verify",
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 381
+                },
+                "position": {
+                    "x": 4876,
+                    "y": 1288
+                }
+            }
+        },
+        {
+            "id": "invite_email_service_unavailable",
+            "type": "PROMPT",
+            "meta": {
+                "components": [
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "email_unavailable_icon",
+                        "label": "\u26a0\ufe0f",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "email_unavailable_heading",
+                        "label": "{{ t(onboarding:forms.invite_email_unavailable.title) }}",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "email_unavailable_message",
+                        "label": "{{ t(onboarding:forms.invite_email_unavailable.message) }}",
+                        "variant": "HEADING_6"
+                    },
+                    {
+                        "type": "COPYABLE_TEXT",
+                        "id": "email_unavailable_link_copyable",
+                        "label": "{{ t(onboarding:forms.invite_link_status.link_label) }}",
+                        "source": "inviteLink"
+                    }
+                ]
+            },
+            "message": "Email delivery failed",
+            "next": "invite_link_status",
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 433
+                },
+                "position": {
+                    "x": 4338,
+                    "y": 1618
+                }
+            }
+        },
+        {
+            "id": "invite_generate_manual",
+            "type": "TASK_EXECUTION",
+            "executor": {
+                "name": "InviteExecutor",
+                "mode": "generate"
+            },
+            "onSuccess": "invite_link_status",
+            "layout": {
+                "size": {
+                    "width": 200,
+                    "height": 113
+                },
+                "position": {
+                    "x": 3893,
+                    "y": 865
+                }
+            }
+        },
+        {
+            "id": "invite_link_status",
+            "type": "PROMPT",
+            "meta": {
+                "components": [
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "link_status_icon",
+                        "label": "\u2705",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "link_status_heading",
+                        "label": "{{ t(onboarding:forms.invite_link_status.title) }}",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "link_status_message",
+                        "label": "{{ t(onboarding:forms.invite_link_status.message) }}",
+                        "variant": "HEADING_6"
+                    },
+                    {
+                        "type": "COPYABLE_TEXT",
+                        "id": "invite_link_copyable",
+                        "label": "{{ t(onboarding:forms.invite_link_status.link_label) }}",
+                        "source": "inviteLink"
+                    }
+                ]
+            },
+            "message": "The invite link is ready to share",
+            "next": "invite_verify",
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 410
+                },
+                "position": {
+                    "x": 4798,
+                    "y": 726
+                }
+            }
         },
         {
             "id": "invite_verify",
@@ -253,7 +778,40 @@
                 "name": "InviteExecutor",
                 "mode": "verify"
             },
-            "onSuccess": "prompt_user_details"
+            "onSuccess": "provisioning",
+            "layout": {
+                "size": {
+                    "width": 200,
+                    "height": 113
+                },
+                "position": {
+                    "x": 5512,
+                    "y": 1114
+                }
+            }
+        },
+        {
+            "id": "provisioning",
+            "type": "TASK_EXECUTION",
+            "properties": {
+                "includeOptional": true,
+                "includeOptionalCredentials": true
+            },
+            "executor": {
+                "name": "ProvisioningExecutor"
+            },
+            "onSuccess": "registration_complete",
+            "onIncomplete": "prompt_user_details",
+            "layout": {
+                "size": {
+                    "width": 200,
+                    "height": 113
+                },
+                "position": {
+                    "x": 5921,
+                    "y": 1116
+                }
+            }
         },
         {
             "id": "prompt_user_details",
@@ -263,42 +821,29 @@
                     {
                         "align": "center",
                         "type": "TEXT",
-                        "id": "text_header_details",
-                        "label": "{{ t(onboarding:forms.user_details.title) }}",
+                        "id": "text_header_user_details",
+                        "label": "{{ t(onboarding:forms.complete_registration.title) }}",
                         "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "text_subtitle_user_details",
+                        "label": "{{ t(onboarding:forms.complete_registration.subtitle) }}",
+                        "variant": "HEADING_6"
                     },
                     {
                         "type": "BLOCK",
                         "id": "block_user_details",
                         "components": [
                             {
-                                "id": "input_prompt_username",
-                                "ref": "username",
-                                "type": "TEXT_INPUT",
-                                "label": "{{ t(onboarding:forms.user_details.fields.username.label) }}",
-                                "required": true,
-                                "placeholder": "{{ t(onboarding:forms.user_details.fields.username.placeholder) }}"
-                            },
-                            {
-                                "id": "input_prompt_given_name",
-                                "ref": "given_name",
-                                "type": "TEXT_INPUT",
-                                "label": "{{ t(onboarding:forms.user_details.fields.first_name.label) }}",
-                                "required": false,
-                                "placeholder": "{{ t(onboarding:forms.user_details.fields.first_name.placeholder) }}"
-                            },
-                            {
-                                "id": "input_prompt_family_name",
-                                "ref": "family_name",
-                                "type": "TEXT_INPUT",
-                                "label": "{{ t(onboarding:forms.user_details.fields.last_name.label) }}",
-                                "required": false,
-                                "placeholder": "{{ t(onboarding:forms.user_details.fields.last_name.placeholder) }}"
+                                "type": "DYNAMIC_INPUT_PLACEHOLDER",
+                                "id": "dynamic_inputs_user_details"
                             },
                             {
                                 "type": "ACTION",
-                                "id": "action_submit_details",
-                                "label": "{{ t(onboarding:forms.user_details.actions.next.label) }}",
+                                "id": "action_user_details",
+                                "label": "{{ t(onboarding:forms.complete_registration.actions.submit.label) }}",
                                 "variant": "PRIMARY",
                                 "eventType": "SUBMIT"
                             }
@@ -308,137 +853,78 @@
             },
             "prompts": [
                 {
-                    "inputs": [
-                        {
-                            "ref": "input_prompt_username",
-                            "identifier": "username",
-                            "type": "TEXT_INPUT",
-                            "required": true
-                        },
-                        {
-                            "ref": "input_prompt_given_name",
-                            "identifier": "given_name",
-                            "type": "TEXT_INPUT",
-                            "required": false
-                        },
-                        {
-                            "ref": "input_prompt_family_name",
-                            "identifier": "family_name",
-                            "type": "TEXT_INPUT",
-                            "required": false
-                        }
-                    ],
+                    "inputs": [],
                     "action": {
-                        "ref": "action_submit_details",
-                        "nextNode": "check_user_details_uniqueness"
+                        "ref": "action_user_details",
+                        "nextNode": "provisioning"
                     }
                 }
-            ]
+            ],
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 590
+                },
+                "position": {
+                    "x": 6046,
+                    "y": 528
+                }
+            }
         },
         {
-            "id": "check_user_details_uniqueness",
-            "type": "TASK_EXECUTION",
-            "executor": {
-                "name": "AttributeUniquenessValidator"
-            },
-            "onSuccess": "prompt_credential",
-            "onIncomplete": "prompt_user_details"
-        },
-        {
-            "id": "prompt_credential",
+            "id": "registration_complete",
             "type": "PROMPT",
             "meta": {
                 "components": [
                     {
                         "align": "center",
                         "type": "TEXT",
-                        "id": "text_header_pwd",
-                        "label": "{{ t(onboarding:forms.credential.title) }}",
+                        "id": "registration_complete_icon",
+                        "label": "\u2705",
                         "variant": "HEADING_1"
                     },
                     {
-                        "type": "BLOCK",
-                        "id": "block_pwd",
-                        "components": [
-                            {
-                                "id": "input_prompt_password",
-                                "ref": "password",
-                                "type": "PASSWORD_INPUT",
-                                "label": "{{ t(onboarding:forms.credential.fields.password.label) }}",
-                                "required": true,
-                                "placeholder": "{{ t(onboarding:forms.credential.fields.password.placeholder) }}"
-                            },
-                            {
-                                "type": "ACTION",
-                                "id": "action_submit_pwd",
-                                "label": "{{ t(onboarding:forms.credential.actions.submit.label) }}",
-                                "variant": "PRIMARY",
-                                "eventType": "SUBMIT"
-                            }
-                        ]
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "registration_complete_heading",
+                        "label": "{{ t(invite:complete.title) }}",
+                        "variant": "HEADING_1"
+                    },
+                    {
+                        "align": "center",
+                        "type": "TEXT",
+                        "id": "registration_complete_message",
+                        "label": "{{ t(invite:complete.description) }}",
+                        "variant": "HEADING_6"
                     }
                 ]
             },
-            "prompts": [
-                {
-                    "inputs": [
-                        {
-                            "ref": "input_prompt_password",
-                            "identifier": "password",
-                            "type": "PASSWORD_INPUT",
-                            "required": true
-                        }
-                    ],
-                    "action": {
-                        "ref": "action_submit_pwd",
-                        "nextNode": "provisioning"
-                    }
+            "message": "Registration complete",
+            "next": "end",
+            "layout": {
+                "size": {
+                    "width": 350,
+                    "height": 358
+                },
+                "position": {
+                    "x": 6574,
+                    "y": 1006
                 }
-            ]
-        },
-        {
-            "id": "provisioning",
-            "type": "TASK_EXECUTION",
-            "inputs": [
-                {
-                    "ref": "input_email",
-                    "identifier": "email",
-                    "type": "EMAIL_INPUT",
-                    "required": true
-                },
-                {
-                    "ref": "input_username",
-                    "identifier": "username",
-                    "type": "TEXT_INPUT",
-                    "required": true
-                },
-                {
-                    "ref": "input_password",
-                    "identifier": "password",
-                    "type": "PASSWORD_INPUT",
-                    "required": true
-                },
-                {
-                    "ref": "input_given_name",
-                    "identifier": "given_name",
-                    "type": "TEXT_INPUT",
-                    "required": false
-                },
-                {
-                    "ref": "input_family_name",
-                    "identifier": "family_name",
-                    "type": "TEXT_INPUT",
-                    "required": false
-                }
-            ],
-            "executor": {
-                "name": "ProvisioningExecutor"
-            },
-            "onSuccess": "end"
+            }
         },
         {
             "id": "end",
-            "type": "END"
+            "type": "END",
+            "layout": {
+                "size": {
+                    "width": 85,
+                    "height": 34
+                },
+                "position": {
+                    "x": 7103,
+                    "y": 637
+                }
+            }
         }
     ]
 }

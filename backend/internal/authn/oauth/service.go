@@ -23,14 +23,15 @@ import (
 	"context"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/idp"
-	oauth2const "github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	syshttp "github.com/asgardeo/thunder/internal/system/http"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	"github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/idp"
+	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	syshttp "github.com/thunder-id/thunderid/internal/system/http"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const (
@@ -42,9 +43,11 @@ type OAuthAuthnCoreServiceInterface interface {
 	BuildAuthorizeURL(ctx context.Context, idpID string) (string, *serviceerror.ServiceError)
 	ExchangeCodeForToken(ctx context.Context, idpID, code string, validateResponse bool) (
 		*TokenResponse, *serviceerror.ServiceError)
-	FetchUserInfo(ctx context.Context, idpID, accessToken string) (map[string]interface{}, *serviceerror.ServiceError)
-	GetInternalUser(sub string) (*userprovider.User, *serviceerror.ServiceError)
+	FetchUserInfo(ctx context.Context, idpID, accessToken string) (
+		map[string]interface{}, *serviceerror.ServiceError)
+	GetInternalUser(sub string) (*entityprovider.Entity, *serviceerror.ServiceError)
 	GetOAuthClientConfig(ctx context.Context, idpID string) (*OAuthClientConfig, *serviceerror.ServiceError)
+	Authenticate(ctx context.Context, idpID, code string) (*common.FederatedAuthResult, *serviceerror.ServiceError)
 }
 
 // OAuthAuthnServiceInterface defines the contract for OAuth based authenticator services.
@@ -57,33 +60,22 @@ type OAuthAuthnServiceInterface interface {
 
 // oAuthAuthnService is the default implementation of OAuthAuthnServiceInterface.
 type oAuthAuthnService struct {
-	httpClient   syshttp.HTTPClientInterface
-	idpService   idp.IDPServiceInterface
-	userProvider userprovider.UserProviderInterface
-	logger       *log.Logger
+	httpClient     syshttp.HTTPClientInterface
+	idpService     idp.IDPServiceInterface
+	entityProvider entityprovider.EntityProviderInterface
+	logger         *log.Logger
 }
 
 // newOAuthAuthnService creates a new instance of OAuth authenticator service.
 func newOAuthAuthnService(httpClient syshttp.HTTPClientInterface,
-	idpSvc idp.IDPServiceInterface, userProvider userprovider.UserProviderInterface,
+	idpSvc idp.IDPServiceInterface, entityProvider entityprovider.EntityProviderInterface,
 ) OAuthAuthnServiceInterface {
-	service := &oAuthAuthnService{
-		httpClient:   httpClient,
-		idpService:   idpSvc,
-		userProvider: userProvider,
-		logger:       log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName)),
+	return &oAuthAuthnService{
+		httpClient:     httpClient,
+		idpService:     idpSvc,
+		entityProvider: entityProvider,
+		logger:         log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName)),
 	}
-	common.RegisterAuthenticator(service.getMetadata())
-
-	return service
-}
-
-// NewOAuthAuthnService creates a new instance of OAuth authenticator service.
-// [Deprecated: use dependency injection to get the instance instead].
-// TODO: Should be removed when executors are migrated to di pattern.
-func NewOAuthAuthnService(httpClient syshttp.HTTPClientInterface,
-	idpSvc idp.IDPServiceInterface, userProvider userprovider.UserProviderInterface) OAuthAuthnServiceInterface {
-	return newOAuthAuthnService(httpClient, idpSvc, userProvider)
 }
 
 // GetOAuthClientConfig retrieves the OAuth client configuration for the given identity provider ID.
@@ -97,11 +89,13 @@ func (s *oAuthAuthnService) GetOAuthClientConfig(ctx context.Context, idpID stri
 	idp, svcErr := s.idpService.GetIdentityProvider(ctx, idpID)
 	if svcErr != nil {
 		if svcErr.Type == serviceerror.ClientErrorType {
-			return nil, serviceerror.CustomServiceError(ErrorClientErrorWhileRetrievingIDP,
-				"Error while retrieving identity provider: "+svcErr.ErrorDescription)
+			return nil, serviceerror.CustomServiceError(ErrorClientErrorWhileRetrievingIDP, core.I18nMessage{
+				Key:          "error.oauthauthnservice.error_retrieving_idp_description",
+				DefaultValue: "Error while retrieving identity provider: " + svcErr.ErrorDescription.DefaultValue,
+			})
 		}
 		logger.Error("Error while retrieving identity provider", log.String("errorCode", svcErr.Code),
-			log.String("description", svcErr.ErrorDescription))
+			log.String("description", svcErr.ErrorDescription.DefaultValue))
 		return nil, &serviceerror.InternalServerError
 	}
 	if idp == nil {
@@ -118,7 +112,8 @@ func (s *oAuthAuthnService) GetOAuthClientConfig(ctx context.Context, idpID stri
 }
 
 // BuildAuthorizeURL constructs the authorization request URL for the external identity provider.
-func (s *oAuthAuthnService) BuildAuthorizeURL(ctx context.Context, idpID string) (string, *serviceerror.ServiceError) {
+func (s *oAuthAuthnService) BuildAuthorizeURL(
+	ctx context.Context, idpID string) (string, *serviceerror.ServiceError) {
 	logger := s.logger.With(log.String("idpId", idpID))
 	logger.Debug("Building authorize URL")
 
@@ -200,7 +195,8 @@ func (s *oAuthAuthnService) ExchangeCodeForToken(ctx context.Context, idpID, cod
 // ValidateTokenResponse validates the token response returned by the identity provider.
 // ExchangeCodeForToken method calls this method to validate the token response if validateResponse is set
 // to true. Hence generally you may not need to call this method explicitly.
-func (s *oAuthAuthnService) ValidateTokenResponse(idpID string, tokenResp *TokenResponse) *serviceerror.ServiceError {
+func (s *oAuthAuthnService) ValidateTokenResponse(
+	idpID string, tokenResp *TokenResponse) *serviceerror.ServiceError {
 	logger := s.logger.With(log.String("idpId", idpID))
 	logger.Debug("Validating token response")
 
@@ -258,8 +254,8 @@ func (s *oAuthAuthnService) FetchUserInfoWithClientConfig(oAuthClientConfig *OAu
 }
 
 // GetInternalUser retrieves the internal user based on the external subject identifier.
-func (s *oAuthAuthnService) GetInternalUser(sub string) (*userprovider.User, *serviceerror.ServiceError) {
-	logger := s.logger.With(log.String("sub", log.MaskString(sub)))
+func (s *oAuthAuthnService) GetInternalUser(sub string) (*entityprovider.Entity, *serviceerror.ServiceError) {
+	logger := s.logger.With(log.MaskedString("sub", sub))
 	logger.Debug("Retrieving internal user for the given sub claim")
 
 	if strings.TrimSpace(sub) == "" {
@@ -269,11 +265,15 @@ func (s *oAuthAuthnService) GetInternalUser(sub string) (*userprovider.User, *se
 	filters := map[string]interface{}{
 		"sub": sub,
 	}
-	userID, upErr := s.userProvider.IdentifyUser(filters)
+	userID, upErr := s.entityProvider.IdentifyEntity(filters)
 	if upErr != nil {
-		if upErr.Code == userprovider.ErrorCodeUserNotFound {
+		if upErr.Code == entityprovider.ErrorCodeEntityNotFound {
 			logger.Debug("No user found for the provided sub claim")
 			return nil, &common.ErrorUserNotFound
+		}
+		if upErr.Code == entityprovider.ErrorCodeAmbiguousEntity {
+			logger.Debug("Multiple users found for the provided sub claim")
+			return nil, &common.ErrorAmbiguousUser
 		}
 		logger.Error("Error while identifying user", log.String("errorCode", string(upErr.Code)),
 			log.String("description", upErr.Description))
@@ -285,9 +285,9 @@ func (s *oAuthAuthnService) GetInternalUser(sub string) (*userprovider.User, *se
 		return nil, &common.ErrorUserNotFound
 	}
 
-	user, upErr := s.userProvider.GetUser(*userID)
+	user, upErr := s.entityProvider.GetEntity(*userID)
 	if upErr != nil {
-		if upErr.Code == userprovider.ErrorCodeUserNotFound {
+		if upErr.Code == entityprovider.ErrorCodeEntityNotFound {
 			return nil, &common.ErrorUserNotFound
 		}
 		logger.Error("Error while retrieving user", log.String("errorCode", string(upErr.Code)),
@@ -298,11 +298,50 @@ func (s *oAuthAuthnService) GetInternalUser(sub string) (*userprovider.User, *se
 	return user, nil
 }
 
-// getMetadata returns the authenticator metadata for OAuth authenticator.
-func (s *oAuthAuthnService) getMetadata() common.AuthenticatorMeta {
-	return common.AuthenticatorMeta{
-		Name:          common.AuthenticatorOAuth,
-		Factors:       []common.AuthenticationFactor{common.FactorKnowledge},
-		AssociatedIDP: idp.IDPTypeOAuth,
+// Authenticate performs the full OAuth authentication flow: exchanges the code for a token,
+// fetches user info, extracts the subject claim, and resolves the internal user.
+// A missing internal user is NOT an error — the caller decides how to handle it.
+func (s *oAuthAuthnService) Authenticate(ctx context.Context, idpID, code string) (
+	*common.FederatedAuthResult, *serviceerror.ServiceError) {
+	logger := s.logger.With(log.String("idpId", idpID))
+	logger.Debug("Performing federated OAuth authentication")
+
+	tokenResp, svcErr := s.ExchangeCodeForToken(ctx, idpID, code, true)
+	if svcErr != nil {
+		return nil, svcErr
 	}
+
+	userInfo, svcErr := s.FetchUserInfo(ctx, idpID, tokenResp.AccessToken)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	sub := ""
+	if subVal, ok := userInfo["sub"]; ok && subVal != nil {
+		if subStr, ok := subVal.(string); ok && subStr != "" {
+			sub = subStr
+		}
+	}
+	if sub == "" {
+		logger.Debug("sub claim not found in user info")
+		return nil, &common.ErrorSubClaimNotFound
+	}
+
+	result := &common.FederatedAuthResult{
+		Sub:    sub,
+		Claims: userInfo,
+	}
+	user, svcErr := s.GetInternalUser(sub)
+	if svcErr != nil {
+		if svcErr.Code == common.ErrorUserNotFound.Code {
+			return result, nil
+		}
+		if svcErr.Code == common.ErrorAmbiguousUser.Code {
+			result.IsAmbiguousUser = true
+			return result, nil
+		}
+		return nil, svcErr
+	}
+	result.InternalEntity = user
+	return result, nil
 }

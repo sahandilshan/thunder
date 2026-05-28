@@ -1,0 +1,130 @@
+{
+  "id": "nuxt",
+  "displayName": "Nuxt",
+  "description": "Full-stack Vue framework with server-side rendering",
+  "defaults": {
+    "name": "Nuxt Application",
+    "inboundAuthConfig": [
+      {
+        "type": "oauth2",
+        "config": {
+          "grantTypes": ["authorization_code", "refresh_token"],
+          "responseTypes": ["code"],
+          "redirectUris": ["http://localhost:3000/api/auth/callback"],
+          "pkceRequired": true,
+          "tokenEndpointAuthMethod": "client_secret_post",
+          "publicClient": false
+        }
+      }
+    ],
+    "allowedUserTypes": []
+  },
+  "fieldConstraints": {
+    "oauth2": {
+      "publicClient": {
+        "readOnly": true,
+        "value": false
+      },
+      "pkceRequired": {
+        "readOnly": true,
+        "value": true
+      },
+      "tokenEndpointAuthMethod": {
+        "readOnly": true,
+        "value": "client_secret_post"
+      }
+    }
+  },
+  "integrationGuides": {
+    "INBUILT": {
+      "llm_prompt": {
+        "id": "llm-prompt",
+        "title": "Integrate with a Coding Agent Prompt",
+        "description": "Use AI to generate integration code for your Nuxt 3 application",
+        "type": "llm",
+        "icon": "sparkles",
+        "content": "# Integrate {{productName}} Authentication in Nuxt 3 Application\n\n## Context\nI have a Nuxt 3 application and I want to integrate {{productName}}'s authentication system using the @thunderid/nuxt module with {{productName}}-hosted login pages.\n\n## Requirements\n- Use @thunderid/nuxt module for authentication\n- Register the module in nuxt.config.ts\n- Configure via environment variables (no inline config)\n- Wrap app.vue content with <ThunderIDRoot>\n- Implement sign-in and sign-out with auto-imported components\n- Display signed-in user's profile information\n- Optionally protect pages with the built-in thunderIDMiddleware\n\n## Configuration\n- **Client ID**: {{clientId}}\n- **Base URL**: https://localhost:8090 (or your {{productName}} instance URL)\n- **Callback URL**: http://localhost:3000/api/auth/callback (auto-registered by the module)\n- **SDK**: @thunderid/nuxt\n\n## IMPORTANT Configuration Rules\n- Add '@thunderid/nuxt' to the modules array in nuxt.config.ts — no other config needed there\n- All configuration is read from environment variables with NUXT_PUBLIC_ prefix for public values\n- Required env vars: NUXT_PUBLIC_THUNDERID_BASE_URL, NUXT_PUBLIC_THUNDERID_CLIENT_ID, THUNDERID_CLIENT_SECRET, THUNDERID_SESSION_SECRET\n- THUNDERID_CLIENT_SECRET and THUNDERID_SESSION_SECRET must NOT have the NUXT_PUBLIC_ prefix\n- The /api/auth/callback route is auto-registered by the module — do NOT create it manually\n- Wrap <NuxtPage /> with <ThunderIDRoot> in app.vue\n- All components (SignedIn, SignedOut, SignInButton, SignOutButton, User) and composables are auto-imported\n- Protect pages by adding definePageMeta({ middleware: ['thunderIDMiddleware'] })\n\n## Implementation Steps\n1. Create a Nuxt 3 app: npx nuxi@latest init my-nuxt-app\n2. Navigate into the project: cd my-nuxt-app && npm install\n3. Install @thunderid/nuxt: npm install @thunderid/nuxt\n4. Add '@thunderid/nuxt' to modules in nuxt.config.ts\n5. Create .env with NUXT_PUBLIC_THUNDERID_BASE_URL, NUXT_PUBLIC_THUNDERID_CLIENT_ID, THUNDERID_CLIENT_SECRET, THUNDERID_SESSION_SECRET\n6. Wrap <NuxtPage /> with <ThunderIDRoot> in app.vue\n7. Create pages/index.vue with SignInButton, SignOutButton, SignedIn, SignedOut, and User components\n8. Optionally add definePageMeta({ middleware: ['thunderIDMiddleware'] }) to protected pages\n9. Run: npm run dev\n\nPlease provide complete, working code with proper configuration for {{productName}} authentication using the @thunderid/nuxt module."
+      },
+      "manual_steps": [
+        {
+          "step": 1,
+          "title": "Create a Nuxt 3 app",
+          "description": "Run the following command to create a new Nuxt 3 app:",
+          "code": {
+            "language": "terminal",
+            "content": "npx nuxi@latest init my-nuxt-app\ncd my-nuxt-app\nnpm install"
+          }
+        },
+        {
+          "step": 2,
+          "title": "Install @thunderid/nuxt",
+          "description": "The {{productName}} Nuxt module provides server-side auth, auto-imported components, and route middleware.",
+          "subDescription": "Run the following command to install the module:",
+          "code": {
+            "language": "terminal",
+            "content": "npm install @thunderid/nuxt"
+          }
+        },
+        {
+          "step": 3,
+          "title": "Register the module",
+          "description": "Add @thunderid/nuxt to the modules array in nuxt.config.ts:",
+          "code": {
+            "language": "typescript",
+            "filename": "nuxt.config.ts",
+            "content": "export default defineNuxtConfig({\n  modules: ['@thunderid/nuxt'],\n})"
+          }
+        },
+        {
+          "step": 4,
+          "title": "Set environment variables",
+          "description": "Create a .env file in your project root with the following configuration:",
+          "code": {
+            "language": "bash",
+            "filename": ".env",
+            "content": "NUXT_PUBLIC_THUNDERID_BASE_URL=https://localhost:8090\nNUXT_PUBLIC_THUNDERID_CLIENT_ID={{clientId}}\nTHUNDERID_CLIENT_SECRET=<your-client-secret>\nTHUNDERID_SESSION_SECRET=<a-random-secret-at-least-32-chars>"
+          }
+        },
+        {
+          "step": 5,
+          "title": "Wrap your app with <ThunderIDRoot />",
+          "description": "Update app.vue to wrap your application content with the ThunderIDRoot component:",
+          "code": {
+            "language": "vue",
+            "filename": "app.vue",
+            "content": "<template>\n  <ThunderIDRoot>\n    <NuxtPage />\n  </ThunderIDRoot>\n</template>"
+          }
+        },
+        {
+          "step": 6,
+          "title": "Add sign-in and sign-out",
+          "description": "Create pages/index.vue with authentication components (all auto-imported by the module):",
+          "code": {
+            "language": "vue",
+            "filename": "pages/index.vue",
+            "content": "<template>\n  <main>\n    <header>\n      <h1>{{productName}} Auth Demo</h1>\n      <SignedIn>\n        <SignOutButton>Sign Out</SignOutButton>\n      </SignedIn>\n      <SignedOut>\n        <SignInButton>Sign In</SignInButton>\n      </SignedOut>\n    </header>\n  </main>\n</template>"
+          }
+        },
+        {
+          "step": 7,
+          "title": "Display signed-in user's profile information",
+          "description": "Update pages/index.vue to use the User component with a scoped slot to display the signed-in user's profile:",
+          "code": {
+            "language": "vue",
+            "filename": "pages/index.vue",
+            "content": "<template>\n  <main>\n    <header>\n      <h1>{{productName}} Auth Demo</h1>\n      <SignedIn>\n        <SignOutButton>Sign Out</SignOutButton>\n      </SignedIn>\n      <SignedOut>\n        <SignInButton>Sign In</SignInButton>\n      </SignedOut>\n    </header>\n\n    <section>\n      <SignedIn>\n        <User>\n          <template #default=\"{ user }\">\n            <div class=\"user-profile\">\n              <img\n                v-if=\"user.picture\"\n                :src=\"user.picture\"\n                :alt=\"user.name || 'User avatar'\"\n                style=\"width: 80px; height: 80px; border-radius: 50%\"\n              />\n              <h2>Welcome, {{ user.name || user.username }}!</h2>\n              <div>\n                <p><strong>Email:</strong> {{ user.email }}</p>\n                <p><strong>First Name:</strong> {{ user.given_name }}</p>\n                <p><strong>Last Name:</strong> {{ user.family_name }}</p>\n              </div>\n            </div>\n          </template>\n        </User>\n      </SignedIn>\n    </section>\n  </main>\n</template>"
+          }
+        },
+        {
+          "step": 8,
+          "title": "Run the app",
+          "description": "Start your development server and test the authentication flow:",
+          "code": {
+            "language": "terminal",
+            "content": "npm run dev"
+          }
+        }
+      ]
+    }
+  }
+}

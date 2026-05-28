@@ -560,3 +560,18 @@ func (suite *StringUtilTestSuite) TestTrimPrefixFold() {
 		})
 	}
 }
+
+func (suite *StringUtilTestSuite) TestIsScalar() {
+	suite.True(IsScalar("hello"))
+	suite.True(IsScalar(""))
+	suite.True(IsScalar(float64(3.14)))
+	suite.True(IsScalar(float64(0)))
+	suite.True(IsScalar(true))
+	suite.True(IsScalar(false))
+
+	suite.False(IsScalar(nil))
+	suite.False(IsScalar(42))
+	suite.False(IsScalar(map[string]interface{}{"key": "val"}))
+	suite.False(IsScalar([]string{"a", "b"}))
+	suite.False(IsScalar(struct{}{}))
+}

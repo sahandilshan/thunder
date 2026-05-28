@@ -1,37 +1,55 @@
 ---
 title: Application Settings
 sidebar_position: 2
-description: Configure authentication flows, registration, tokens, customization, and OAuth 2.0 settings for Thunder applications.
+persona: iam
+description: Configure authentication flows, registration, tokens, customization, and OAuth 2.0 settings applications.
 ---
 
 # Application Settings
 
-This guide explains how to configure an application from the Thunder Console application details page.
+This guide explains how to configure an application from the <ProductName /> Console application details page.
 
 ## Find Your Client ID
 
 The **Application ID** and **Client ID** are shown on the application's General tab under **Quick Copy**. Use the copy button to grab them quickly.
 
-- **Application ID** - the internal Thunder identifier for this application.
+- **Application ID** - the internal <ProductName /> identifier for this application.
 - **Client ID** - the OAuth 2.0 identifier your SDK or client configuration needs.
 
 ## Control Who Can Sign In
 
-Under **Access** on the General tab, you can restrict which users can authenticate with this application.
+Under **Access** on the General tab, you can configure which users can register with this application and provide the application's URL and redirect URIs.
 
 | Setting | Description |
 |---------|-------------|
-| **Allowed User Types** | Only users of the selected types can sign in. If none are selected, all user types are allowed. |
+| **Allowed User Types** | Restricts self-service registration to users of the selected types. If none are selected, self-service registration is unavailable for this application. This setting does not block existing users from signing in. |
 | **Application URL** | The homepage URL of your application. |
-| **Authorized Redirect URIs** | The URLs Thunder sends users back to after authentication. Register every URI your application uses.
+| **Authorized Redirect URIs** | The URLs <ProductName /> sends users back to after authentication. Register every URI your application uses.
 
-## Configure Sign-In and Registration Flows
+## Use Wildcard Redirect URIs
 
-On the **Flows** tab, choose the flows that drive sign-in and sign-up for this application.
+<ProductName /> supports wildcard patterns in redirect URIs, so you can register a single pattern that covers a range of valid callback URLs instead of listing every exact URI.
+
+:::note
+Wildcard redirect URI support is disabled by default. A <ProductName /> administrator must set `oauth.allow_wildcard_redirect_uri: true` in `deployment.yaml` to enable it. See [Configuration](/docs/next/guides/getting-started/configuration) for details.
+:::
+
+You can use `*` to match a single path segment or part of a hostname label, and `**` to match zero or more path segments. For example:
+
+- `https://example.com/cb/*` — matches `https://example.com/cb/v1` but not `https://example.com/cb/v1/extra`
+- `https://app-*.example.com/cb` — matches `https://app-prod.example.com/cb` and `https://app-staging.example.com/cb`
+
+The `redirect_uri` in a token request is always validated with exact matching per [RFC 6749 §4.1.3](https://www.rfc-editor.org/rfc/rfc6749#section-4.1.3) — wildcard expansion does not apply at the token endpoint.
+
+## Configure Sign-In, Registration, and Recovery Flows
+
+On the **Flows** tab, choose the flows that drive sign-in, sign-up, and password recovery for this application.
 
 **Authentication Flow** - select the flow users follow to sign in. You can assign a custom flow built with the Flow Designer or use the deployment default. Use the **open the flow builder** link to edit the selected flow directly.
 
 **Registration Flow** - toggle the switch to enable or disable self-registration. When enabled, select a flow that defines what information users must provide to create an account.
+
+**Recovery Flow** - toggle the switch to enable or disable password recovery. When enabled, select a flow that guides users through the password reset process.
 
 ## Customize the Appearance
 
@@ -46,15 +64,39 @@ On the **Customization** tab, control how your application looks and what legal 
 
 ## Configure What Goes Into Tokens
 
-On the **Token** tab, choose which user attributes each token carries and how long tokens stay valid.
+:::note
+This section applies to OAuth 2.0 / OIDC applications (Browser App, Full-stack App, Mobile App, and Backend Service). For applications that use the embedded sign-in approach, user attributes are configured in the assertion returned by the flow, not in tokens.
+:::
 
-**Access Token** - select the user attributes to include in the access token payload. Default attributes (`sub`, `iss`, `exp`, and others) are always included and cannot be removed. Set **Token Validity** in seconds (for example, `3600` for one hour).
+On the **Token** tab, choose which user attributes each token carries, how long tokens stay valid, and the response format for ID tokens and userinfo.
 
-**ID Token** - select the user attributes to include. Only attributes covered by the requested scopes are returned. Set **Token Validity** in seconds. The **Scopes** field shows the OIDC scopes configured for this application (for example, `openid`, `profile`, `email`).
+**Access Token** — select the user attributes to include in the access token payload. Default attributes (`sub`, `iss`, `exp`, and others) are always included and cannot be removed. Set **Token Validity** in seconds (for example, `3600` for one hour).
 
-**User Info Attributes** - configure the attributes returned by the `/userinfo` endpoint. Enable **Use same attributes as ID Token** to mirror your ID token selection, or define a separate set.
+**ID Token** — select the user attributes to include. Only attributes covered by the requested scopes are returned. Set **Token Validity** in seconds.
+
+You can also configure the ID token response format via the API. These settings are not available in the Console.
+
+| Setting | Description |
+|---------|-------------|
+| **Response Type** | `JWT` (signed only, default), `JWE` (encrypted), or `NESTED_JWT` (signed then encrypted). |
+| **Encryption Algorithm** | Key-management algorithm. Required for `JWE` and `NESTED_JWT`. Options: `RSA-OAEP`, `RSA-OAEP-256`. Requires a certificate on the application. |
+| **Encryption Encoding** | Content-encryption algorithm. Required when Encryption Algorithm is set. Options: `A128CBC-HS256`, `A256GCM`. |
+
+**User Info** — configure what the `/userinfo` endpoint returns. User attributes are configurable from the Console. Response format settings are available via the API only.
+
+| Setting | Description |
+|---------|-------------|
+| **User Attributes** | Attributes returned by the `/userinfo` endpoint. Enable **Use same attributes as ID Token** to mirror your ID token selection, or define a separate set. |
+| **Response Type** | `JSON` (default), `JWS` (signed), `JWE` (encrypted), or `NESTED_JWT` (signed then encrypted). |
+| **Signing Algorithm** | Required for `JWS` and `NESTED_JWT`. Options: `RS256`, `RS512`, `PS256`, `ES256`, `ES384`, `ES512`, `EdDSA`. Requires a certificate on the application. |
+| **Encryption Algorithm** | Required for `JWE` and `NESTED_JWT`. Options: `RSA-OAEP`, `RSA-OAEP-256`. Requires a certificate. |
+| **Encryption Encoding** | Required when Encryption Algorithm is set. Options: `A128CBC-HS256`, `A256GCM`. |
 
 ## Rotate the Client Secret
+
+:::note
+Client secrets are only present on confidential clients — Full-stack App and Backend Service application types. This section does not apply to public clients such as Browser App or Mobile App.
+:::
 
 If you need to invalidate the current client secret, open the General tab and click **Regenerate Client Secret** in the **Danger Zone**.
 
@@ -64,24 +106,31 @@ The current client secret is immediately invalidated. Any running clients using 
 
 ## Review OAuth 2.0 Configuration
 
-The **Advanced Settings** tab shows the OAuth 2.0 settings configured at creation. These are read-only.
+:::note
+This section applies to OAuth 2.0 / OIDC applications only.
+:::
 
+The **Advanced Settings** tab shows the OAuth 2.0 settings configured at creation.
 | Setting | Description |
 |---------|-------------|
-| **Grant Types** | The OAuth 2.0 flows this application can use (for example, `authorization_code`, `refresh_token`, `client_credentials`). |
+| **Grant Types** | The OAuth 2.0 flows this application can use. Supported values: `authorization_code`, `refresh_token`, `client_credentials`, `urn:ietf:params:oauth:grant-type:token-exchange`. |
 | **Response Types** | The response types the application can request (for example, `code`). |
+| **Token Endpoint Auth Method** | How the application authenticates at the token endpoint: `client_secret_basic` (default), `client_secret_post`, `private_key_jwt`, or `none` (public clients). |
 | **Public Client** | Whether this is a public client that cannot securely store a client secret. |
 | **PKCE Required** | Whether the application must send a `code_challenge` in every authorization request. Always `Yes` for public clients. |
 
-You can also attach a **Certificate** for client authentication or token encryption.
+You can also attach a **Certificate** for client authentication (`private_key_jwt`) or token/userinfo encryption.
 
 | Certificate Type | Description |
 |-----------------|-------------|
 | `None` | No certificate configured. |
 | `JWKS` | Provide the JSON Web Key Set (JWKS) inline. |
-| `JWKS_URI` | Provide the URL of the application's JWKS endpoint. Thunder fetches the public keys to verify signed requests. |
+| `JWKS_URI` | Provide the URL of the application's JWKS endpoint. <ProductName /> fetches the public keys to verify signed requests. Must use HTTPS. |
+
+For full API-level configuration — including ACR values, scope-to-claims mapping, PAR enforcement, and token signing and encryption algorithms — see [OAuth 2.0 Configuration](../../protocols/oauth2).
 
 ## Related Guides
 
-- [Manage Applications](../applications/manage-applications) - Create, update, and delete applications
-- [Flows](/guides/guides/flows) - Build and assign custom authentication and registration flows
+- [Manage Applications](../manage-applications) - Create, update, and delete applications
+- [OAuth 2.0 Configuration](../../protocols/oauth2) - Full reference for OAuth 2.0 settings available via the API
+- [Flows](/docs/next/guides/guides/flows/what-are-flows) - Build and assign custom authentication and registration flows

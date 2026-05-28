@@ -27,10 +27,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/database/model"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/database/model"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 const (
@@ -103,21 +103,21 @@ func GetDBProviderCloser() DBProviderCloser {
 // GetConfigDBClient returns a database client for config datasource.
 // Not required to close the returned client manually since it manages its own connection pool.
 func (d *dbProvider) GetConfigDBClient() (DBClientInterface, error) {
-	configDBConfig := config.GetThunderRuntime().Config.Database.Config
+	configDBConfig := config.GetServerRuntime().Config.Database.Config
 	return d.getOrInitClient(&d.configClient, &d.configMutex, configDBConfig, dbNameConfig)
 }
 
 // GetRuntimeDBClient returns a database client for runtime datasource.
 // Not required to close the returned client manually since it manages its own connection pool.
 func (d *dbProvider) GetRuntimeDBClient() (DBClientInterface, error) {
-	runtimeDBConfig := config.GetThunderRuntime().Config.Database.Runtime
+	runtimeDBConfig := config.GetServerRuntime().Config.Database.Runtime
 	return d.getOrInitClient(&d.runtimeClient, &d.runtimeMutex, runtimeDBConfig, dbNameRuntime)
 }
 
 // GetUserDBClient returns a database client for runtime datasource.
 // Not required to close the returned client manually since it manages its own connection pool.
 func (d *dbProvider) GetUserDBClient() (DBClientInterface, error) {
-	userDBConfig := config.GetThunderRuntime().Config.Database.User
+	userDBConfig := config.GetServerRuntime().Config.Database.User
 	return d.getOrInitClient(&d.userClient, &d.userMutex, userDBConfig, dbNameUser)
 }
 
@@ -134,8 +134,12 @@ func (d *dbProvider) GetUserDBTransactioner() (transaction.Transactioner, error)
 }
 
 // GetRuntimeDBTransactioner returns a transactioner for the runtime database.
-// The transactioner manages database transactions with automatic nesting detection.
 func (d *dbProvider) GetRuntimeDBTransactioner() (transaction.Transactioner, error) {
+	// When the runtime store is Redis, a no-op transactioner is returned since Redis does
+	// not support SQL-style transactions.
+	if config.GetServerRuntime().Config.Database.Runtime.Type == DataSourceTypeRedis {
+		return transaction.NewNoOpTransactioner(), nil
+	}
 	return d.getTransactioner(d.GetRuntimeDBClient, dbNameRuntime)
 }
 
@@ -156,19 +160,21 @@ func (d *dbProvider) getTransactioner(
 func (d *dbProvider) initializeAllClients() {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "DBProvider"))
 
-	configDBConfig := config.GetThunderRuntime().Config.Database.Config
+	configDBConfig := config.GetServerRuntime().Config.Database.Config
 	err := d.initializeClient(&d.configClient, configDBConfig, dbNameConfig)
 	if err != nil {
 		logger.Error("Failed to initialize config database client", log.Error(err))
 	}
 
-	runtimeDBConfig := config.GetThunderRuntime().Config.Database.Runtime
-	err = d.initializeClient(&d.runtimeClient, runtimeDBConfig, dbNameRuntime)
-	if err != nil {
-		logger.Error("Failed to initialize runtime database client", log.Error(err))
+	runtimeDBConfig := config.GetServerRuntime().Config.Database.Runtime
+	if runtimeDBConfig.Type != DataSourceTypeRedis {
+		err = d.initializeClient(&d.runtimeClient, runtimeDBConfig, dbNameRuntime)
+		if err != nil {
+			logger.Error("Failed to initialize runtime database client", log.Error(err))
+		}
 	}
 
-	userDBConfig := config.GetThunderRuntime().Config.Database.User
+	userDBConfig := config.GetServerRuntime().Config.Database.User
 	err = d.initializeClient(&d.userClient, userDBConfig, dbNameUser)
 	if err != nil {
 		logger.Error("Failed to initialize user database client", log.Error(err))
@@ -185,6 +191,10 @@ func (d *dbProvider) getOrInitClient(
 	// Return error if database type is not configured
 	if dataSource.Type == "" {
 		return nil, fmt.Errorf("database type is not configured")
+	}
+	// Redis runtime stores bypass the SQL client entirely
+	if dataSource.Type == DataSourceTypeRedis {
+		return nil, fmt.Errorf("runtime database is configured as Redis; use RedisProvider instead")
 	}
 
 	mutex.RLock()
@@ -218,10 +228,21 @@ func (d *dbProvider) initializeClient(clientPtr *DBClientInterface, dataSource c
 		return fmt.Errorf("failed to connect to database %s: %w", dbName, err)
 	}
 
-	// Configure connection pool using values from configuration
-	db.SetMaxOpenConns(dataSource.MaxOpenConns)
-	db.SetMaxIdleConns(dataSource.MaxIdleConns)
-	db.SetConnMaxLifetime(time.Duration(dataSource.ConnMaxLifetime) * time.Second)
+	// Configure connection pool using values from the type-specific sub-config.
+	var maxOpenConns, maxIdleConns, connMaxLifetime int
+	switch dataSource.Type {
+	case dataSourceTypePostgres:
+		maxOpenConns = dataSource.Postgres.MaxOpenConns
+		maxIdleConns = dataSource.Postgres.MaxIdleConns
+		connMaxLifetime = dataSource.Postgres.ConnMaxLifetime
+	case dataSourceTypeSQLite:
+		maxOpenConns = dataSource.SQLite.MaxOpenConns
+		maxIdleConns = dataSource.SQLite.MaxIdleConns
+		connMaxLifetime = dataSource.SQLite.ConnMaxLifetime
+	}
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
 
 	// Test the database connection.
 	if err := db.Ping(); err != nil {
@@ -243,7 +264,23 @@ func (d *dbProvider) initializeClient(clientPtr *DBClientInterface, dataSource c
 		}
 	}
 
-	*clientPtr = NewDBClient(model.NewDB(db), dbConfig.driverName, dbName)
+	var rc retryConfig
+	switch dataSource.Type {
+	case dataSourceTypePostgres:
+		rc = retryConfig{
+			MaxAttempts: dataSource.Postgres.MaxRetries,
+			MinBackoff:  time.Duration(dataSource.Postgres.MinRetryBackoffMS) * time.Millisecond,
+			MaxBackoff:  time.Duration(dataSource.Postgres.MaxRetryBackoffMS) * time.Millisecond,
+		}
+	case dataSourceTypeSQLite:
+		rc = retryConfig{
+			MaxAttempts: dataSource.SQLite.MaxRetries,
+			MinBackoff:  time.Duration(dataSource.SQLite.MinRetryBackoffMS) * time.Millisecond,
+			MaxBackoff:  time.Duration(dataSource.SQLite.MaxRetryBackoffMS) * time.Millisecond,
+		}
+	}
+
+	*clientPtr = NewDBClient(model.NewDB(db), dbConfig.driverName, dbName, rc)
 	return nil
 }
 
@@ -253,17 +290,18 @@ func (d *dbProvider) getDBConfig(dataSource config.DataSource) dbConfig {
 
 	switch dataSource.Type {
 	case dataSourceTypePostgres:
+		pg := dataSource.Postgres
 		dbConfig.driverName = dataSourceTypePostgres
 		dbConfig.dsn = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-			dataSource.Hostname, dataSource.Port, dataSource.Username, dataSource.Password,
-			dataSource.Name, dataSource.SSLMode)
+			pg.Hostname, pg.Port, pg.Username, pg.Password, pg.Name, pg.SSLMode)
 	case dataSourceTypeSQLite:
+		sl := dataSource.SQLite
 		dbConfig.driverName = dataSourceTypeSQLite
-		options := dataSource.Options
+		options := sl.Options
 		if options != "" && options[0] != '?' {
 			options = "?" + options
 		}
-		dbConfig.dsn = fmt.Sprintf("%s%s", path.Join(config.GetThunderRuntime().ThunderHome, dataSource.Path), options)
+		dbConfig.dsn = fmt.Sprintf("%s%s", path.Join(config.GetServerRuntime().ServerHome, sl.Path), options)
 	}
 
 	return dbConfig
@@ -277,7 +315,14 @@ func (d *dbProvider) Close() error {
 	configErr := d.closeClient(&d.configClient, &d.configMutex, "config")
 	runtimeErr := d.closeClient(&d.runtimeClient, &d.runtimeMutex, "runtime")
 	userErr := d.closeClient(&d.userClient, &d.userMutex, "user")
-	return errors.Join(configErr, runtimeErr, userErr)
+
+	// Close the Redis runtime provider if it was initialized.
+	var redisErr error
+	if redisInstance != nil {
+		redisErr = redisInstance.Close()
+	}
+
+	return errors.Join(configErr, runtimeErr, userErr, redisErr)
 }
 
 // closeClient is a helper to close a DB client with locking.

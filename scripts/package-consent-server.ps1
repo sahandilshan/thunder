@@ -19,7 +19,7 @@
 # ----------------------------------------------------------------------------
 
 # package-consent-server.ps1
-# Download, configure, and stage the default consent server into thunder distribution.
+# Download, configure, and stage the default consent server into distribution.
 #
 # Usage: .\scripts\package-consent-server.ps1 -GoOS <os> -GoArch <arch> -DistOutputPath <path>
 #

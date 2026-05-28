@@ -19,7 +19,10 @@
 # Constants
 VERSION_FILE=version.txt
 VERSION=$(shell cat $(VERSION_FILE))
-BINARY_NAME=thunder
+BINARY_NAME=thunderid
+PRODUCT_NAME=ThunderID
+
+export WITHOUT_CONSENT ?= false
 
 # Tools
 PROJECT_DIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))/backend
@@ -46,7 +49,7 @@ prepare:
 clean:
 	./build.sh clean $(OS) $(ARCH)
 
-build: build_backend build_frontend build_docs build_samples
+build: build_frontend build_backend build_sdks build_samples
 
 build_backend:
 	./build.sh build_backend $(OS) $(ARCH)
@@ -107,27 +110,40 @@ run_docs:
 	./build.sh run_docs
 
 docker-build:
-	docker build -t thunder:$(VERSION) .
+	docker build -t $(BINARY_NAME):$(VERSION) .
 
 docker-build-latest:
-	docker build -t thunder:latest .
+	docker build -t $(BINARY_NAME):latest .
 
 docker-build-multiarch:
-	docker buildx build --platform linux/amd64,linux/arm64 -t thunder:$(VERSION) .
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(BINARY_NAME):$(VERSION) .
 
 docker-build-multiarch-latest:
-	docker buildx build --platform linux/amd64,linux/arm64 -t thunder:latest .
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(BINARY_NAME):latest .
 
 docker-build-multiarch-push:
-	docker buildx build --platform linux/amd64,linux/arm64 -t thunder:$(VERSION) -t thunder:latest --push .
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(BINARY_NAME):$(VERSION) -t $(BINARY_NAME):latest --push .
 
-lint: lint_backend lint_frontend
+lint: lint_backend lint_frontend lint_sdks
+
+build_sdks:
+	./build.sh build_sdks
+
+test_sdks:
+	./build.sh test_sdks
+
+lint_sdks:
+	./build.sh lint_sdks
+
+lint_docs:
+	@command -v vale >/dev/null 2>&1 || (echo "vale is not installed. See https://vale.sh/docs/vale-cli/installation/ for installation instructions." && exit 1)
+	vale docs/
 
 lint_backend: check_i18n golangci-lint
 	cd backend && $(GOLANGCI_LINT) run ./...
 
 lint_frontend:
-	cd frontend && pnpm install && pnpm build && pnpm lint
+	pnpm install --frozen-lockfile && pnpm build:frontend && pnpm lint
 
 generate_i18n: install-i18n-extractor
 	@echo "Extracting i18n messages from backend source code..."
@@ -145,12 +161,40 @@ mockery: install-mockery
 	cd backend && $(MOCKERY) --config .mockery.public.yml
 	cd backend && $(MOCKERY) --config .mockery.private.yml
 
+verify_mocks: mockery
+	@if [ -n "$$(git status --porcelain --untracked-files=all -- backend/tests/mocks ':(glob)backend/internal/**/*_mock_test.go')" ]; then \
+		echo "Mock files have been regenerated and differ from what is committed."; \
+		echo "Please review and commit the changes before pushing:"; \
+		git status --porcelain --untracked-files=all -- backend/tests/mocks ':(glob)backend/internal/**/*_mock_test.go'; \
+		exit 1; \
+	fi
+	@echo "All mock files are up to date."
+
+format_check:
+	pnpm install --frozen-lockfile
+	pnpm format:check
+
+test_frontend:
+	pnpm install --frozen-lockfile && pnpm build:packages
+	cd frontend/apps/console && pnpm test
+	cd frontend/apps/gate && pnpm test
+
+security_audit:
+	cd frontend && pnpm audit --audit-level=high
+	cd tests/e2e && npm audit --audit-level=high
+
+test_e2e: prepare
+	chmod +x tests/e2e/run-e2e.sh
+	tests/e2e/run-e2e.sh
+
+pr_checks: verify_mocks lint format_check test_unit test_frontend test_integration build_backend build_frontend build_samples
+
 help:
 	@echo "Makefile targets:"
 	@echo "  all                           - Clean, build, and test the project."
 	@echo "  backend                       - Clean, build, and test only the backend."
 	@echo "  clean                         - Remove build artifacts."
-	@echo "  build                         - Build Thunder (backend + frontend + samples)."
+	@echo "  build                         - Build $(PRODUCT_NAME) (backend + frontend + samples)."
 	@echo "  build_backend                 - Build the backend Go application."
 	@echo "  build_frontend                - Build the frontend applications."
 	@echo "  build_docs                    - Build the documentation."
@@ -161,9 +205,9 @@ help:
 	@echo "  build_with_coverage  		   - Build with coverage flags, run unit and integration tests, and generate combined coverage report."
 	@echo "  build_with_coverage_only      - Build with coverage instrumentation (unit tests only, no integration tests)."
 	@echo "  test                          - Run all tests (unit and integration)."
-	@echo "  run                           - Build and run the Thunder server locally."
-	@echo "  run_backend                   - Build and run the Thunder backend locally."
-	@echo "  debug_backend                 - Build and run the Thunder backend locally in debug mode."
+	@echo "  run                           - Build and run the $(PRODUCT_NAME) server locally."
+	@echo "  run_backend                   - Build and run the $(PRODUCT_NAME) backend locally."
+	@echo "  debug_backend                 - Build and run the $(PRODUCT_NAME) backend locally in debug mode."
 	@echo "  run_frontend                  - Build and run the frontend applications locally."
 	@echo "  run_docs                      - Run the documentation development server with live reload."
 	@echo "  docker-build                  - Build single-arch Docker image with version tag."
@@ -171,10 +215,20 @@ help:
 	@echo "  docker-build-multiarch        - Build multi-arch Docker image with version tag."
 	@echo "  docker-build-multiarch-latest - Build multi-arch Docker image with latest tag."
 	@echo "  docker-build-multiarch-push   - Build and push multi-arch images to registry."
-	@echo "  lint                          - Run linting on both backend and frontend code."
+	@echo "  build_sdks                    - Build all SDK packages."
+	@echo "  test_sdks                     - Run tests for all SDK packages."
+	@echo "  lint_sdks                     - Run linting on all SDK packages."
+	@echo "  lint                          - Run linting on backend, frontend, and SDK code."
 	@echo "  lint_backend                  - Run golangci-lint on the backend code."
 	@echo "  lint_frontend                 - Run ESLint on the frontend code."
+	@echo "  lint_docs                     - Run Vale style linting on the documentation (requires vale)."
 	@echo "  mockery                       - Generate mocks for unit tests using mockery."
+	@echo "  verify_mocks                  - Regenerate and verify mock files are in sync with interfaces."
+	@echo "  format_check                  - Check frontend code formatting with Prettier."
+	@echo "  test_frontend                 - Run frontend unit tests (console + gate apps)."
+	@echo "  security_audit                - Run dependency security audit on frontend and E2E deps (simplified; CI applies additional ignore rules)."
+	@echo "  test_e2e                      - Start server, import declarative resources, start sample app, and run Playwright E2E tests."
+	@echo "  pr_checks                     - Run all checks that CI performs on pull requests."
 	@echo "  generate_i18n                 - Extract i18n messages and generate defaults.go."
 	@echo "  help                          - Show this help message."
 
@@ -183,7 +237,8 @@ help:
 .PHONY: docker-build-multiarch-latest docker-build-multiarch-push
 .PHONY: test_unit test_integration build_with_coverage build_with_coverage_only test
 .PHONY: help go_install_tool
-.PHONY: lint lint_backend lint_frontend golangci-lint mockery install-mockery
+.PHONY: lint lint_backend lint_frontend lint_docs lint_sdks build_sdks test_sdks golangci-lint mockery install-mockery
+.PHONY: verify_mocks format_check test_frontend security_audit test_e2e pr_checks
 .PHONY: run_backend debug_backend run_frontend run_docs
 
 define go_install_tool

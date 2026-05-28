@@ -23,12 +23,12 @@ import (
 	"context"
 	"errors"
 
-	"github.com/asgardeo/thunder/internal/notification/common"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // NotificationSenderMgtSvcInterface defines the interface for managing notification senders.
@@ -47,6 +47,7 @@ type NotificationSenderMgtSvcInterface interface {
 type notificationSenderMgtService struct {
 	notificationStore notificationStoreInterface
 	transactioner     transaction.Transactioner
+	uuidGenerator     func() (string, error)
 }
 
 // newNotificationSenderMgtService returns a new instance of NotificationSenderMgtSvcInterface.
@@ -55,16 +56,8 @@ func newNotificationSenderMgtService(
 	return &notificationSenderMgtService{
 		notificationStore: store,
 		transactioner:     tx,
+		uuidGenerator:     sysutils.GenerateUUIDv7,
 	}
-}
-
-// NewNotificationSenderMgtService creates a new instance of NotificationSenderMgtSvcInterface.
-// [Deprecated: use dependency injection to get the instance instead].
-// TODO: Remove this when the flow executors are migrated to the di pattern.
-func NewNotificationSenderMgtService() NotificationSenderMgtSvcInterface {
-	// Fallback to a default db behavior for deprecated call
-	store, _, _ := newNotificationStore()
-	return newNotificationSenderMgtService(store, nil)
 }
 
 // CreateSender creates a new notification sender.
@@ -82,12 +75,14 @@ func (s *notificationSenderMgtService) CreateSender(
 		return nil, err
 	}
 
-	id, err := sysutils.GenerateUUIDv7()
-	if err != nil {
-		logger.Error("Failed to generate UUID", log.Error(err))
-		return nil, &serviceerror.InternalServerError
+	if sender.ID == "" {
+		id, err := s.uuidGenerator()
+		if err != nil {
+			logger.Error("Failed to generate UUID", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
+		sender.ID = id
 	}
-	sender.ID = id
 
 	var svcErr *serviceerror.ServiceError
 	transactErr := s.transactioner.Transact(ctx, func(txCtx context.Context) error {
@@ -116,7 +111,7 @@ func (s *notificationSenderMgtService) CreateSender(
 	}
 	if transactErr != nil {
 		logger.Error("Failed to create notification sender", log.Error(transactErr), log.String("name", sender.Name))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 
 	return &common.NotificationSenderDTO{
@@ -138,7 +133,7 @@ func (s *notificationSenderMgtService) ListSenders(ctx context.Context) ([]commo
 	senders, err := s.notificationStore.listSenders(ctx)
 	if err != nil {
 		logger.Error("Failed to list notification senders", log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 
 	return senders, nil
@@ -157,7 +152,11 @@ func (s *notificationSenderMgtService) GetSender(ctx context.Context, id string)
 	sender, err := s.notificationStore.getSenderByID(ctx, id)
 	if err != nil {
 		logger.Error("Failed to retrieve notification sender", log.String("id", id), log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
+	}
+
+	if sender == nil {
+		return nil, &ErrorSenderNotFound
 	}
 
 	return sender, nil
@@ -176,7 +175,11 @@ func (s *notificationSenderMgtService) GetSenderByName(ctx context.Context, name
 	sender, err := s.notificationStore.getSenderByName(ctx, name)
 	if err != nil {
 		logger.Error("Failed to retrieve notification sender", log.String("name", name), log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
+	}
+
+	if sender == nil {
+		return nil, &ErrorSenderNotFound
 	}
 
 	return sender, nil
@@ -247,7 +250,7 @@ func (s *notificationSenderMgtService) UpdateSender(ctx context.Context, id stri
 	}
 	if transactErr != nil {
 		logger.Error("Failed to update notification sender", log.Error(transactErr), log.String("id", id))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 
 	return &common.NotificationSenderDTO{
@@ -282,7 +285,7 @@ func (s *notificationSenderMgtService) DeleteSender(ctx context.Context, id stri
 
 	if transactErr != nil {
 		logger.Error("Failed to delete notification sender", log.Error(transactErr), log.String("id", id))
-		return &ErrorInternalServerError
+		return &serviceerror.InternalServerError
 	}
 
 	return nil

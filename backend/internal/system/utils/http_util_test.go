@@ -21,16 +21,20 @@ package utils
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 type HTTPUtilTestSuite struct {
@@ -675,22 +679,63 @@ func (suite *HTTPUtilTestSuite) TestWriteSuccessResponse_EncodingError() {
 	suite.T().Run("UnserializableData", func(t *testing.T) {
 		w := httptest.NewRecorder()
 
-		// Channel cannot be JSON encoded, should trigger encoding error
-		unserializableData := make(chan int)
+		// Channel cannot be JSON encoded, should trigger the encoding error fallback
+		WriteSuccessResponse(w, http.StatusOK, make(chan int))
 
-		WriteSuccessResponse(w, http.StatusOK, unserializableData)
-
-		// With buffer approach, encoding fails BEFORE headers are sent
-		// So we get HTTP 500 instead of the intended 200
+		// Encoding fails before headers are sent, so we get 500
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 
-		// After encoding fails, http.Error() is called which writes the predefined error message
-		responseBody := w.Body.String()
-		assert.Contains(t, responseBody, "Encoding error")
+		// Response must be JSON, not plain text
+		assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+		// Body must be valid JSON containing the ErrorEncodingError fields
+		var resp apierror.ErrorResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.Equal(t, serviceerror.ErrorEncodingError.Code, resp.Code)
+		assert.Equal(t, serviceerror.ErrorEncodingError.Error.Key, resp.Message.Key)
+		assert.Equal(t, serviceerror.ErrorEncodingError.ErrorDescription.Key, resp.Description.Key)
 	})
 }
 
-func (suite *HTTPUtilTestSuite) TestWriteErrorResponse() {
+// failingWriter returns an error on the first Write call, then succeeds.
+// Used to simulate json.Encoder failing mid-stream in WriteErrorResponse.
+type failingWriter struct {
+	*httptest.ResponseRecorder
+	writes int
+}
+
+func (fw *failingWriter) Write(b []byte) (int, error) {
+	fw.writes++
+	if fw.writes == 1 {
+		return 0, errors.New("simulated write failure")
+	}
+	return fw.ResponseRecorder.Write(b)
+}
+
+func (suite *HTTPUtilTestSuite) TestWriteErrorResponse_EncodingFallback() {
+	suite.T().Run("WriterFailure", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		w := &failingWriter{ResponseRecorder: rec}
+
+		errorResp := apierror.ErrorResponse{
+			Code:        "test_error",
+			Message:     core.I18nMessage{Key: "error.test", DefaultValue: "Test error"},
+			Description: core.I18nMessage{Key: "error.test_desc", DefaultValue: "A test error"},
+		}
+		WriteErrorResponse(w, http.StatusBadRequest, errorResp)
+
+		// The fallback JSON must be valid and carry the encoding error fields
+		var resp apierror.ErrorResponse
+		err := json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.Equal(t, serviceerror.ErrorEncodingError.Code, resp.Code)
+		assert.Equal(t, serviceerror.ErrorEncodingError.Error.Key, resp.Message.Key)
+		assert.Equal(t, serviceerror.ErrorEncodingError.ErrorDescription.Key, resp.Description.Key)
+	})
+}
+
+func (suite *HTTPUtilTestSuite) TestWriteI18nErrorResponse() {
 	testCases := []struct {
 		name       string
 		statusCode int
@@ -700,36 +745,36 @@ func (suite *HTTPUtilTestSuite) TestWriteErrorResponse() {
 			name:       "BadRequestError",
 			statusCode: http.StatusBadRequest,
 			errorResp: apierror.ErrorResponse{
-				Code:        "invalid_request",
-				Message:     "Invalid Request",
-				Description: "The request is missing required parameters",
+				Code:    "invalid_request",
+				Message: core.I18nMessage{Key: "error.invalid_request", DefaultValue: "Invalid Request"},
+				Description: core.I18nMessage{
+					Key:          "error.invalid_request_desc",
+					DefaultValue: "The request is missing required parameters",
+				},
 			},
 		},
 		{
 			name:       "UnauthorizedError",
 			statusCode: http.StatusUnauthorized,
 			errorResp: apierror.ErrorResponse{
-				Code:        "unauthorized",
-				Message:     "Unauthorized",
-				Description: "Authentication is required",
-			},
-		},
-		{
-			name:       "ForbiddenError",
-			statusCode: http.StatusForbidden,
-			errorResp: apierror.ErrorResponse{
-				Code:        "forbidden",
-				Message:     "Forbidden",
-				Description: "You don't have permission to access this resource",
+				Code:    "unauthorized",
+				Message: core.I18nMessage{Key: "error.unauthorized", DefaultValue: "Unauthorized"},
+				Description: core.I18nMessage{
+					Key:          "error.unauthorized_desc",
+					DefaultValue: "Authentication is required",
+				},
 			},
 		},
 		{
 			name:       "NotFoundError",
 			statusCode: http.StatusNotFound,
 			errorResp: apierror.ErrorResponse{
-				Code:        "not_found",
-				Message:     "Not Found",
-				Description: "The requested resource was not found",
+				Code:    "not_found",
+				Message: core.I18nMessage{Key: "error.not_found", DefaultValue: "Not Found"},
+				Description: core.I18nMessage{
+					Key:          "error.not_found_desc",
+					DefaultValue: "The requested resource was not found",
+				},
 			},
 		},
 		{
@@ -737,26 +782,8 @@ func (suite *HTTPUtilTestSuite) TestWriteErrorResponse() {
 			statusCode: http.StatusInternalServerError,
 			errorResp: apierror.ErrorResponse{
 				Code:        "internal_error",
-				Message:     "Internal Server Error",
-				Description: "An unexpected error occurred",
-			},
-		},
-		{
-			name:       "ErrorWithEmptyDescription",
-			statusCode: http.StatusBadRequest,
-			errorResp: apierror.ErrorResponse{
-				Code:        "error_code",
-				Message:     "Error Message",
-				Description: "",
-			},
-		},
-		{
-			name:       "ConflictError",
-			statusCode: http.StatusConflict,
-			errorResp: apierror.ErrorResponse{
-				Code:        "conflict",
-				Message:     "Resource Conflict",
-				Description: "The resource already exists",
+				Message:     core.I18nMessage{Key: "error.internal", DefaultValue: "Internal Server Error"},
+				Description: core.I18nMessage{Key: "error.internal_desc", DefaultValue: "An unexpected error occurred"},
 			},
 		},
 	}
@@ -782,50 +809,6 @@ func (suite *HTTPUtilTestSuite) TestWriteErrorResponse() {
 			assert.Equal(t, tc.errorResp.Description, response.Description)
 		})
 	}
-}
-
-func (suite *HTTPUtilTestSuite) TestWriteErrorResponse_EncodingError() {
-	suite.T().Run("ValidErrorResponse", func(t *testing.T) {
-		w := httptest.NewRecorder()
-
-		// Create a valid error response to ensure the happy path works
-		errorResp := apierror.ErrorResponse{
-			Code:        "test_error",
-			Message:     "Test Error",
-			Description: "This is a test error",
-		}
-
-		WriteErrorResponse(w, http.StatusBadRequest, errorResp)
-
-		// Verify the response is written correctly
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
-
-		var response apierror.ErrorResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		assert.NoError(t, err)
-		assert.Equal(t, errorResp.Code, response.Code)
-	})
-
-	suite.T().Run("EncodingErrorOnWrite", func(t *testing.T) {
-		// Create a response writer that fails on Write
-		w := &failingResponseWriter{
-			ResponseRecorder: httptest.NewRecorder(),
-			shouldFail:       true,
-		}
-
-		errorResp := apierror.ErrorResponse{
-			Code:        "test_error",
-			Message:     "Test Error",
-			Description: "This is a test error",
-		}
-
-		// This should trigger the encoding error path
-		WriteErrorResponse(w, http.StatusBadRequest, errorResp)
-
-		// Status code should still be set before the write failure
-		assert.Equal(t, http.StatusBadRequest, w.ResponseRecorder.Code)
-	})
 }
 
 func (suite *HTTPUtilTestSuite) TestDecodeJSONResponse() {
@@ -887,15 +870,255 @@ func (suite *HTTPUtilTestSuite) TestDecodeJSONResponse() {
 	})
 }
 
-// failingResponseWriter is a test helper that simulates write failures
-type failingResponseWriter struct {
-	*httptest.ResponseRecorder
-	shouldFail bool
-}
-
-func (f *failingResponseWriter) Write(b []byte) (int, error) {
-	if f.shouldFail {
-		return 0, assert.AnError
+func (suite *HTTPUtilTestSuite) TestMatchURIPattern() {
+	tests := []struct {
+		name      string
+		pattern   string
+		incoming  string
+		wantMatch bool
+		wantErr   bool
+	}{
+		{
+			name:      "ExactMatchNoWildcard",
+			pattern:   "https://example.com/callback",
+			incoming:  "https://example.com/callback",
+			wantMatch: true,
+		},
+		{
+			name:      "ExactMismatch",
+			pattern:   "https://example.com/callback",
+			incoming:  "https://example.com/other",
+			wantMatch: false,
+		},
+		{
+			name:      "SingleStarMatchesOneSegment",
+			pattern:   "https://example.com/callback/*",
+			incoming:  "https://example.com/callback/abc",
+			wantMatch: true,
+		},
+		{
+			name:      "SingleStarNoMatchTwoSegments",
+			pattern:   "https://example.com/callback/*",
+			incoming:  "https://example.com/callback/a/b",
+			wantMatch: false,
+		},
+		{
+			name:      "SingleStarNoMatchEmptySegment",
+			pattern:   "https://example.com/*",
+			incoming:  "https://example.com/",
+			wantMatch: false,
+		},
+		{
+			name:      "DoubleStarMatchesZeroSegments",
+			pattern:   "https://example.com/callback/**",
+			incoming:  "https://example.com/callback",
+			wantMatch: true,
+		},
+		{
+			name:      "DoubleStarMatchesOneSegment",
+			pattern:   "https://example.com/callback/**",
+			incoming:  "https://example.com/callback/a",
+			wantMatch: true,
+		},
+		{
+			name:      "DoubleStarMatchesMultipleSegments",
+			pattern:   "https://example.com/callback/**",
+			incoming:  "https://example.com/callback/a/b/c",
+			wantMatch: true,
+		},
+		{
+			name:      "DoubleStarMidPathZeroSegments",
+			pattern:   "https://example.com/a/**/b",
+			incoming:  "https://example.com/a/b",
+			wantMatch: true,
+		},
+		{
+			name:      "DoubleStarMidPathMultipleSegments",
+			pattern:   "https://example.com/a/**/b",
+			incoming:  "https://example.com/a/x/y/b",
+			wantMatch: true,
+		},
+		{
+			name:      "DoubleStarMatchesDeepPath",
+			pattern:   "https://example.com/a/**/b",
+			incoming:  "https://example.com/a/" + strings.Repeat("x/", 28) + "b",
+			wantMatch: true,
+		},
+		{
+			name:      "DoubleStarMatchesVeryDeepPath",
+			pattern:   "https://example.com/a/**/b",
+			incoming:  "https://example.com/a/" + strings.Repeat("x/", 29) + "b",
+			wantMatch: true,
+		},
+		{
+			name:      "SchemeMismatch",
+			pattern:   "https://example.com/callback",
+			incoming:  "http://example.com/callback",
+			wantMatch: false,
+		},
+		{
+			name:      "HostMismatch",
+			pattern:   "https://example.com/callback",
+			incoming:  "https://other.com/callback",
+			wantMatch: false,
+		},
+		{
+			name:      "QueryMatchesExactly",
+			pattern:   "https://example.com/callback?foo=bar",
+			incoming:  "https://example.com/callback?foo=bar",
+			wantMatch: true,
+		},
+		{
+			name:      "QueryValueMismatch",
+			pattern:   "https://example.com/callback?foo=bar",
+			incoming:  "https://example.com/callback?foo=baz",
+			wantMatch: false,
+		},
+		{
+			name:      "QueryPresentOnPatternOnly",
+			pattern:   "https://example.com/callback?foo=bar",
+			incoming:  "https://example.com/callback",
+			wantMatch: false,
+		},
+		{
+			name:      "IncomingWithFragment",
+			pattern:   "https://example.com/callback",
+			incoming:  "https://example.com/callback#frag",
+			wantMatch: false,
+		},
+		{
+			name:      "PatternWithFragment",
+			pattern:   "https://example.com/callback#frag",
+			incoming:  "https://example.com/callback",
+			wantMatch: false,
+		},
+		{
+			name:      "DeeplinkExactMatch",
+			pattern:   "myapp://callback",
+			incoming:  "myapp://callback",
+			wantMatch: true,
+		},
+		{
+			name:      "DeeplinkSingleStarMatch",
+			pattern:   "myapp://callback/*",
+			incoming:  "myapp://callback/session",
+			wantMatch: true,
+		},
+		{
+			name:      "DeeplinkSingleStarNoMatchMultiSegment",
+			pattern:   "myapp://callback/*",
+			incoming:  "myapp://callback/a/b",
+			wantMatch: false,
+		},
+		{
+			name:     "MalformedPattern",
+			pattern:  "://bad",
+			incoming: "https://example.com/callback",
+			wantErr:  true,
+		},
+		{
+			name:     "MalformedIncoming",
+			pattern:  "https://example.com/callback",
+			incoming: "://bad",
+			wantErr:  true,
+		},
+		{
+			name:      "PathTraversalDotDotInIncoming",
+			pattern:   "https://example.com/app/**",
+			incoming:  "https://example.com/app/../admin",
+			wantMatch: false,
+		},
+		{
+			name:      "PathTraversalPercentEncodedDotDotInIncoming",
+			pattern:   "https://example.com/app/*",
+			incoming:  "https://example.com/app/%2e%2e/admin",
+			wantMatch: false,
+		},
+		// Host wildcard cases: * matches one or more alphanumeric chars within a single label.
+		{
+			name:      "HostWildcardLabelInternal",
+			pattern:   "https://tenant-app-*-*.gateway.example.com",
+			incoming:  "https://tenant-app-019dfc78-f19ab4f2.gateway.example.com",
+			wantMatch: true,
+		},
+		{
+			name:      "HostWildcardCaseInsensitive",
+			pattern:   "https://foo-*-bar.example.com",
+			incoming:  "https://FOO-AbCd-Bar.EXAMPLE.com",
+			wantMatch: true,
+		},
+		{
+			name:      "HostWildcardDoesNotCrossDot",
+			pattern:   "https://foo-*-bar.example.com",
+			incoming:  "https://foo-x.y-bar.example.com",
+			wantMatch: false,
+		},
+		{
+			name:      "HostWildcardDoesNotMatchHyphenInDynamic",
+			pattern:   "https://foo-*-bar.example.com",
+			incoming:  "https://foo-a-b-bar.example.com",
+			wantMatch: false,
+		},
+		{
+			name:      "HostWildcardLabelCountMismatch",
+			pattern:   "https://*-app.example.com",
+			incoming:  "https://x-app.dev.example.com",
+			wantMatch: false,
+		},
+		{
+			name:      "HostWildcardSingleStarRequiresAtLeastOneChar",
+			pattern:   "https://prefix-*.example.com",
+			incoming:  "https://prefix-.example.com",
+			wantMatch: false,
+		},
+		{
+			name:      "HostWildcardWithPath",
+			pattern:   "https://app-*.example.com/cb/*",
+			incoming:  "https://app-prod.example.com/cb/v1",
+			wantMatch: true,
+		},
+		{
+			name:      "HostWildcardAdjacentLiteralBacktrack",
+			pattern:   "https://*foo.example.com",
+			incoming:  "https://abcfoo.example.com",
+			wantMatch: true,
+		},
+		{
+			name:      "HostWildcardAdjacentLiteralNoMatch",
+			pattern:   "https://*foo.example.com",
+			incoming:  "https://abcbar.example.com",
+			wantMatch: false,
+		},
+		{
+			name:      "HostNoWildcardFastPath",
+			pattern:   "https://example.com/cb",
+			incoming:  "https://EXAMPLE.com/cb",
+			wantMatch: true,
+		},
+		{
+			name:      "HostWildcardWithMatchingPort",
+			pattern:   "https://app-*.example.com:8443/cb",
+			incoming:  "https://app-prod.example.com:8443/cb",
+			wantMatch: true,
+		},
+		{
+			name:      "HostWildcardWithMismatchedPort",
+			pattern:   "https://app-*.example.com:8443/cb",
+			incoming:  "https://app-prod.example.com:8080/cb",
+			wantMatch: false,
+		},
 	}
-	return f.ResponseRecorder.Write(b)
+
+	for _, tt := range tests {
+		suite.T().Run(tt.name, func(t *testing.T) {
+			matched, err := MatchURIPattern(tt.pattern, tt.incoming)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.False(t, matched)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantMatch, matched)
+			}
+		})
+	}
 }

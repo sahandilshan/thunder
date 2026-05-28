@@ -23,20 +23,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 func TestIsDeclarativeModeEnabled(t *testing.T) {
 	t.Run("Returns true when declarative resources are enabled", func(t *testing.T) {
-		config.ResetThunderRuntime()
-		defer config.ResetThunderRuntime() // Clean up after test
+		config.ResetServerRuntime()
+		defer config.ResetServerRuntime() // Clean up after test
 		testConfig := &config.Config{
 			DeclarativeResources: config.DeclarativeResources{
 				Enabled: true,
 			},
 		}
-		err := config.InitializeThunderRuntime("", testConfig)
+		err := config.InitializeServerRuntime("", testConfig)
 		assert.NoError(t, err)
 
 		result := IsDeclarativeModeEnabled()
@@ -44,14 +44,14 @@ func TestIsDeclarativeModeEnabled(t *testing.T) {
 	})
 
 	t.Run("Returns false when declarative resources are disabled", func(t *testing.T) {
-		config.ResetThunderRuntime()
-		defer config.ResetThunderRuntime() // Clean up after test
+		config.ResetServerRuntime()
+		defer config.ResetServerRuntime() // Clean up after test
 		testConfig := &config.Config{
 			DeclarativeResources: config.DeclarativeResources{
 				Enabled: false,
 			},
 		}
-		err := config.InitializeThunderRuntime("", testConfig)
+		err := config.InitializeServerRuntime("", testConfig)
 		assert.NoError(t, err)
 
 		result := IsDeclarativeModeEnabled()
@@ -89,30 +89,30 @@ func TestCheckDeclarativeOperations(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Run("Returns error when declarative mode is enabled", func(t *testing.T) {
-				config.ResetThunderRuntime()
-				defer config.ResetThunderRuntime() // Clean up after test
+				config.ResetServerRuntime()
+				defer config.ResetServerRuntime() // Clean up after test
 				testConfig := &config.Config{
 					DeclarativeResources: config.DeclarativeResources{
 						Enabled: true,
 					},
 				}
-				err := config.InitializeThunderRuntime("", testConfig)
+				err := config.InitializeServerRuntime("", testConfig)
 				assert.NoError(t, err)
 
 				result := tc.checkFunc()
 				assert.NotNil(t, result)
-				assert.Contains(t, result.Error, tc.expectedErrText)
+				assert.Contains(t, result.Error.DefaultValue, tc.expectedErrText)
 			})
 
 			t.Run("Returns nil when declarative mode is disabled", func(t *testing.T) {
-				config.ResetThunderRuntime()
-				defer config.ResetThunderRuntime() // Clean up after test
+				config.ResetServerRuntime()
+				defer config.ResetServerRuntime() // Clean up after test
 				testConfig := &config.Config{
 					DeclarativeResources: config.DeclarativeResources{
 						Enabled: false,
 					},
 				}
-				err := config.InitializeThunderRuntime("", testConfig)
+				err := config.InitializeServerRuntime("", testConfig)
 				assert.NoError(t, err)
 
 				result := tc.checkFunc()

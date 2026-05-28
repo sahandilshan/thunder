@@ -87,7 +87,7 @@ type MockConsentPurpose struct {
 
 // MockConsentServer provides a lightweight mock of the default consent management REST API.
 // It stores consent elements and purposes in memory, allowing integration tests to verify
-// that Thunder correctly syncs consent state on application lifecycle events.
+// that server correctly syncs consent state on application lifecycle events.
 type MockConsentServer struct {
 	server   *http.Server
 	port     int

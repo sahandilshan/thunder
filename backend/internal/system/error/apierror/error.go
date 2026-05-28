@@ -20,21 +20,41 @@
 package apierror
 
 import (
-	"github.com/asgardeo/thunder/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
-// ErrorResponse defines a generic API error response.
+// ErrorResponse defines an API error response with i18n support.
 type ErrorResponse struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Description string `json:"description"`
-}
-
-// I18nErrorResponse defines an API error response with i18n support.
-// This is the new error response type that should be used for services being migrated to i18n.
-// Translatable fields use core.Message instead of plain strings.
-type I18nErrorResponse struct {
 	Code        string           `json:"code"`
 	Message     core.I18nMessage `json:"message"`
 	Description core.I18nMessage `json:"description"`
 }
+
+// Authentication and authorization error responses, returned by the security middleware.
+var (
+	// ErrUnauthorized is returned when authentication credentials are missing or invalid (HTTP 401).
+	ErrUnauthorized = ErrorResponse{
+		Code: "AUTH-4010",
+		Message: core.I18nMessage{
+			Key:          "error.auth.unauthorized",
+			DefaultValue: "Unauthorized",
+		},
+		Description: core.I18nMessage{
+			Key:          "error.auth.unauthorized_description",
+			DefaultValue: "Authentication is required to access this resource",
+		},
+	}
+
+	// ErrForbidden is returned when the caller is authenticated but lacks sufficient permissions (HTTP 403).
+	ErrForbidden = ErrorResponse{
+		Code: "AUTH-4030",
+		Message: core.I18nMessage{
+			Key:          "error.auth.forbidden",
+			DefaultValue: "Forbidden",
+		},
+		Description: core.I18nMessage{
+			Key:          "error.auth.forbidden_description",
+			DefaultValue: "You do not have sufficient permissions to access this resource",
+		},
+	}
+)

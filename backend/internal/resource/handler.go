@@ -23,10 +23,10 @@ import (
 	"net/url"
 	"strconv"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // resourceHandler handles HTTP requests for resource management.
@@ -75,6 +75,7 @@ func (h *resourceHandler) HandleResourceServerPostRequest(w http.ResponseWriter,
 	serviceReq := ResourceServer{
 		Name:        sanitized.Name,
 		Description: sanitized.Description,
+		Handle:      sanitized.Handle,
 		Identifier:  sanitized.Identifier,
 		OUID:        sanitized.OUID,
 		Delimiter:   sanitized.Delimiter,
@@ -118,6 +119,7 @@ func (h *resourceHandler) HandleResourceServerPutRequest(w http.ResponseWriter, 
 	serviceReq := ResourceServer{
 		Name:        sanitized.Name,
 		Description: sanitized.Description,
+		Handle:      sanitized.Handle,
 		Identifier:  sanitized.Identifier,
 		OUID:        sanitized.OUID,
 	}
@@ -543,6 +545,7 @@ func sanitizeCreateResourceServerRequest(req *CreateResourceServerRequest) Creat
 	return CreateResourceServerRequest{
 		Name:        sysutils.SanitizeString(req.Name),
 		Description: sysutils.SanitizeString(req.Description),
+		Handle:      sysutils.SanitizeString(req.Handle),
 		Identifier:  sysutils.SanitizeString(req.Identifier),
 		OUID:        sysutils.SanitizeString(req.OUID),
 		Delimiter:   sysutils.SanitizeString(req.Delimiter),
@@ -554,6 +557,7 @@ func sanitizeUpdateResourceServerRequest(req *UpdateResourceServerRequest) Updat
 	return UpdateResourceServerRequest{
 		Name:        sysutils.SanitizeString(req.Name),
 		Description: sysutils.SanitizeString(req.Description),
+		Handle:      sysutils.SanitizeString(req.Handle),
 		Identifier:  sysutils.SanitizeString(req.Identifier),
 		OUID:        sysutils.SanitizeString(req.OUID),
 	}
@@ -609,6 +613,7 @@ func toResourceServerResponse(rs *ResourceServer) *ResourceServerResponse {
 		ID:          rs.ID,
 		Name:        rs.Name,
 		Description: rs.Description,
+		Handle:      rs.Handle,
 		Identifier:  rs.Identifier,
 		OUID:        rs.OUID,
 		Delimiter:   rs.Delimiter,

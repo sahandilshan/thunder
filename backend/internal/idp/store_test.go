@@ -25,10 +25,10 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/config"
 
-	"github.com/asgardeo/thunder/tests/mocks/database/providermock"
+	"github.com/thunder-id/thunderid/tests/mocks/database/providermock"
 )
 
 const testDeploymentID = "test-deployment-id"
@@ -48,16 +48,16 @@ func (s *IDPStoreTestSuite) SetupTest() {
 	testConfig := &config.Config{
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	_ = config.InitializeServerRuntime("test", testConfig)
 
 	s.mockDBProvider = &providermock.DBProviderInterfaceMock{}
 	s.mockDBClient = &providermock.DBClientInterfaceMock{}
@@ -89,7 +89,7 @@ func (s *IDPStoreTestSuite) TestCreateIdentityProvider_Success() {
 
 	s.mockDBProvider.On("GetConfigDBClient").Return(s.mockDBClient, nil)
 	s.mockDBClient.On("ExecuteContext", context.Background(), queryCreateIdentityProvider, idp.ID, idp.Name,
-		idp.Description, idp.Type, `[{"name":"client_id","value":"test-client","isSecret":false}]`, testDeploymentID).
+		idp.Description, idp.Type, `{"client_id":{"value":"test-client","isSecret":false}}`, testDeploymentID).
 		Return(int64(1), nil)
 
 	err := s.store.CreateIdentityProvider(context.Background(), idp)
@@ -253,7 +253,7 @@ func (s *IDPStoreTestSuite) TestGetIdentityProvider_Success() {
 			"name":        "Test IDP",
 			"description": "Test Description",
 			"type":        "OIDC",
-			"properties":  `[{"name":"client_id","value":"test","is_secret":false}]`,
+			"properties":  `{"client_id":{"value":"test","isSecret":false}}`,
 		},
 	}
 
@@ -410,7 +410,7 @@ func (s *IDPStoreTestSuite) TestUpdateIdentityProvider_WithProperties() {
 
 	s.mockDBProvider.On("GetConfigDBClient").Return(s.mockDBClient, nil)
 	s.mockDBClient.On("ExecuteContext", context.Background(), queryUpdateIdentityProviderByID, idp.ID, idp.Name,
-		idp.Description, idp.Type, `[{"name":"client_id","value":"test","isSecret":false}]`, testDeploymentID).
+		idp.Description, idp.Type, `{"client_id":{"value":"test","isSecret":false}}`, testDeploymentID).
 		Return(int64(1), nil)
 
 	err := s.store.UpdateIdentityProvider(context.Background(), idp)
@@ -605,7 +605,7 @@ func (s *IDPStoreTestSuite) TestGetIdentityProvider_WithByteProperties() {
 			"name":        "Test IDP",
 			"description": "Test Description",
 			"type":        "OIDC",
-			"properties":  []byte(`[{"name":"client_id","value":"test","is_secret":false}]`),
+			"properties":  []byte(`{"client_id":{"value":"test","isSecret":false}}`),
 		},
 	}
 
@@ -695,6 +695,76 @@ func (s *IDPStoreTestSuite) TestGetIdentityProvider_BuildRowError() {
 	s.Error(err)
 	s.Nil(idp)
 	s.Contains(err.Error(), "failed to build idp from result row")
+	s.mockDBProvider.AssertExpectations(s.T())
+	s.mockDBClient.AssertExpectations(s.T())
+}
+
+// TestGetIdentityProvidersByProperty_Success tests successful IDP retrieval by property.
+func (s *IDPStoreTestSuite) TestGetIdentityProvidersByProperty_Success() {
+	results := []map[string]interface{}{
+		{
+			"id":          "idp-1",
+			"name":        "IDP 1",
+			"description": "Desc 1",
+			"type":        "OIDC",
+			"properties":  `{"issuer":{"value":"https://idp.example.com","isSecret":false}}`,
+		},
+	}
+
+	s.mockDBProvider.On("GetConfigDBClient").Return(s.mockDBClient, nil)
+	s.mockDBClient.On("QueryContext", context.Background(), queryGetIdentityProvidersByProperty,
+		"issuer", "https://idp.example.com", testDeploymentID).Return(results, nil)
+
+	idps, err := s.store.GetIdentityProvidersByProperty(context.Background(), "issuer", "https://idp.example.com")
+
+	s.NoError(err)
+	s.Len(idps, 1)
+	s.Equal("idp-1", idps[0].ID)
+	s.Equal("IDP 1", idps[0].Name)
+	s.Len(idps[0].Properties, 1)
+	s.Equal("issuer", idps[0].Properties[0].GetName())
+	s.mockDBProvider.AssertExpectations(s.T())
+	s.mockDBClient.AssertExpectations(s.T())
+}
+
+// TestGetIdentityProvidersByProperty_NotFound tests IDP not found by property.
+func (s *IDPStoreTestSuite) TestGetIdentityProvidersByProperty_NotFound() {
+	s.mockDBProvider.On("GetConfigDBClient").Return(s.mockDBClient, nil)
+	s.mockDBClient.On("QueryContext", context.Background(), queryGetIdentityProvidersByProperty,
+		"issuer", "https://unknown.example.com", testDeploymentID).Return([]map[string]interface{}{}, nil)
+
+	idps, err := s.store.GetIdentityProvidersByProperty(context.Background(), "issuer", "https://unknown.example.com")
+
+	s.Error(err)
+	s.Nil(idps)
+	s.ErrorIs(err, ErrIDPNotFound)
+	s.mockDBProvider.AssertExpectations(s.T())
+	s.mockDBClient.AssertExpectations(s.T())
+}
+
+// TestGetIdentityProvidersByProperty_DBClientError tests DB client error.
+func (s *IDPStoreTestSuite) TestGetIdentityProvidersByProperty_DBClientError() {
+	s.mockDBProvider.On("GetConfigDBClient").Return(nil, errors.New("db error"))
+
+	idps, err := s.store.GetIdentityProvidersByProperty(context.Background(), "issuer", "https://idp.example.com")
+
+	s.Error(err)
+	s.Nil(idps)
+	s.Contains(err.Error(), "failed to get database client")
+	s.mockDBProvider.AssertExpectations(s.T())
+}
+
+// TestGetIdentityProvidersByProperty_QueryError tests query execution error.
+func (s *IDPStoreTestSuite) TestGetIdentityProvidersByProperty_QueryError() {
+	s.mockDBProvider.On("GetConfigDBClient").Return(s.mockDBClient, nil)
+	s.mockDBClient.On("QueryContext", context.Background(), queryGetIdentityProvidersByProperty,
+		"issuer", "https://idp.example.com", testDeploymentID).Return(nil, errors.New("query error"))
+
+	idps, err := s.store.GetIdentityProvidersByProperty(context.Background(), "issuer", "https://idp.example.com")
+
+	s.Error(err)
+	s.Nil(idps)
+	s.Contains(err.Error(), "failed to execute query")
 	s.mockDBProvider.AssertExpectations(s.T())
 	s.mockDBClient.AssertExpectations(s.T())
 }

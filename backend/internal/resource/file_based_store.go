@@ -22,10 +22,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 var (
@@ -132,6 +133,17 @@ func (f *fileBasedResourceStore) CheckResourceServerNameExists(ctx context.Conte
 	return true, nil
 }
 
+func (f *fileBasedResourceStore) CheckResourceServerHandleExists(
+	ctx context.Context, handle string) (bool, error) {
+	_, err := f.GenericFileBasedStore.GetByField(handle, func(d interface{}) string {
+		return d.(*ResourceServer).Handle
+	})
+	if err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
 func (f *fileBasedResourceStore) CheckResourceServerIdentifierExists(
 	ctx context.Context, identifier string) (bool, error) {
 	_, err := f.GenericFileBasedStore.GetByField(identifier, func(d interface{}) string {
@@ -141,6 +153,23 @@ func (f *fileBasedResourceStore) CheckResourceServerIdentifierExists(
 		return false, nil
 	}
 	return true, nil
+}
+
+func (f *fileBasedResourceStore) GetResourceServerByIdentifier(
+	ctx context.Context, identifier string) (ResourceServer, error) {
+	data, err := f.GenericFileBasedStore.GetByField(identifier, func(d interface{}) string {
+		return d.(*ResourceServer).Identifier
+	})
+	if err != nil {
+		return ResourceServer{}, errResourceServerNotFound
+	}
+
+	rs, ok := data.(*ResourceServer)
+	if !ok {
+		return ResourceServer{}, errors.New("data corrupted")
+	}
+
+	return *rs, nil
 }
 
 func (f *fileBasedResourceStore) CheckResourceServerHasDependencies(
@@ -359,6 +388,11 @@ func (f *fileBasedResourceStore) UpdateResource(
 	return errImmutableStore
 }
 
+func (f *fileBasedResourceStore) UpdateResourcePermission(
+	ctx context.Context, id string, resServerID string, permission string) error {
+	return errImmutableStore
+}
+
 func (f *fileBasedResourceStore) DeleteResource(ctx context.Context, id string, resServerID string) error {
 	return errImmutableStore
 }
@@ -491,6 +525,11 @@ func (f *fileBasedResourceStore) UpdateAction(
 	return errImmutableStore
 }
 
+func (f *fileBasedResourceStore) UpdateActionPermission(
+	ctx context.Context, id string, resServerID string, resID *string, permission string) error {
+	return errImmutableStore
+}
+
 func (f *fileBasedResourceStore) DeleteAction(
 	ctx context.Context, id string, resServerID string, resID *string) error {
 	return errImmutableStore
@@ -580,4 +619,52 @@ func (f *fileBasedResourceStore) ValidatePermissions(
 		}
 	}
 	return invalidList, nil
+}
+
+func (f *fileBasedResourceStore) FindResourceServersByPermissions(
+	ctx context.Context, permissions []string,
+) ([]ResourceServer, error) {
+	if len(permissions) == 0 {
+		return []ResourceServer{}, nil
+	}
+
+	list, err := f.GenericFileBasedStore.List()
+	if err != nil {
+		return nil, err
+	}
+
+	permSet := make(map[string]struct{}, len(permissions))
+	for _, p := range permissions {
+		permSet[p] = struct{}{}
+	}
+
+	matched := make([]ResourceServer, 0)
+	for _, item := range list {
+		rs, ok := item.Data.(*ResourceServer)
+		if !ok || rs.Identifier == "" {
+			continue
+		}
+		if containsAnyPermission(rs, permSet) {
+			matched = append(matched, *rs)
+		}
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].Identifier < matched[j].Identifier
+	})
+	return matched, nil
+}
+
+func containsAnyPermission(rs *ResourceServer, permSet map[string]struct{}) bool {
+	for _, res := range rs.Resources {
+		if _, ok := permSet[res.Permission]; ok {
+			return true
+		}
+		for _, action := range res.Actions {
+			if _, ok := permSet[action.Permission]; ok {
+				return true
+			}
+		}
+	}
+	return false
 }

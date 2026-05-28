@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Design Management API
   version: "1.0"
-  description: This API is used to manage design configurations including themes and layouts that can be associated with applications.
+  description: Manage themes and layouts that control the visual appearance of authentication screens. Themes define color palettes and typography; layouts define the structural composition of each screen.
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
@@ -16,10 +16,10 @@ servers:
         default: "8090"
 
 tags:
-  - name: themes
-    description: Operations related to theme management
-  - name: layouts
-    description: Operations related to layout management
+  - name: Themes
+    description: Create, update, and delete color and typography themes for login screens.
+  - name: Layouts
+    description: Create, update, and delete structural layout configurations for authentication screens.
   - name: design-resolve
     description: Operations for resolving design configurations
 
@@ -30,7 +30,7 @@ paths:
   /design/themes:
     get:
       tags:
-        - themes
+        - Themes
       summary: List themes
       description: Retrieve a list of all theme configurations.
       parameters:
@@ -70,7 +70,7 @@ paths:
 
     post:
       tags:
-        - themes
+        - Themes
       summary: Create theme
       description: Create a new theme configuration.
       requestBody:
@@ -113,7 +113,7 @@ paths:
   /design/themes/{id}:
     get:
       tags:
-        - themes
+        - Themes
       summary: Get theme
       description: Retrieve a specific theme configuration by ID.
       parameters:
@@ -177,13 +177,25 @@ paths:
         "401":
           $ref: '#/components/responses/Unauthorized'
         "404":
-          $ref: '#/components/responses/NotFound'
+          description: 'Not Found: The theme could not be found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "THM-1003"
+                message:
+                  key: "theme.error.not_found"
+                  defaultValue: "Theme not found"
+                description:
+                  key: "theme.error.not_found_description"
+                  defaultValue: "The requested theme configuration was not found"
         "500":
           $ref: '#/components/responses/InternalServerError'
 
     put:
       tags:
-        - themes
+        - Themes
       summary: Update theme
       description: Update an existing theme configuration.
       parameters:
@@ -214,13 +226,25 @@ paths:
         "401":
           $ref: '#/components/responses/Unauthorized'
         "404":
-          $ref: '#/components/responses/NotFound'
+          description: 'Not Found: The theme could not be found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "THM-1003"
+                message:
+                  key: "theme.error.not_found"
+                  defaultValue: "Theme not found"
+                description:
+                  key: "theme.error.not_found_description"
+                  defaultValue: "The requested theme configuration was not found"
         "500":
           $ref: '#/components/responses/InternalServerError'
 
     delete:
       tags:
-        - themes
+        - Themes
       summary: Delete theme
       description: Delete a theme configuration.
       parameters:
@@ -232,6 +256,20 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "404":
+          description: 'Not Found: The theme could not be found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "THM-1003"
+                message:
+                  key: "theme.error.not_found"
+                  defaultValue: "Theme not found"
+                description:
+                  key: "theme.error.not_found_description"
+                  defaultValue: "The requested theme configuration was not found"
         "409":
           $ref: '#/components/responses/Conflict'
         "500":
@@ -240,7 +278,7 @@ paths:
   /design/layouts:
     get:
       tags:
-        - layouts
+        - Layouts
       summary: List layouts
       description: Retrieve a list of all layout configurations.
       parameters:
@@ -274,7 +312,7 @@ paths:
 
     post:
       tags:
-        - layouts
+        - Layouts
       summary: Create layout
       description: Create a new layout configuration.
       requestBody:
@@ -311,13 +349,27 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "409":
+          description: 'Conflict: A layout with the same ID already exists'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "LAY-1004"
+                message:
+                  key: "layout.error.already_exists"
+                  defaultValue: "Layout already exists"
+                description:
+                  key: "layout.error.already_exists_description"
+                  defaultValue: "A layout with the same ID already exists"
         "500":
           $ref: '#/components/responses/InternalServerError'
 
   /design/layouts/{id}:
     get:
       tags:
-        - layouts
+        - Layouts
       summary: Get layout
       description: Retrieve a specific layout configuration by ID.
       parameters:
@@ -426,13 +478,25 @@ paths:
         "401":
           $ref: '#/components/responses/Unauthorized'
         "404":
-          $ref: '#/components/responses/NotFound'
+          description: 'Not Found: The layout could not be found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "LAY-1003"
+                message:
+                  key: "layout.error.not_found"
+                  defaultValue: "Layout not found"
+                description:
+                  key: "layout.error.not_found_description"
+                  defaultValue: "The requested layout configuration was not found"
         "500":
           $ref: '#/components/responses/InternalServerError'
 
     put:
       tags:
-        - layouts
+        - Layouts
       summary: Update layout
       description: Update an existing layout configuration.
       parameters:
@@ -463,13 +527,25 @@ paths:
         "401":
           $ref: '#/components/responses/Unauthorized'
         "404":
-          $ref: '#/components/responses/NotFound'
+          description: 'Not Found: The layout could not be found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "LAY-1003"
+                message:
+                  key: "layout.error.not_found"
+                  defaultValue: "Layout not found"
+                description:
+                  key: "layout.error.not_found_description"
+                  defaultValue: "The requested layout configuration was not found"
         "500":
           $ref: '#/components/responses/InternalServerError'
 
     delete:
       tags:
-        - layouts
+        - Layouts
       summary: Delete layout
       description: Delete a layout configuration.
       parameters:
@@ -481,8 +557,20 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
-        "409":
-          $ref: '#/components/responses/Conflict'
+        "404":
+          description: 'Not Found: The layout could not be found'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "LAY-1003"
+                message:
+                  key: "layout.error.not_found"
+                  defaultValue: "Layout not found"
+                description:
+                  key: "layout.error.not_found_description"
+                  defaultValue: "The requested layout configuration was not found"
         "500":
           $ref: '#/components/responses/InternalServerError'
 
@@ -539,11 +627,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "DSR-1004"
-                message: "Application not found"
-                description: "The application with the specified id does not exist"
+                message:
+                  key: "design.resolve.error.app_not_found"
+                  defaultValue: "Application not found"
+                description:
+                  key: "design.resolve.error.app_not_found_description"
+                  defaultValue: "The application with the specified id does not exist"
         "500":
           $ref: '#/components/responses/InternalServerError'
 
@@ -657,6 +749,10 @@ components:
           format: date-time
           description: Timestamp when the theme was last updated (ISO 8601 format)
           example: "2024-01-20T14:45:00Z"
+        isReadOnly:
+          type: boolean
+          description: Indicates whether the theme is read-only (declarative)
+          example: false
 
     ThemeListItem:
       type: object
@@ -696,6 +792,10 @@ components:
           format: date-time
           description: Timestamp when the theme was last updated (ISO 8601 format)
           example: "2024-01-20T14:45:00Z"
+        isReadOnly:
+          type: boolean
+          description: Indicates whether the theme is read-only (declarative)
+          example: false
 
     ThemeListResponse:
       type: object
@@ -713,26 +813,19 @@ components:
           description: Number of results in this response
           example: 10
         links:
-          type: object
-          properties:
-            self:
-              type: object
-              properties:
-                href:
-                  type: string
-                  example: "/design/themes?limit=10&offset=0"
-            next:
-              type: object
-              properties:
-                href:
-                  type: string
-                  example: "/design/themes?limit=10&offset=10"
-            previous:
-              type: object
-              properties:
-                href:
-                  type: string
-                  example: "/design/themes?limit=10&offset=0"
+          type: array
+          description: Pagination links
+          items:
+            type: object
+            properties:
+              href:
+                type: string
+                description: URL for this link
+                example: "/design/themes?limit=10&offset=10"
+              rel:
+                type: string
+                description: Link relation type
+                example: "next"
         themes:
           type: array
           items:
@@ -753,6 +846,10 @@ components:
           type: string
           description: Display name for the layout
           example: "Modern Layout"
+        description:
+          type: string
+          description: Description of the layout
+          example: "A clean, modern authentication layout"
         layout:
           type: object
           description: Layout configuration as a JSON object
@@ -779,6 +876,10 @@ components:
           type: string
           description: Display name for the layout
           example: "Modern Layout"
+        description:
+          type: string
+          description: Description of the layout
+          example: "A clean, modern authentication layout"
         layout:
           type: object
           description: Layout configuration as a JSON object
@@ -819,6 +920,10 @@ components:
           type: string
           description: Display name for the layout
           example: "Modern Layout"
+        description:
+          type: string
+          description: Description of the layout
+          example: "A clean, modern authentication layout"
         createdAt:
           type: string
           format: date-time
@@ -850,26 +955,19 @@ components:
           description: Number of results in this response
           example: 5
         links:
-          type: object
-          properties:
-            self:
-              type: object
-              properties:
-                href:
-                  type: string
-                  example: "/design/layouts?limit=10&offset=0"
-            next:
-              type: object
-              properties:
-                href:
-                  type: string
-                  example: "/design/layouts?limit=10&offset=10"
-            previous:
-              type: object
-              properties:
-                href:
-                  type: string
-                  example: "/design/layouts?limit=10&offset=0"
+          type: array
+          description: Pagination links
+          items:
+            type: object
+            properties:
+              href:
+                type: string
+                description: URL for this link
+                example: "/design/layouts?limit=10&offset=10"
+              rel:
+                type: string
+                description: Link relation type
+                example: "next"
         layouts:
           type: array
           items:
@@ -878,43 +976,40 @@ components:
     DesignResolveResponse:
       type: object
       properties:
-        id:
-          type: string
-          description: Combined identifier (theme-id|layout-id) or single ID if only one is configured
-          example: "theme-id|layout-id"
-        displayName:
-          type: string
-          description: Combined display name or single display name
-          example: "Corporate Theme / Modern Layout"
-        design:
+        theme:
           type: object
-          description: Merged design configuration from theme and layout (layout takes precedence)
+          description: Resolved theme configuration as a JSON object
           additionalProperties: true
-          example:
-            primaryColor: "#1976d2"
-            secondaryColor: "#dc004e"
-            fontFamily: "Inter"
-            borderRadius: "8px"
-            contentAlignment: "center"
-            maxWidth: "1200px"
-            showLogo: true
-            logoPosition: "top"
+        layout:
+          type: object
+          description: Resolved layout configuration as a JSON object
+          additionalProperties: true
 
-    ErrorResponse:
+    Error:
       type: object
       properties:
         code:
           type: string
-          description: Error code
-          example: "DSR-1001"
+          description: "Error code. Prefixes: THM-XXXX (theme), LAY-XXXX (layout), DSR-XXXX (design resolve)."
+          example: "THM-1003"
         message:
-          type: string
-          description: Error message
-          example: "Invalid request format"
+          $ref: '#/components/schemas/I18nMessage'
         description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
           type: string
-          description: Detailed error description
-          example: "The 'type' query parameter is required and must be either 'APP' or 'OU'"
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).
 
   responses:
     BadRequest:
@@ -922,52 +1017,57 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/Error'
           example:
             code: "DSR-1001"
-            message: "Invalid request format"
-            description: "The request contains invalid parameters"
+            message:
+              key: "error.designservice.invalid_request"
+              defaultValue: "Invalid request format"
+            description:
+              key: "error.designservice.invalid_request_description"
+              defaultValue: "The request contains invalid parameters"
 
     Unauthorized:
-      description: Unauthorized
+      description: Unauthorized - missing or invalid authentication token
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/Error'
           example:
-            code: "AUTH-4001"
-            message: "Unauthorized"
-            description: "Authentication is required to access this resource"
-
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: "DSR-1004"
-            message: "Resource not found"
-            description: "The requested resource does not exist"
+            code: "AUTH-4010"
+            message:
+              key: "error.unauthorized"
+              defaultValue: "Unauthorized"
+            description:
+              key: "error.unauthorized_description"
+              defaultValue: "Authentication is required to access this resource"
 
     Conflict:
       description: Conflict - resource cannot be deleted as it's in use
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/Error'
           example:
             code: "THM-1004"
-            message: "Cannot delete theme"
-            description: "Cannot delete theme configuration that is currently associated with one or more applications"
+            message:
+              key: "theme.error.in_use"
+              defaultValue: "Theme in use"
+            description:
+              key: "theme.error.in_use_description"
+              defaultValue: "Cannot delete theme that is currently associated with one or more applications"
 
     InternalServerError:
       description: Internal server error
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/Error'
           example:
             code: "SSE-5000"
-            message: "Internal server error"
-            description: "An unexpected error occurred while processing the request"
+            message:
+              key: "error.internal_server_error"
+              defaultValue: "Internal server error"
+            description:
+              key: "error.internal_server_error_description"
+              defaultValue: "An unexpected error occurred while processing the request"

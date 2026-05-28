@@ -5,9 +5,9 @@
 package coremock
 
 import (
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
 )
 
 // NewGraphInterfaceMock creates a new instance of GraphInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -343,6 +343,158 @@ func (_c *GraphInterfaceMock_GetNodes_Call) RunAndReturn(run func() map[string]c
 	return _c
 }
 
+// GetSegmentByID provides a mock function for the type GraphInterfaceMock
+func (_mock *GraphInterfaceMock) GetSegmentByID(segmentID string) *core.Segment {
+	ret := _mock.Called(segmentID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSegmentByID")
+	}
+
+	var r0 *core.Segment
+	if returnFunc, ok := ret.Get(0).(func(string) *core.Segment); ok {
+		r0 = returnFunc(segmentID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*core.Segment)
+		}
+	}
+	return r0
+}
+
+// GraphInterfaceMock_GetSegmentByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSegmentByID'
+type GraphInterfaceMock_GetSegmentByID_Call struct {
+	*mock.Call
+}
+
+// GetSegmentByID is a helper method to define mock.On call
+//   - segmentID string
+func (_e *GraphInterfaceMock_Expecter) GetSegmentByID(segmentID interface{}) *GraphInterfaceMock_GetSegmentByID_Call {
+	return &GraphInterfaceMock_GetSegmentByID_Call{Call: _e.mock.On("GetSegmentByID", segmentID)}
+}
+
+func (_c *GraphInterfaceMock_GetSegmentByID_Call) Run(run func(segmentID string)) *GraphInterfaceMock_GetSegmentByID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *GraphInterfaceMock_GetSegmentByID_Call) Return(segment *core.Segment) *GraphInterfaceMock_GetSegmentByID_Call {
+	_c.Call.Return(segment)
+	return _c
+}
+
+func (_c *GraphInterfaceMock_GetSegmentByID_Call) RunAndReturn(run func(segmentID string) *core.Segment) *GraphInterfaceMock_GetSegmentByID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSegmentByStartNode provides a mock function for the type GraphInterfaceMock
+func (_mock *GraphInterfaceMock) GetSegmentByStartNode(nodeID string) *core.Segment {
+	ret := _mock.Called(nodeID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSegmentByStartNode")
+	}
+
+	var r0 *core.Segment
+	if returnFunc, ok := ret.Get(0).(func(string) *core.Segment); ok {
+		r0 = returnFunc(nodeID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*core.Segment)
+		}
+	}
+	return r0
+}
+
+// GraphInterfaceMock_GetSegmentByStartNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSegmentByStartNode'
+type GraphInterfaceMock_GetSegmentByStartNode_Call struct {
+	*mock.Call
+}
+
+// GetSegmentByStartNode is a helper method to define mock.On call
+//   - nodeID string
+func (_e *GraphInterfaceMock_Expecter) GetSegmentByStartNode(nodeID interface{}) *GraphInterfaceMock_GetSegmentByStartNode_Call {
+	return &GraphInterfaceMock_GetSegmentByStartNode_Call{Call: _e.mock.On("GetSegmentByStartNode", nodeID)}
+}
+
+func (_c *GraphInterfaceMock_GetSegmentByStartNode_Call) Run(run func(nodeID string)) *GraphInterfaceMock_GetSegmentByStartNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *GraphInterfaceMock_GetSegmentByStartNode_Call) Return(segment *core.Segment) *GraphInterfaceMock_GetSegmentByStartNode_Call {
+	_c.Call.Return(segment)
+	return _c
+}
+
+func (_c *GraphInterfaceMock_GetSegmentByStartNode_Call) RunAndReturn(run func(nodeID string) *core.Segment) *GraphInterfaceMock_GetSegmentByStartNode_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSegments provides a mock function for the type GraphInterfaceMock
+func (_mock *GraphInterfaceMock) GetSegments() []core.Segment {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSegments")
+	}
+
+	var r0 []core.Segment
+	if returnFunc, ok := ret.Get(0).(func() []core.Segment); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]core.Segment)
+		}
+	}
+	return r0
+}
+
+// GraphInterfaceMock_GetSegments_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSegments'
+type GraphInterfaceMock_GetSegments_Call struct {
+	*mock.Call
+}
+
+// GetSegments is a helper method to define mock.On call
+func (_e *GraphInterfaceMock_Expecter) GetSegments() *GraphInterfaceMock_GetSegments_Call {
+	return &GraphInterfaceMock_GetSegments_Call{Call: _e.mock.On("GetSegments")}
+}
+
+func (_c *GraphInterfaceMock_GetSegments_Call) Run(run func()) *GraphInterfaceMock_GetSegments_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *GraphInterfaceMock_GetSegments_Call) Return(segments []core.Segment) *GraphInterfaceMock_GetSegments_Call {
+	_c.Call.Return(segments)
+	return _c
+}
+
+func (_c *GraphInterfaceMock_GetSegments_Call) RunAndReturn(run func() []core.Segment) *GraphInterfaceMock_GetSegments_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetStartNode provides a mock function for the type GraphInterfaceMock
 func (_mock *GraphInterfaceMock) GetStartNode() (core.NodeInterface, error) {
 	ret := _mock.Called()
@@ -486,6 +638,50 @@ func (_c *GraphInterfaceMock_GetType_Call) RunAndReturn(run func() common.FlowTy
 	return _c
 }
 
+// HasSegments provides a mock function for the type GraphInterfaceMock
+func (_mock *GraphInterfaceMock) HasSegments() bool {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for HasSegments")
+	}
+
+	var r0 bool
+	if returnFunc, ok := ret.Get(0).(func() bool); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	return r0
+}
+
+// GraphInterfaceMock_HasSegments_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasSegments'
+type GraphInterfaceMock_HasSegments_Call struct {
+	*mock.Call
+}
+
+// HasSegments is a helper method to define mock.On call
+func (_e *GraphInterfaceMock_Expecter) HasSegments() *GraphInterfaceMock_HasSegments_Call {
+	return &GraphInterfaceMock_HasSegments_Call{Call: _e.mock.On("HasSegments")}
+}
+
+func (_c *GraphInterfaceMock_HasSegments_Call) Run(run func()) *GraphInterfaceMock_HasSegments_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *GraphInterfaceMock_HasSegments_Call) Return(b bool) *GraphInterfaceMock_HasSegments_Call {
+	_c.Call.Return(b)
+	return _c
+}
+
+func (_c *GraphInterfaceMock_HasSegments_Call) RunAndReturn(run func() bool) *GraphInterfaceMock_HasSegments_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RemoveEdge provides a mock function for the type GraphInterfaceMock
 func (_mock *GraphInterfaceMock) RemoveEdge(fromNodeID string, toNodeID string) error {
 	ret := _mock.Called(fromNodeID, toNodeID)
@@ -619,6 +815,46 @@ func (_c *GraphInterfaceMock_SetNodes_Call) Return() *GraphInterfaceMock_SetNode
 }
 
 func (_c *GraphInterfaceMock_SetNodes_Call) RunAndReturn(run func(nodes map[string]core.NodeInterface)) *GraphInterfaceMock_SetNodes_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetSegments provides a mock function for the type GraphInterfaceMock
+func (_mock *GraphInterfaceMock) SetSegments(segments []core.Segment) {
+	_mock.Called(segments)
+	return
+}
+
+// GraphInterfaceMock_SetSegments_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetSegments'
+type GraphInterfaceMock_SetSegments_Call struct {
+	*mock.Call
+}
+
+// SetSegments is a helper method to define mock.On call
+//   - segments []core.Segment
+func (_e *GraphInterfaceMock_Expecter) SetSegments(segments interface{}) *GraphInterfaceMock_SetSegments_Call {
+	return &GraphInterfaceMock_SetSegments_Call{Call: _e.mock.On("SetSegments", segments)}
+}
+
+func (_c *GraphInterfaceMock_SetSegments_Call) Run(run func(segments []core.Segment)) *GraphInterfaceMock_SetSegments_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 []core.Segment
+		if args[0] != nil {
+			arg0 = args[0].([]core.Segment)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *GraphInterfaceMock_SetSegments_Call) Return() *GraphInterfaceMock_SetSegments_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *GraphInterfaceMock_SetSegments_Call) RunAndReturn(run func(segments []core.Segment)) *GraphInterfaceMock_SetSegments_Call {
 	_c.Run(run)
 	return _c
 }

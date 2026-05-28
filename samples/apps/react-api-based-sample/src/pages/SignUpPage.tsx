@@ -28,7 +28,7 @@ import {
   TextField,
   Typography,
 } from "@wso2/oxygen-ui";
-import { Link } from "@tanstack/react-router";
+import { Link } from "react-router";
 import { getConfig } from "../config";
 import { getCustomersOrganizationUnitId } from "../utils/api";
 
@@ -41,8 +41,8 @@ interface UserResponse {
 
 interface ApiError {
   code: string;
-  message: string;
-  description?: string;
+  message: { defaultValue?: string };
+  description?: { defaultValue?: string };
 }
 
 function SignUpPage() {
@@ -101,7 +101,9 @@ function SignUpPage() {
       if (!response.ok) {
         const errorData: ApiError = await response.json();
         throw new Error(
-          errorData.description || errorData.message || "Registration failed"
+          errorData.description?.defaultValue ||
+            errorData.message?.defaultValue ||
+            "Registration failed"
         );
       }
 

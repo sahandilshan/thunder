@@ -22,8 +22,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // FlowFactoryInterface defines the interface for creating flow graph components.
@@ -155,6 +155,8 @@ func (f *flowFactory) CloneNode(source NodeInterface) (NodeInterface, error) {
 		if promptCopy, ok := nodeCopy.(PromptNodeInterface); ok {
 			promptCopy.SetPrompts(append([]common.Prompt{}, promptSource.GetPrompts()...))
 			promptCopy.SetMeta(sysutils.DeepCopyInterface(promptSource.GetMeta()))
+			promptCopy.SetNextNode(promptSource.GetNextNode())
+			promptCopy.SetMessage(promptSource.GetMessage())
 		} else {
 			return nil, errors.New("mismatch in node types during cloning. copy is not a prompt node")
 		}

@@ -6,7 +6,7 @@ body:
     attributes:
       label: Related Feature Issue
       description: Link to the approved feature issue this design addresses
-      placeholder: "#123 or https://github.com/asgardeo/thunder/issues/<>"
+      placeholder: "#123 or https://github.com/thunder-id/thunderid/issues/<>"
     validations:
       required: true
 
@@ -17,7 +17,7 @@ body:
       description: Brief summary of the problem we're solving (2-3 sentences). This helps readers understand context without navigating to the feature issue.
       placeholder: |
         Enterprise customers with existing LDAP directories (1000+ users) cannot efficiently 
-        onboard users into Thunder. This design proposes an LDAP synchronization system that 
+        onboard users into the product. This design proposes an LDAP synchronization system that 
         automatically provisions users from LDAP directories.
     validations:
       required: true
@@ -31,9 +31,9 @@ body:
       placeholder: |
         - Add LDAP connector service that queries LDAP servers
         - Create scheduled sync job (configurable interval)
-        - Map LDAP attributes to Thunder user fields
+        - Map LDAP attributes to product's user fields
         - Provide admin UI for LDAP configuration
-        - Support read-only sync initially (LDAP → Thunder)
+        - Support read-only sync initially (LDAP → product)
     validations:
       required: true
         
@@ -41,12 +41,12 @@ body:
     id: architecture
     attributes:
       label: Architecture Overview
-      description: Describe new components, services, and how they integrate with existing Thunder architecture
+      description: Describe new components, services, and how they integrate with existing product architecture
       placeholder: |
         Components:
         - LDAP Connector Service: Queries LDAP, transforms data
         - Sync Scheduler: Triggers periodic synchronization
-        - User Provisioning Service: Creates/updates Thunder users
+        - User Provisioning Service: Creates/updates Product users
         - Admin UI: Configuration interface
 
         [Optional: Include diagrams or links to diagrams]
@@ -70,7 +70,7 @@ body:
     id: impact_areas
     attributes:
       label: Impacted Areas
-      description: List Thunder components or areas that will be affected
+      description: List product components or areas that will be affected
       placeholder: |
         - User Management
         - Authentication
@@ -91,7 +91,7 @@ body:
         - Decision: Use scheduled sync for v1, consider real-time for v2
 
         **Alternative 2**: Bidirectional sync
-        - Pros: Changes in Thunder reflected in LDAP
+        - Pros: Changes in product reflected in LDAP
         - Cons: Complex conflict resolution, risky
         - Decision: Read-only for v1, bidirectional as separate feature
     validations:
@@ -104,7 +104,7 @@ body:
       description: Technical questions, trade-offs, or areas where you need community feedback
       placeholder: |
         1. Should we support multiple LDAP servers per organization?
-        2. How do we handle users who exist in both LDAP and Thunder?
+        2. How do we handle users who exist in both LDAP and product?
         3. What's the right sync frequency? (Hourly? Daily? Configurable?)
         4. Should this be a core feature or an optional plugin?
         5. How do we handle deleted users in LDAP?

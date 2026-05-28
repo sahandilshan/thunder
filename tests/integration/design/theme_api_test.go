@@ -27,7 +27,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -351,7 +351,7 @@ func (suite *ThemeAPITestSuite) createTheme(request CreateThemeRequest) (*ThemeR
 	if resp.StatusCode != http.StatusCreated {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, fmt.Errorf("expected status 201, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, fmt.Errorf("expected status 201, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, fmt.Errorf("expected status 201, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -385,7 +385,7 @@ func (suite *ThemeAPITestSuite) getTheme(id string) (*ThemeResponse, error) {
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -432,7 +432,7 @@ func (suite *ThemeAPITestSuite) listThemes(limit, offset int) (*ThemeListRespons
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -472,7 +472,7 @@ func (suite *ThemeAPITestSuite) updateTheme(id string, request UpdateThemeReques
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -502,7 +502,7 @@ func (suite *ThemeAPITestSuite) deleteTheme(id string) error {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return fmt.Errorf("expected status 204 or 404, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return fmt.Errorf("expected status 204 or 404, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return fmt.Errorf("expected status 204 or 404, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}

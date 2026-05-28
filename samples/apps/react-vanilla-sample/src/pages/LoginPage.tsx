@@ -44,12 +44,13 @@ import Layout from '../components/Layout';
 import ConnectionErrorModal from '../components/ConnectionErrorModal';
 import PasskeyRegPrompt from '../components/PasskeyRegPrompt';
 import PasskeyAuthPrompt from '../components/PasskeyAuthPrompt';
-import { 
-    NativeAuthSubmitType, 
+import {
+    NativeAuthSubmitType,
+    FlowServerError,
     initiateNativeAuthFlow,
     initiateNativeAuthFlowWithData,
-    submitNativeAuth, 
-    submitAuthDecision 
+    submitNativeAuth,
+    submitAuthDecision
 } from '../services/authService';
 import type { PasskeyCredentialResponse, PasskeyAssertionResponse } from '../services/authService';
 import useAuth from '../hooks/useAuth';
@@ -73,6 +74,7 @@ interface ActionPrompt {
 interface AuthResponse {
     flowStatus?: string;
     assertion?: string;
+    challengeToken?: string;
     failureReason?: string;
     type?: string;
     data?: {
@@ -83,17 +85,16 @@ interface AuthResponse {
             idpName?: string;
             passkeyCreationOptions?: string;
             passkeyChallenge?: string;
+            emailSent?: string;
         };
     };
-    flowId?: string;
+    executionId?: string;
 }
 
-// Define the interface for the submission error
-interface SubmissionError {
-    code?: string;
-    message?: string;
-    description?: string;
-}
+const isConnectionFailure = (error: Error) => {
+    const message = error.message?.toLowerCase() || '';
+    return message.includes('failed to fetch') || message.includes('network error');
+};
 
 /**
  * LoginPage component renders the login page with dynamic options based on the server response.
@@ -101,20 +102,26 @@ interface SubmissionError {
 const LoginPage = () => {
 
     const START_INIT_KEY = 'startInit';
-    const FLOW_ID_KEY = 'flowId';
+    const EXECUTION_ID_KEY = 'executionId';
+    const CHALLENGE_TOKEN_KEY = 'challengeToken';
+    const SIGNUP_MODE_KEY = 'isSignupMode';
 
     const isComponentReMount = useRef(false);
+    const initRef = useRef<((mode?: boolean) => void) | null>(null);
+    const initRecoveryRef = useRef<((resetErrorState?: boolean) => void) | null>(null);
     const { setToken, clearToken } = useAuth();
 
     const [showRememberMe] = useState<boolean>(false);
-    const [showForgotPassword] = useState<boolean>(false);
+    const [isRecoveryMode, setIsRecoveryMode] = useState<boolean>(false);
+    const [emailSent, setEmailSent] = useState<boolean>(false);
     const [error, setError] = useState<boolean>(false);
     const [errorMessage, setErrorMessage] = useState<string>('');
     const [connectionError, setConnectionError] = useState<boolean>(false);
 
     const [loading, setLoading] = useState<boolean>(true);
     const [retryCount, setRetryCount] = useState<number>(0);
-    const [flowId, setFlowId] = useState<string>(sessionStorage.getItem(FLOW_ID_KEY) || '');
+    const [executionId, setExecutionId] = useState<string>(sessionStorage.getItem(EXECUTION_ID_KEY) || '');
+    const [challengeToken, setChallengeToken] = useState<string>(sessionStorage.getItem(CHALLENGE_TOKEN_KEY) || '');
     const [startInit] = useState<boolean>(JSON.parse(sessionStorage.getItem(START_INIT_KEY) || 'true'));
 
     // Unified form data state
@@ -131,10 +138,13 @@ const LoginPage = () => {
     const [availableActions, setAvailableActions] = useState<ActionPrompt[]>([]);
     const [selectedAction, setSelectedAction] = useState<string | null>(null);
     
-    // Add state to track signup mode
-    const [isSignupMode, setIsSignupMode] = useState<boolean>(false);
+    const [isSignupMode, setIsSignupMode] = useState<boolean>(
+        sessionStorage.getItem(START_INIT_KEY) === 'false' &&
+        sessionStorage.getItem(SIGNUP_MODE_KEY) === 'true'
+    );
     const [regOnlySuccess, setRegOnlySuccess] = useState<boolean>(false);
     const [promptRegistration, setPromptRegistration] = useState<boolean>(false);
+    const showForgotPassword = !isSignupMode && !isRecoveryMode;
     
     // Passkey registration state
     const [passkeyCreationOptions, setPasskeyCreationOptions] = useState<string | null>(null);
@@ -251,19 +261,27 @@ const LoginPage = () => {
         event.preventDefault(); // Prevent focus loss
     };
 
-    const handleSocialLoginClick = useCallback((redirectURL: string) => {
+    const handleSocialLoginClick = useCallback((redirectURL: string, newChallengeToken?: string) => {
         setLoading(true);
-        sessionStorage.setItem(FLOW_ID_KEY, flowId);
+        sessionStorage.setItem(EXECUTION_ID_KEY, executionId);
+        const tokenToSave = newChallengeToken !== undefined ? newChallengeToken : challengeToken;
+        if (tokenToSave) {
+            sessionStorage.setItem(CHALLENGE_TOKEN_KEY, tokenToSave);
+        } else {
+            sessionStorage.removeItem(CHALLENGE_TOKEN_KEY);
+        }
+        sessionStorage.setItem(SIGNUP_MODE_KEY, String(isSignupMode));
         sessionStorage.setItem(START_INIT_KEY, "false");
         window.location.href = redirectURL;
-    }, [flowId]);
+    }, [executionId, challengeToken, isSignupMode]);
 
     // Process authentication response
-    const processAuthResponse = useCallback((data: AuthResponse, selectedAction?: string) => {
-        const isCameFromDecision = needsDecision;
-        const isMobileLogin = selectedAction && selectedAction.includes('mobile');
+    const processAuthResponse = useCallback((data: AuthResponse, selectedAction?: string, autoRedirect: boolean = false) => {
+        const isCameFromDecision = needsDecision || autoRedirect;
+        const isMobileLogin = !!selectedAction && (selectedAction.includes('mobile') || selectedAction.includes('sms'));
 
-        setFlowId(data.flowId || '');
+        setExecutionId(data.executionId || '');
+        setChallengeToken(data.challengeToken || '');
         if (data.flowStatus && data.flowStatus == 'ERROR') {
             if (isMobileLogin && data?.failureReason && data.failureReason.includes("User not found")) {
                 console.log("User not found, prompting registration");
@@ -274,12 +292,24 @@ const LoginPage = () => {
                 return;
             }
 
-            const defaultMessage = isSignupMode 
-                ? 'Registration failed. Please check your information.' 
-                : 'Login failed. Please check your credentials.';
+            const defaultMessage = isRecoveryMode
+                ? 'Recovery failed. Please try again.'
+                : isSignupMode
+                    ? 'Registration failed. Please check your information.'
+                    : 'Login failed. Please check your credentials.';
             setError(true);
             setErrorMessage(data.failureReason || defaultMessage);
             setLoading(false);
+
+            // The server invalidates the flow session on ERROR, so clear stale state
+            // and restart to get a fresh session with valid executionId/challengeToken.
+            sessionStorage.removeItem(EXECUTION_ID_KEY);
+            sessionStorage.removeItem(CHALLENGE_TOKEN_KEY);
+            if (isRecoveryMode) {
+                initRecoveryRef.current?.(false);
+            } else {
+                initRef.current?.(isSignupMode);
+            }
             return;
         }
 
@@ -322,7 +352,21 @@ const LoginPage = () => {
                 setPasskeyChallenge(data.data.additionalData.passkeyChallenge);
             }
 
-            // Handle the VIEW response
+            if (data.data?.additionalData?.emailSent === "true") {
+                setEmailSent(true);
+                setLoading(false);
+                return;
+            }
+
+            const hasHiddenInviteToken = data.data?.inputs?.some(
+                (input: AuthInput) => input.identifier === 'inviteToken' && input.type === 'HIDDEN'
+            );
+            if (hasHiddenInviteToken) {
+                setEmailSent(true);
+                setLoading(false);
+                return;
+            }
+
             // Check if this is an input prompt (has inputs to collect)
             if (data.data?.inputs && data.data.inputs.length > 0) {
                 // This is an input prompt - show input fields
@@ -343,7 +387,7 @@ const LoginPage = () => {
                 // This handles intermediate steps like "send_sms" that don't need user input
                 const singleAction = data.data.actions[0];
                 setLoading(true);
-                submitAuthDecision(flowId, singleAction.ref)
+                submitAuthDecision(data.executionId || '', singleAction.ref, undefined, data.challengeToken)
                     .then((result) => {
                         processAuthResponse(result.data, singleAction.ref);
                     })
@@ -361,8 +405,10 @@ const LoginPage = () => {
             const idpName = data.data?.additionalData?.idpName || 'Social Login';
 
             if (isCameFromDecision) {
-                // If this is a decision screen, handle the social login click
-                handleSocialLoginClick(url || '');
+                // If this is a decision screen, handle the social login click.
+                // Pass the new challenge token directly — the React state update for
+                // challengeToken hasn't flushed yet, so the closed-over value is stale.
+                handleSocialLoginClick(url || '', data.challengeToken || '');
                 return;
             }
             
@@ -374,16 +420,16 @@ const LoginPage = () => {
         }
 
         setLoading(false);
-    }, [needsDecision, isSignupMode, clearToken, setToken, handleSocialLoginClick]);
+    }, [needsDecision, isRecoveryMode, isSignupMode, clearToken, setToken, handleSocialLoginClick]);
 
     // Handle when user selects an authentication option
     const handleAuthOptionSelection = (actionId: string) => {
         setLoading(true);
         setSelectedAction(actionId);
-        
-        submitAuthDecision(flowId, actionId)
+
+        submitAuthDecision(executionId, actionId, undefined, challengeToken)
             .then((result) => {
-                processAuthResponse(result.data);
+                processAuthResponse(result.data, undefined, true);
             })
             .catch((error) => {
                 console.error("Error during authentication decision:", error);
@@ -395,6 +441,7 @@ const LoginPage = () => {
 
     const init = useCallback((isSignupMode: boolean = false) => {
         clearToken();
+        sessionStorage.removeItem(SIGNUP_MODE_KEY);
         setConnectionError(false);
         setNeedsDecision(false);
         setAvailableActions([]);
@@ -407,6 +454,8 @@ const LoginPage = () => {
         setRegOnlySuccess(false);
         setPasskeyCreationOptions(null);
         setPasskeyChallenge(null);
+        setIsRecoveryMode(false);
+        setEmailSent(false);
 
         initiateNativeAuthFlow(isSignupMode ? 'REGISTRATION' : 'LOGIN')
             .then((result) => {
@@ -450,7 +499,7 @@ const LoginPage = () => {
                     } else if (data.data?.actions && data.data.actions.length === 1) {
                         // Single action without inputs - auto-execute it
                         const singleAction = data.data.actions[0];
-                        submitAuthDecision(data.flowId, singleAction.ref)
+                        submitAuthDecision(data.executionId, singleAction.ref, undefined, data.challengeToken)
                             .then((result) => {
                                 processAuthResponse(result.data, singleAction.ref);
                             })
@@ -466,7 +515,7 @@ const LoginPage = () => {
                     // Handle redirection for social logins
                     const url = data.data?.redirectURL;
                     const idpName = data.data?.additionalData?.idpName || 'Social Login';
-                    
+
                     if (url) {
                         // Store the redirect URL instead of redirecting immediately
                         setRedirectURL(url);
@@ -474,7 +523,8 @@ const LoginPage = () => {
                     }
                 }
 
-                setFlowId(data.flowId);
+                setExecutionId(data.executionId);
+                setChallengeToken(data.challengeToken || '');
                 setLoading(false);
             }).catch((error) => {
                 const errorType = isSignupMode ? "registration" : "auth";
@@ -482,7 +532,66 @@ const LoginPage = () => {
                 setConnectionError(true);
                 setLoading(false);
             });
-    }, [clearToken, isSignupMode, setToken]);
+    }, [clearToken, processAuthResponse, setToken]);
+
+    const initRecovery = useCallback((resetErrorState: boolean = true) => {
+        clearToken();
+        sessionStorage.removeItem(SIGNUP_MODE_KEY);
+        setConnectionError(false);
+        setNeedsDecision(false);
+        setAvailableActions([]);
+        setSelectedAction(null);
+        setFormData({});
+        setInputs([]);
+        setRedirectURL(null);
+        setSocialIdpName('');
+        setRegOnlySuccess(false);
+        setPasskeyCreationOptions(null);
+        setPasskeyChallenge(null);
+        setIsSignupMode(false);
+        setIsRecoveryMode(true);
+        setEmailSent(false);
+        setLoading(true);
+
+        if (resetErrorState) {
+            setError(false);
+            setErrorMessage('');
+        }
+
+        initiateNativeAuthFlow('RECOVERY')
+            .then((result) => {
+                const data = result.data;
+
+                if (data.flowStatus === 'ERROR') {
+                    setError(true);
+                    setErrorMessage(data.failureReason || 'Failed to start recovery. Please try again.');
+                } else if (data.type === 'VIEW' && data.data?.inputs) {
+                    data.data.inputs.forEach((input: AuthInput) => {
+                        setInputs(prev => [...prev, input]);
+                    });
+                    if (data.data.actions) {
+                        setAvailableActions(data.data.actions);
+                    }
+                }
+
+                setExecutionId(data.executionId);
+                setChallengeToken(data.challengeToken || '');
+                setLoading(false);
+            })
+            .catch((nextError: Error) => {
+                console.error('Error during recovery initialization:', nextError);
+                if (isConnectionFailure(nextError)) {
+                    setConnectionError(true);
+                } else {
+                    setError(true);
+                    setErrorMessage(nextError.message || 'Failed to start recovery. Please try again.');
+                }
+                setLoading(false);
+            });
+    }, [clearToken]);
+
+    useEffect(() => { initRef.current = init; }, [init]);
+    useEffect(() => { initRecoveryRef.current = initRecovery; }, [initRecovery]);
 
     // Initialize the prompt signup decision action
     const initPromptSignupDecision = () => {
@@ -546,7 +655,7 @@ const LoginPage = () => {
                     } else if (data.data?.actions && data.data.actions.length === 1) {
                         // Single action without inputs - auto-execute it
                         const singleAction = data.data.actions[0];
-                        submitAuthDecision(data.flowId, singleAction.ref)
+                        submitAuthDecision(data.executionId, singleAction.ref, undefined, data.challengeToken)
                             .then((result) => {
                                 processAuthResponse(result.data, singleAction.ref);
                             })
@@ -562,7 +671,7 @@ const LoginPage = () => {
                     // Handle redirection for social logins
                     const url = data.data?.redirectURL;
                     const idpName = data.data?.additionalData?.idpName || 'Social Login';
-                    
+
                     if (url) {
                         // Store the redirect URL instead of redirecting immediately
                         setRedirectURL(url);
@@ -570,7 +679,8 @@ const LoginPage = () => {
                     }
                 }
 
-                setFlowId(data.flowId);
+                setExecutionId(data.executionId);
+                setChallengeToken(data.challengeToken || '');
                 setLoading(false);
             }).catch((error) => {
                 console.error(`Error during user registration:`, error);
@@ -600,7 +710,7 @@ const LoginPage = () => {
             const formAction = event.currentTarget.getAttribute('data-action-id');
             if (formAction) {
                 setSelectedAction(formAction);
-                submitAuthDecision(flowId, formAction, completeFormData)
+                submitAuthDecision(executionId, formAction, completeFormData, challengeToken)
                     .then((result) => {
                         processAuthResponse(result.data, formAction);
                     })
@@ -612,7 +722,7 @@ const LoginPage = () => {
         } else {
             // This is a direct input submission - include action if available
             const actionRef = availableActions.length > 0 ? availableActions[0].ref : undefined;
-            submitNativeAuth(flowId, completeFormData, actionRef)
+            submitNativeAuth(executionId, completeFormData, actionRef, challengeToken)
                 .then((result) => {
                     if (isMobileInput) {
                         processAuthResponse(result.data, "mobile");
@@ -627,16 +737,29 @@ const LoginPage = () => {
         }
     };
 
-    const handleSubmissionError = (error: SubmissionError) => {
-        // Check if it's a network error or authentication error
-        if (error.message && error.message.includes("Network Error")) {
+    const handleSubmissionError = useCallback((error: Error) => {
+        if (isConnectionFailure(error)) {
             setConnectionError(true);
+            setLoading(false);
+        } else if (error instanceof FlowServerError) {
+            setError(true);
+            setErrorMessage(error.message || 'An unexpected server error occurred. Please try again.');
+            sessionStorage.removeItem(EXECUTION_ID_KEY);
+            sessionStorage.removeItem(CHALLENGE_TOKEN_KEY);
+            sessionStorage.removeItem(SIGNUP_MODE_KEY);
+            sessionStorage.setItem(START_INIT_KEY, 'true');
+            setLoading(false);
+            if (isRecoveryMode) {
+                initRecoveryRef.current?.(false);
+            } else {
+                initRef.current?.(isSignupMode);
+            }
         } else {
             setError(true);
             setErrorMessage(error.message || 'Error during authentication');
+            setLoading(false);
         }
-        setLoading(false);
-    };
+    }, [isRecoveryMode, isSignupMode]);
 
     // Handler for passkey credential creation
     const handlePasskeyCredentialCreated = (credential: PasskeyCredentialResponse) => {
@@ -651,7 +774,7 @@ const LoginPage = () => {
         };
 
         const actionRef = availableActions.length > 0 ? availableActions[0].ref : undefined;
-        submitNativeAuth(flowId, passkeyInputs, actionRef)
+        submitNativeAuth(executionId, passkeyInputs, actionRef, challengeToken)
             .then((result) => {
                 processAuthResponse(result.data);
             })
@@ -687,7 +810,7 @@ const LoginPage = () => {
 
         // Include action ref if available (consistent with other direct submissions)
         const actionRef = availableActions.length > 0 ? availableActions[0].ref : undefined;
-        submitNativeAuth(flowId, passkeyInputs, actionRef)
+        submitNativeAuth(executionId, passkeyInputs, actionRef, challengeToken)
             .then((result) => {
                 processAuthResponse(result.data);
             })
@@ -704,7 +827,11 @@ const LoginPage = () => {
 
     const handleRetry = () => {
         setTimeout(() => {
-            init();
+            if (isRecoveryMode) {
+                initRecoveryRef.current?.(false);
+            } else {
+                init();
+            }
         }, 500);
     };
     
@@ -729,7 +856,7 @@ const LoginPage = () => {
             return `${prefix} with Google`;
         } else if (actionId.includes('github')) {
             return `${prefix} with GitHub`;
-        } else if (actionId.includes('mobile')) {
+        } else if (actionId.includes('mobile') || actionId.includes('sms')) {
             return `${prefix} with SMS OTP`;
         } else {
             const idpText = actionId.split('_').map(word => 
@@ -738,6 +865,12 @@ const LoginPage = () => {
             return `${prefix} with ${idpText}`;
         }
     };
+
+    const isMobileAction = (action?: ActionPrompt) =>
+        !!action?.ref && (action.ref.includes("mobile") || action.ref.includes("sms"));
+
+    const usesMobileNumberField = (action?: ActionPrompt) =>
+        !!action && (action.ref.includes("prompt_mobile") || action.nextNode === "prompt_mobile");
 
     // This effect is to handle initial component mount
     useEffect(() => {
@@ -757,7 +890,7 @@ const LoginPage = () => {
                 // Clear query parameters to avoid re-submission
                 window.history.replaceState({}, document.title, window.location.pathname);
 
-                submitNativeAuth(flowId, { type: NativeAuthSubmitType.SOCIAL, code: code })
+                submitNativeAuth(executionId, { type: NativeAuthSubmitType.SOCIAL, code: code }, undefined, challengeToken)
                     .then((result) => {
                         processAuthResponse(result.data);
                     }).catch((error) => {
@@ -771,7 +904,7 @@ const LoginPage = () => {
 
             sessionStorage.setItem(START_INIT_KEY, "true");
         }
-    },[startInit, init, flowId, setToken, processAuthResponse]);
+    }, [startInit, init, executionId, challengeToken, processAuthResponse, handleSubmissionError]);
 
     // Render input fields based on the current inputs array
     const renderInputFields = () => {
@@ -779,7 +912,7 @@ const LoginPage = () => {
             const inputId = input.identifier || `input-${index}`;
             const isPassword = input.type === "password" || input.type === "PASSWORD_INPUT" || input.identifier === "password";
             const isOTP = input.type === "otp" || input.type === "OTP_INPUT" || input.identifier === "otp";
-            const isDropdown = input.type === "dropdown" || input.type === "DROPDOWN";
+            const isDropdown = input.type === "SELECT" || input.type === "dropdown" || input.type === "DROPDOWN";
             const isRequired = input.required;
             
             // Determine appropriate label
@@ -903,20 +1036,24 @@ const LoginPage = () => {
 
     // Render the login form with side-by-side layout based on the available actions
     const renderSideBySideLoginForm = () => {
-        const basicAuthAction = availableActions.find(action => action.nextNode === "basic_auth");
-        const mobileAuthActions = availableActions.filter(action => 
-            action.nextNode === "mobile_prompt_username" || action.nextNode === "prompt_mobile"
-        );
+        const basicAuthAction = availableActions.find(action => action.ref?.includes("basic_auth"));
+        const mobileAuthActions = availableActions.filter(isMobileAction);
         
         const hasSocialAuth = availableActions.some(action => 
-            action.nextNode?.includes("google") || action.nextNode?.includes("github")
+            action.ref?.includes("google") || action.ref?.includes("github")
         );
         const hasMobileAuth = mobileAuthActions.length > 0;
         
-        const socialAuthActions = availableActions.filter(action => 
-            action.nextNode?.includes("google") || action.nextNode?.includes("github")
+        const socialAuthActions = availableActions.filter(action =>
+            action.ref?.includes("google") || action.ref?.includes("github")
         );
-        
+
+        const otherActions = availableActions.filter(action =>
+            action !== basicAuthAction &&
+            !socialAuthActions.includes(action) &&
+            !mobileAuthActions.includes(action)
+        );
+
         return (
             <Box sx={{ my: 4 }}>
                 <Box display="flex" gap={4}>
@@ -973,7 +1110,11 @@ const LoginPage = () => {
                                             label="Remember me"
                                         />
                                     )}
-                                    {showForgotPassword && <Link href="#">Forgot your password?</Link>}
+                                    {showForgotPassword && (
+                                        <Link href="#" onClick={(e) => { e.preventDefault(); initRecovery(); }} underline="hover">
+                                            Forgot your password?
+                                        </Link>
+                                    )}
                                 </Box>
                                 )}
 
@@ -1006,9 +1147,9 @@ const LoginPage = () => {
                                         color="secondary"
                                         onClick={() => handleAuthOptionSelection(action.ref)}
                                         sx={{ my: 1 }}
-                                        startIcon={getSocialLoginIcon(action.nextNode || '')}
+                                        startIcon={getSocialLoginIcon(action.ref || '')}
                                     >
-                                        {getSocialLoginText(action.nextNode || '')}
+                                        {getSocialLoginText(action.ref || '')}
                                     </Button>
                                 ))}
                             </Box>
@@ -1021,22 +1162,22 @@ const LoginPage = () => {
 
                         {/* SMS OTP Auth */}
                         {hasMobileAuth && (
-                            <form 
+                            <form
                                 onSubmit={handleSubmit}
                                 data-action-id={mobileAuthActions[0]?.ref}
                             >
                                 <Box display="flex" flexDirection="column" gap={2}>
                                     <Box display="flex" flexDirection="column" gap={0.5}>
-                                        <InputLabel htmlFor={mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobileNumber" : "username"}>
-                                            {mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "Mobile Number" : "Username"}
+                                        <InputLabel htmlFor={usesMobileNumberField(mobileAuthActions[0]) ? "mobileNumber" : "username"}>
+                                            {usesMobileNumberField(mobileAuthActions[0]) ? "Mobile Number" : "Username"}
                                         </InputLabel>
                                         <OutlinedInput
                                             type="text"
-                                            id={mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobileNumber" : "username"}
-                                            name={mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobileNumber" : "username"}
-                                            placeholder={`Enter your ${mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobile number" : "username"}`}
+                                            id={usesMobileNumberField(mobileAuthActions[0]) ? "mobileNumber" : "username"}
+                                            name={usesMobileNumberField(mobileAuthActions[0]) ? "mobileNumber" : "username"}
+                                            placeholder={`Enter your ${usesMobileNumberField(mobileAuthActions[0]) ? "mobile number" : "username"}`}
                                             size="small"
-                                            value={formData[mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobileNumber" : "username"] || ''}
+                                            value={formData[usesMobileNumberField(mobileAuthActions[0]) ? "mobileNumber" : "username"] || ''}
                                             onChange={handleInputChange}
                                             required
                                         />
@@ -1053,6 +1194,25 @@ const LoginPage = () => {
                                 </Box>
                             </form>
                         )}
+
+                        {otherActions.length > 0 && (
+                            <Box>
+                                {(hasSocialAuth || hasMobileAuth) && (
+                                    <Divider sx={{ my: 3 }}>or</Divider>
+                                )}
+                                {otherActions.map((action, index) => (
+                                    <Button
+                                        key={`other-action-${index}`}
+                                        fullWidth
+                                        variant="contained"
+                                        onClick={() => handleAuthOptionSelection(action.ref)}
+                                        sx={{ my: 1 }}
+                                    >
+                                        {action.ref || 'Continue'}
+                                    </Button>
+                                ))}
+                            </Box>
+                        )}
                     </Box>
                 </Box>
             </Box>
@@ -1061,19 +1221,23 @@ const LoginPage = () => {
 
     // Render the regular login form with options stacked vertically
     const renderRegularLoginForm = () => {
-        const basicAuthAction = availableActions.find(action => action.nextNode === "basic_auth");
-        const mobileAuthActions = availableActions.filter(action => 
-            action.nextNode === "mobile_prompt_username" || action.nextNode === "prompt_mobile"
-        );
+        const basicAuthAction = availableActions.find(action => action.ref?.includes("basic_auth"));
+        const mobileAuthActions = availableActions.filter(isMobileAction);
         
         const hasBasicAuth = !!basicAuthAction;
         const hasSocialAuth = availableActions.some(action => 
-            action.nextNode?.includes("google") || action.nextNode?.includes("github")
+            action.ref?.includes("google") || action.ref?.includes("github")
         );
         const hasMobileAuth = mobileAuthActions.length > 0;
         
-        const socialAuthActions = availableActions.filter(action => 
-            action.nextNode?.includes("google") || action.nextNode?.includes("github")
+        const socialAuthActions = availableActions.filter(action =>
+            action.ref?.includes("google") || action.ref?.includes("github")
+        );
+
+        const otherActions = availableActions.filter(action =>
+            action !== basicAuthAction &&
+            !socialAuthActions.includes(action) &&
+            !mobileAuthActions.includes(action)
         );
 
         return (
@@ -1089,9 +1253,9 @@ const LoginPage = () => {
                                 color="secondary"
                                 onClick={() => handleAuthOptionSelection(action.ref)}
                                 sx={{ my: 1 }}
-                                startIcon={getSocialLoginIcon(action.nextNode || '')}
+                                startIcon={getSocialLoginIcon(action.ref || '')}
                             >
-                                {getSocialLoginText(action.nextNode || '')}
+                                {getSocialLoginText(action.ref || '')}
                             </Button>
                         ))}
                     </Box>
@@ -1159,9 +1323,11 @@ const LoginPage = () => {
                                             control={<Checkbox name="remember-me-checkbox" />} 
                                             label="Remember me" />
                                     )}
-                                    { showForgotPassword &&
-                                        <Link href="">Forgot your password?</Link>
-                                    }
+                                    {showForgotPassword && (
+                                        <Link href="#" onClick={(e) => { e.preventDefault(); initRecovery(); }} underline="hover">
+                                            Forgot your password?
+                                        </Link>
+                                    )}
                                 </Box>
                             )}
                             <Button
@@ -1184,22 +1350,22 @@ const LoginPage = () => {
 
                 {/* SMS OTP auth form */}
                 {hasMobileAuth && (
-                    <form 
-                        onSubmit={handleSubmit} 
+                    <form
+                        onSubmit={handleSubmit}
                         data-action-id={mobileAuthActions[0]?.ref}
                     >
                         <Box display="flex" flexDirection="column" gap={2}>
                             <Box display="flex" flexDirection="column" gap={0.5}>
-                                <InputLabel htmlFor={mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobileNumber" : "username"}>
-                                    {mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "Mobile Number" : "Username"}
+                                <InputLabel htmlFor={usesMobileNumberField(mobileAuthActions[0]) ? "mobileNumber" : "username"}>
+                                    {usesMobileNumberField(mobileAuthActions[0]) ? "Mobile Number" : "Username"}
                                 </InputLabel>
                                 <OutlinedInput
                                     type="text"
-                                    id={mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobileNumber" : "username"}
-                                    name={mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobileNumber" : "username"}
-                                    placeholder={`Enter your ${mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobile number" : "username"}`}
+                                    id={usesMobileNumberField(mobileAuthActions[0]) ? "mobileNumber" : "username"}
+                                    name={usesMobileNumberField(mobileAuthActions[0]) ? "mobileNumber" : "username"}
+                                    placeholder={`Enter your ${usesMobileNumberField(mobileAuthActions[0]) ? "mobile number" : "username"}`}
                                     size="small"
-                                    value={formData[mobileAuthActions[0]?.nextNode === "prompt_mobile" ? "mobileNumber" : "username"] || ''}
+                                    value={formData[usesMobileNumberField(mobileAuthActions[0]) ? "mobileNumber" : "username"] || ''}
                                     onChange={handleInputChange}
                                     required
                                 />
@@ -1215,6 +1381,25 @@ const LoginPage = () => {
                             </Button>
                         </Box>
                     </form>
+                )}
+
+                {otherActions.length > 0 && (
+                    <Box>
+                        {(hasBasicAuth || hasSocialAuth || hasMobileAuth) && (
+                            <Divider sx={{ my: 3 }}>or</Divider>
+                        )}
+                        {otherActions.map((action, index) => (
+                            <Button
+                                key={`other-action-${index}`}
+                                fullWidth
+                                variant="contained"
+                                onClick={() => handleAuthOptionSelection(action.ref)}
+                                sx={{ my: 1 }}
+                            >
+                                {action.ref || 'Continue'}
+                            </Button>
+                        ))}
+                    </Box>
                 )}
             </Box>
         );
@@ -1239,39 +1424,51 @@ const LoginPage = () => {
                                     control={<Checkbox name="remember-me-checkbox" />} 
                                     label="Remember me" />
                             )}
-                            { showForgotPassword &&
-                                <Link href="">Forgot your password?</Link>
-                            }
+                            {showForgotPassword && (
+                                <Link href="#" onClick={(e) => { e.preventDefault(); initRecovery(); }} underline="hover">
+                                    Forgot your password?
+                                </Link>
+                            )}
                         </Box>
                     )}
 
-                    <Button
-                        variant="contained"
-                        color="primary"
-                        type="submit"
-                        fullWidth
-                        sx={{ mt: 2 }}
-                    >
-                        {
-                            inputs.some(input => input.identifier === 'password') ? 
-                                (isSignupMode ? 
-                                    'Create Account' 
-                                    : 'Sign In'
-                                ) 
-                                : inputs.some(input => input.identifier === 'otp') ? 
-                                    'Verify OTP' 
-                                    : 'Continue'
+                    {inputs.length > 0 && (() => {
+                        const primaryRef = availableActions[0]?.ref?.toLowerCase() || '';
+                        let label: string;
+                        if (primaryRef.includes('signin') || primaryRef.includes('sign_in')) {
+                            label = 'Sign In';
+                        } else if (primaryRef.includes('signup') || primaryRef.includes('sign_up')) {
+                            label = 'Create Account';
+                        } else if (inputs.some(input => input.identifier === 'password' || input.type === 'PASSWORD_INPUT')) {
+                            label = isRecoveryMode ? 'Reset Password' : isSignupMode ? 'Create Account' : 'Sign In';
+                        } else if (inputs.some(input => input.identifier === 'otp' || input.type === 'OTP_INPUT')) {
+                            label = 'Verify OTP';
+                        } else {
+                            label = 'Continue';
                         }
-                    </Button>
+                        return (
+                            <Button variant="contained" color="primary" type="submit" fullWidth sx={{ mt: 2 }}>
+                                {label}
+                            </Button>
+                        );
+                    })()}
 
                     {/* Render alternative actions if available (e.g. Passkey) */}
                     {availableActions.length > 1 && (
                          <Box sx={{ mt: 1 }}>
                             <Divider sx={{ my: 2 }}>or</Divider>
                             {availableActions.slice(1).map((action, index) => {
-                                let label = "Continue";
-                                if (action.nextNode?.includes("passkey")) {
-                                    label = "Sign in with Passkey";
+                                const isSocial = action.ref.includes("google") || action.ref.includes("github");
+                                const isPasskey = action.ref.includes("passkey");
+                                const isMobile = action.ref.includes("sms") || action.ref.includes("mobile");
+
+                                let label = action.ref || "Continue";
+                                if (isSocial) {
+                                    label = getSocialLoginText(action.ref || '');
+                                } else if (isMobile) {
+                                    label = getSocialLoginText(action.ref || '');
+                                } else if (isPasskey) {
+                                    label = `${isSignupMode ? 'Sign up' : 'Continue'} with Passkey`;
                                 } else if (action.label) {
                                     label = action.label;
                                 }
@@ -1280,11 +1477,15 @@ const LoginPage = () => {
                                     <Button
                                         key={`alt-action-${index}`}
                                         fullWidth
-                                        variant="outlined"
+                                        variant="contained"
                                         color="secondary"
                                         onClick={() => handleAuthOptionSelection(action.ref)}
                                         sx={{ mb: 1 }}
-                                        startIcon={action.nextNode?.includes("passkey") ? <FingerprintIcon /> : undefined}
+                                        startIcon={
+                                            isSocial ? getSocialLoginIcon(action.ref || '')
+                                            : isPasskey ? <FingerprintIcon />
+                                            : undefined
+                                        }
                                     >
                                         {label}
                                     </Button>
@@ -1326,14 +1527,14 @@ const LoginPage = () => {
     // Calculate appropriate grid size based on layout complexity
     const gridMdSize = needsDecision 
         && !promptRegistration
-        && availableActions.some(action => action.nextNode === "basic_auth") 
-        && availableActions.some(action => action.nextNode === "mobile_prompt_username" || action.nextNode === "prompt_mobile") 
+        && availableActions.some(action => action.ref?.includes("basic_auth"))
+        && availableActions.some(action => action.ref?.includes("mobile") || action.ref?.includes("sms"))
         ? 10 : 6;
     const containerBoxMaxWidth = gridMdSize === 10 ? 1000 : 500;
 
-    const basicAuthAction = availableActions.find(action => action.nextNode === "basic_auth");
-    const mobileAuthActions = availableActions.filter(action => 
-        action.nextNode === "mobile_prompt_username" || action.nextNode === "prompt_mobile"
+    const basicAuthAction = availableActions.find(action => action.ref?.includes("basic_auth"));
+    const mobileAuthActions = availableActions.filter(action =>
+        action.ref?.includes("mobile") || action.ref?.includes("sms")
     );
     
     const hasBasicAuth = !!basicAuthAction;
@@ -1376,20 +1577,36 @@ const LoginPage = () => {
                                 ) : regOnlySuccess ? (
                                     <Box sx={{ mb: 4 }}>
                                         <Typography variant="h5" gutterBottom>
-                                            Registration Successful
+                                            {isRecoveryMode ? 'Password Reset Successful' : 'Registration Successful'}
                                         </Typography>
                                         <Typography>
                                             You can now log in to your account.
                                         </Typography>
                                     </Box>
-                                ) : (
+                                ) : !emailSent ? (
                                     <Box sx={{ mb: 4 }}>
                                         <Typography variant="h5" gutterBottom>
-                                            {isSignupMode ? 'Create Account' : 'Login to Account'}
+                                            {isRecoveryMode ? 'Reset Password' : isSignupMode ? 'Create Account' : 'Login to Account'}
                                         </Typography>
 
                                         <Typography>
-                                            {isSignupMode ? (
+                                            {isRecoveryMode ? (
+                                                <>
+                                                    Remember your password?{' '}
+                                                    <Link
+                                                        href="#"
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            setError(false);
+                                                            setErrorMessage('');
+                                                            init(false);
+                                                        }}
+                                                        underline="hover"
+                                                    >
+                                                        Sign in!
+                                                    </Link>
+                                                </>
+                                            ) : isSignupMode ? (
                                                 <>
                                                     Already have an account?{' '}
                                                     <Link 
@@ -1426,6 +1643,8 @@ const LoginPage = () => {
                                             )}
                                         </Typography>
                                     </Box>
+                                ) : (
+                                    <Box sx={{ mb: 4 }} />
                                 )}
                                 
                                 {connectionError && (
@@ -1442,7 +1661,28 @@ const LoginPage = () => {
                                     </Alert>
                                 )}
 
-                                {!connectionError && (
+                                {!connectionError && emailSent ? (
+                                    <Box sx={{ textAlign: 'center', py: 2 }}>
+                                        <Typography variant="h3" sx={{ mb: 2 }}>✉️</Typography>
+                                        <Typography variant="h5" gutterBottom>
+                                            Check Your Email
+                                        </Typography>
+                                        <Typography sx={{ mb: 3 }}>
+                                            If an account with that username exists, we&apos;ve sent a password reset link to the associated email address.
+                                        </Typography>
+                                        <Button
+                                            variant="outlined"
+                                            fullWidth
+                                            onClick={() => {
+                                                setError(false);
+                                                setErrorMessage('');
+                                                init(false);
+                                            }}
+                                        >
+                                            Back to Login
+                                        </Button>
+                                    </Box>
+                                ) : !connectionError && (
                                     promptRegistration ? (
                                         <Box sx={{ mb: 4 }}>
                                             <Button

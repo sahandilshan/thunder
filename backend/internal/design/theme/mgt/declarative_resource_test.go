@@ -26,11 +26,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -47,20 +48,20 @@ func (s *ThemeDeclarativeSuite) SetupSuite() {
 	// Create temporary directory for tests
 	tempDir := s.T().TempDir()
 
-	// Initialize ThunderRuntime once for all tests
+	// Initialize server runtime once for all tests
 	testConfig := &config.Config{
 		DeclarativeResources: config.DeclarativeResources{
 			Enabled: false,
 		},
 	}
-	config.ResetThunderRuntime()
-	err := config.InitializeThunderRuntime(tempDir, testConfig)
-	s.Require().NoError(err, "Failed to initialize ThunderRuntime")
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime(tempDir, testConfig)
+	s.Require().NoError(err, "Failed to initialize server runtime")
 }
 
 func (s *ThemeDeclarativeSuite) TearDownSuite() {
-	// Clean up ThunderRuntime after all tests
-	config.ResetThunderRuntime()
+	// Clean up server runtime after all tests
+	config.ResetServerRuntime()
 }
 
 func (s *ThemeDeclarativeSuite) TestThemeExporter_GetResourceType() {
@@ -121,7 +122,7 @@ func (s *ThemeDeclarativeSuite) TestThemeExporter_GetAllResourceIDs_Success() {
 
 func (s *ThemeDeclarativeSuite) TestThemeExporter_GetAllResourceIDs_ServiceError() {
 	// Arrange
-	serviceErr := &serviceerror.ServiceError{Error: "Database error"}
+	serviceErr := &serviceerror.ServiceError{Error: i18ncore.I18nMessage{DefaultValue: "Database error"}}
 	mockService := NewThemeMgtServiceInterfaceMock(s.T())
 	mockService.EXPECT().GetThemeList(100, 0).Return(&ThemeList{}, serviceErr).Once()
 	exporter := &themeExporter{service: mockService}
@@ -179,7 +180,7 @@ func (s *ThemeDeclarativeSuite) TestThemeExporter_GetResourceByID_Success() {
 
 func (s *ThemeDeclarativeSuite) TestThemeExporter_GetResourceByID_NotFound() {
 	// Arrange
-	serviceErr := &serviceerror.ServiceError{Error: "Theme not found"}
+	serviceErr := &serviceerror.ServiceError{Error: i18ncore.I18nMessage{DefaultValue: "Theme not found"}}
 	mockService := NewThemeMgtServiceInterfaceMock(s.T())
 	mockService.EXPECT().GetTheme("non-existent").Return(&Theme{}, serviceErr).Once()
 	exporter := &themeExporter{service: mockService}
@@ -313,8 +314,8 @@ func (s *ThemeDeclarativeSuite) TestLoadDeclarativeResources_Integration() {
 }
 
 func (s *ThemeDeclarativeSuite) TestLoadDeclarativeResources_WithDBStore() {
-	thunderHome := config.GetThunderRuntime().ThunderHome
-	resourceDir := filepath.Join(thunderHome, "repository", "resources", "themes")
+	serverHome := config.GetServerRuntime().ServerHome
+	resourceDir := filepath.Join(serverHome, "repository", "resources", "themes")
 	err := os.MkdirAll(resourceDir, 0o750)
 	s.Require().NoError(err)
 

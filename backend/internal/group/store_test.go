@@ -27,9 +27,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	dbmodel "github.com/asgardeo/thunder/internal/system/database/model"
+	dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
 
-	"github.com/asgardeo/thunder/tests/mocks/database/providermock"
+	"github.com/thunder-id/thunderid/tests/mocks/database/providermock"
 )
 
 type GroupStoreTestSuite struct {
@@ -556,14 +556,14 @@ func (suite *GroupStoreTestSuite) TestGroupStore_GetGroupMembers() {
 				dbClientMock.
 					On("QueryContext", mock.Anything, QueryGetGroupMembers, "grp-001", 2, 0, testDeploymentID).
 					Return([]map[string]interface{}{
-						{"member_id": "usr-1", "member_type": "user"},
+						{"member_id": "usr-1", "member_type": "entity"},
 						{"member_id": "grp-2", "member_type": "group"},
 					}, nil).
 					Once()
 			},
 			assertList: func(members []Member) {
 				suite.Require().Len(members, 2)
-				suite.Require().Equal(MemberTypeUser, members[0].Type)
+				suite.Require().Equal(memberTypeEntity, members[0].Type)
 				suite.Require().Equal("grp-2", members[1].ID)
 			},
 		},
@@ -798,6 +798,7 @@ func (suite *GroupStoreTestSuite) TestGroupStore_UpdateGroup() {
 						groupDAO.OUID,
 						groupDAO.Name,
 						groupDAO.Description,
+						mock.Anything,
 						testDeploymentID,
 					).
 					Return(int64(0), nil).
@@ -839,6 +840,7 @@ func (suite *GroupStoreTestSuite) TestGroupStore_UpdateGroup() {
 						groupMinimal.OUID,
 						groupMinimal.Name,
 						groupMinimal.Description,
+						mock.Anything,
 						testDeploymentID,
 					).
 					Return(int64(0), errors.New("update fail")).
@@ -866,6 +868,7 @@ func (suite *GroupStoreTestSuite) TestGroupStore_UpdateGroup() {
 						groupDAO.OUID,
 						groupDAO.Name,
 						groupDAO.Description,
+						mock.Anything,
 						testDeploymentID,
 					).
 					Return(int64(1), nil).
@@ -1815,6 +1818,8 @@ func (suite *GroupStoreTestSuite) TestGroupStore_AddMembersToGroupReturnsError()
 			mock.Anything, // MemberType to avoid type mismatch
 			"usr-1",
 			testDeploymentID,
+			mock.Anything, // CREATED_AT
+			mock.Anything, // UPDATED_AT
 		).
 		Return(int64(0), errors.New("insert fail")).
 		Once()
@@ -1823,7 +1828,7 @@ func (suite *GroupStoreTestSuite) TestGroupStore_AddMembersToGroupReturnsError()
 		context.Background(),
 		dbClientMock,
 		"grp-001",
-		[]Member{{ID: "usr-1", Type: MemberTypeUser}},
+		[]Member{{ID: "usr-1", Type: memberTypeEntity}},
 		testDeploymentID,
 	)
 

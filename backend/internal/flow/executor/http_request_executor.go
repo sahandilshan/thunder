@@ -25,15 +25,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	httpservice "github.com/asgardeo/thunder/internal/system/http"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/ou"
+	httpservice "github.com/thunder-id/thunderid/internal/system/http"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -75,7 +77,8 @@ type errorHandlingConfig struct {
 // httpRequestExecutor implements the ExecutorInterface for making HTTP requests to external endpoints.
 type httpRequestExecutor struct {
 	core.ExecutorInterface
-	logger *log.Logger
+	ouService ou.OrganizationUnitServiceInterface
+	logger    *log.Logger
 }
 
 var _ core.ExecutorInterface = (*httpRequestExecutor)(nil)
@@ -83,6 +86,7 @@ var _ core.ExecutorInterface = (*httpRequestExecutor)(nil)
 // newHTTPRequestExecutor creates a new instance of HTTPRequestExecutor.
 func newHTTPRequestExecutor(
 	flowFactory core.FlowFactoryInterface,
+	ouService ou.OrganizationUnitServiceInterface,
 ) *httpRequestExecutor {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, httpRequestLoggerComponentName),
 		log.String(log.LoggerKeyExecutorName, ExecutorNameHTTPRequest))
@@ -92,13 +96,14 @@ func newHTTPRequestExecutor(
 
 	return &httpRequestExecutor{
 		ExecutorInterface: base,
+		ouService:         ouService,
 		logger:            logger,
 	}
 }
 
 // Execute executes the HTTP request logic.
 func (h *httpRequestExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := h.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := h.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing HTTP request executor")
 
 	execResp := &common.ExecutorResponse{
@@ -114,6 +119,7 @@ func (h *httpRequestExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorRe
 		return execResp, nil
 	}
 
+	h.enrichOURuntimeData(ctx, config)
 	h.resolvePlaceholders(ctx, config)
 
 	response, err := h.executeRequestWithRetry(ctx, config)
@@ -278,6 +284,51 @@ func (h *httpRequestExecutor) parseErrorHandling(config *httpRequestConfig, prop
 	}
 }
 
+// enrichOURuntimeData fetches OU details and populates ouHandle and ouName into RuntimeData
+// so that placeholders like {{ context.ouHandle }} can be resolved for the current request.
+// It only performs the fetch when an OU placeholder is referenced in the config and the OU ID
+// is available in the context.
+func (h *httpRequestExecutor) enrichOURuntimeData(ctx *core.NodeContext, config *httpRequestConfig) {
+	if h.ouService == nil {
+		return
+	}
+
+	ouPlaceholderPattern := regexp.MustCompile(`{{\s*context\.\s*(ouHandle|ouName|ouDescription)\s*}}`)
+
+	// Build a single searchable string from all resolvable config fields.
+	var sb strings.Builder
+	sb.WriteString(config.URL)
+	for _, v := range config.Headers {
+		sb.WriteString(v)
+	}
+	if bodyJSON, err := json.Marshal(config.Body); err == nil {
+		sb.Write(bodyJSON)
+	}
+	if !ouPlaceholderPattern.MatchString(sb.String()) {
+		return
+	}
+
+	ouID := ctx.AuthenticatedUser.OUID
+	if ouID == "" {
+		ouID = ctx.RuntimeData[ouIDKey]
+	}
+	if ouID == "" {
+		return
+	}
+
+	logger := h.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
+	organizationUnit, svcErr := h.ouService.GetOrganizationUnit(ctx.Context, ouID)
+	if svcErr != nil {
+		logger.Warn("Failed to fetch OU details for placeholder enrichment",
+			log.String(ouIDKey, ouID), log.String("error", svcErr.Error.DefaultValue))
+		return
+	}
+
+	ctx.RuntimeData["ouHandle"] = organizationUnit.Handle
+	ctx.RuntimeData["ouName"] = organizationUnit.Name
+	ctx.RuntimeData["ouDescription"] = organizationUnit.Description
+}
+
 // resolvePlaceholders resolves placeholders in the configuration using context data.
 func (h *httpRequestExecutor) resolvePlaceholders(ctx *core.NodeContext, config *httpRequestConfig) {
 	config.URL = core.ResolvePlaceholder(ctx, config.URL)
@@ -316,7 +367,7 @@ func (h *httpRequestExecutor) resolveMapPlaceholders(ctx *core.NodeContext, data
 // executeRequestWithRetry executes the HTTP request with retry logic.
 func (h *httpRequestExecutor) executeRequestWithRetry(ctx *core.NodeContext,
 	config *httpRequestConfig) (*http.Response, error) {
-	logger := h.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := h.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 
 	retryCount := 0
 	retryDelay := 0
@@ -351,7 +402,7 @@ func (h *httpRequestExecutor) executeRequestWithRetry(ctx *core.NodeContext,
 // executeRequest executes a single HTTP request.
 func (h *httpRequestExecutor) executeRequest(ctx *core.NodeContext, config *httpRequestConfig,
 	httpClient httpservice.HTTPClientInterface) (*http.Response, error) {
-	logger := h.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := h.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 
 	// Prepare request body
 	var bodyReader io.Reader
@@ -380,7 +431,7 @@ func (h *httpRequestExecutor) executeRequest(ctx *core.NodeContext, config *http
 	}
 
 	logger.Debug("Sending HTTP request", log.String("method", config.Method),
-		log.String("url", log.MaskString(config.URL)))
+		log.MaskedString("url", config.URL))
 
 	response, err := httpClient.Do(req)
 	if err != nil {
@@ -393,7 +444,7 @@ func (h *httpRequestExecutor) executeRequest(ctx *core.NodeContext, config *http
 // processResponse processes the HTTP response and extracts data based on response mapping.
 func (h *httpRequestExecutor) processResponse(ctx *core.NodeContext, config *httpRequestConfig,
 	response *http.Response, execResp *common.ExecutorResponse) error {
-	logger := h.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := h.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	defer func() {
 		if err := response.Body.Close(); err != nil {
 			logger.Error("Failed to close response body", log.Error(err))

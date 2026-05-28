@@ -7,22 +7,27 @@ name: 👷🛠️ PR Builder
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
   merge_group:
   workflow_dispatch:
 
 # Avoid running multiple PR builders for the same PR on subsequent pushes.
 concurrency:
-  group: pr-builder-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
   GOFLAGS: "-mod=readonly"
+  PRODUCT_NAME: "ThunderID"
+  PRODUCT_NAME_LOWER: "thunderid"
+  NODE_VERSION: "lts/*"
 
 jobs:
   security-audit:
     name: 🔒 Security Audit
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -30,23 +35,20 @@ jobs:
       - name: ⚙️ Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 'lts/*'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: 📦 Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
-          version: 'latest'
           run_install: false
 
       - name: 🔍 Run pnpm audit (Frontend)
         working-directory: frontend
         run: |
           echo "🔍 Running pnpm audit for frontend dependencies..."
-          IGNORE_ARGS=()
-          while IFS= read -r id; do
-            IGNORE_ARGS+=(--ignore "$id")
-          done < <(jq -r '.frontend[].id' "$GITHUB_WORKSPACE/.audit-ignore.json")
-          pnpm audit --audit-level=high "${IGNORE_ARGS[@]}"
+          # CVE ignores are managed via auditConfig.ignoreCves in pnpm-workspace.yaml
+          # Remove `--ignore-registry-errors` once pnpm 11 is generally available. Tracker: https://github.com/pnpm/pnpm/issues/11265
+          pnpm audit --ignore-registry-errors --audit-level=high
 
       - name: 🔍 Run npm audit (E2E Tests)
         working-directory: tests/e2e
@@ -106,6 +108,7 @@ jobs:
     name: 🔎 Dependency Review
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
@@ -119,13 +122,14 @@ jobs:
           fail-on-severity: high
           deny-licenses: GPL-3.0-only,GPL-3.0-or-later,AGPL-3.0-only,AGPL-3.0-or-later
           comment-summary-in-pr: always
-          base-ref: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
-          head-ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+          base-ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          head-ref: ${{ github.event_name == 'merge_group' && github.sha || github.event.pull_request.head.sha }}
 
   verify-mocks:
     name: 🔍 Verify Mock Files
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -161,6 +165,7 @@ jobs:
     name: 🧹 Lint Code
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -171,7 +176,7 @@ jobs:
       - name: ⚙️ Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 'lts/*'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: 🔄 Fetch main branch for Nx affected base
         run: git fetch origin main:main --update-head-ok || true
@@ -185,9 +190,8 @@ jobs:
       - name: 📦 Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
-          version: 'latest'
           run_install: false
-          cache_dependency_path: frontend/pnpm-lock.yaml
+          cache_dependency_path: pnpm-lock.yaml
 
       - name: ⚙️ Set up Go Environment
         uses: ./.github/actions/setup-go
@@ -200,24 +204,25 @@ jobs:
 
       - name: 🧩 Install Dependencies & Build Frontend
         run: |
-          cd frontend
-          pnpm install --frozen-lockfile
-          pnpm build
+          make build_frontend
 
       - name: 🔍 Run Frontend Linter
         run: |
-          cd frontend
-          pnpm nx affected --target=lint --parallel=3 --base=${{ steps.set-shas.outputs.base }} --head=${{ steps.set-shas.outputs.head }}
+          pnpm nx affected --target=lint --parallel=3 --base=${{ steps.set-shas.outputs.base }} --head=${{ steps.set-shas.outputs.head }} --exclude=@thunderid/docs,sdks/**
 
       - name: 🎨 Check Frontend Formatting
         run: |
-          cd frontend
           pnpm format:check
 
   build:
     name: 🛠️ Build Product
-    if: ${{ github.event.label.name == 'trigger-pr-builder' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group'}}
+    needs: [detect-code-changes]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group') && (needs.detect-code-changes.result == 'skipped' || needs.detect-code-changes.outputs.should-run == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -228,14 +233,13 @@ jobs:
       - name: ⚙️ Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 'lts/*'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: 📦 Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
-          version: 'latest'
           run_install: false
-          cache_dependency_path: frontend/pnpm-lock.yaml
+          cache_dependency_path: pnpm-lock.yaml
 
       - name: 🗄️ Cache Go Modules
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -257,7 +261,6 @@ jobs:
 
       - name: 📦 Install Frontend Dependencies
         run: |
-          cd frontend
           pnpm install --frozen-lockfile
 
       - name: 🧹 Clean Previous Builds
@@ -267,8 +270,7 @@ jobs:
 
       - name: 🔨 Build Frontend
         run: |
-          cd frontend
-          pnpm build
+          make build_frontend
 
       - name: 🔨 Build Product with Coverage
         run: |
@@ -277,20 +279,22 @@ jobs:
           make build_with_coverage_only OS=$(go env GOOS) ARCH=$(go env GOARCH)
 
           # Find the built distribution
-          DIST_PATH=$(find target/dist -name "thunder-*.zip" | head -1)
+          DIST_PATH=$(find target/dist -name "$PRODUCT_NAME_LOWER-*.zip" | head -1)
           echo "Built distribution: $DIST_PATH"
 
       - name: 📦 Upload Built Distribution
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: thunder-distribution
+          name: product-distribution
           path: target/dist/*.zip
           if-no-files-found: error
 
       - name: 📊 Upload Unit Test Coverage Report to Codecov
-        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
+        uses: codecov/codecov-action@v5
+        timeout-minutes: 5
+        continue-on-error: true
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: backend/coverage_unit.out
           disable_search: true
           flags: backend-unit
@@ -304,10 +308,97 @@ jobs:
           path: backend/coverage_unit.out
           if-no-files-found: error
 
-  test-frontend:
-    name: 🧪 Frontend Tests (shard ${{ matrix.shard }}/4)
-    if: ${{ github.event.label.name == 'trigger-pr-builder' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group'}}
+  detect-code-changes:
+    name: 🔍 Detect Code Changes
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      should-run: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
+        id: filter
+        with:
+          base: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          ref: ${{ github.event_name == 'merge_group' && github.sha || github.event.pull_request.head.sha }}
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+      - name: ✅ Code changes detected
+        if: steps.filter.outputs.code == 'true'
+        run: echo "Non-documentation files changed - frontend and E2E tests will run"
+      - name: ⏭️ Docs-only changes
+        if: steps.filter.outputs.code != 'true'
+        run: echo "Only documentation changes detected - skipping frontend and E2E tests"
+
+  test-frontend-packages:
+    name: 🧪 Frontend Package & Gate Tests
+    needs: [detect-code-changes]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group') && (needs.detect-code-changes.result == 'skipped' || needs.detect-code-changes.outputs.should-run == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: ⚙️ Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          run_install: false
+          cache_dependency_path: pnpm-lock.yaml
+
+      - name: 📦 Install Frontend Dependencies
+        run: |
+          pnpm install --frozen-lockfile
+
+      - name: 🔨 Build Frontend
+        run: |
+          pnpm build:frontend
+
+      - name: 🎭 Install Playwright Browsers
+        run: pnpm exec playwright install chromium
+
+      - name: 🧪 Run Tests for Frontend Packages
+        run: |
+          cd frontend
+          pnpm test:packages
+
+      - name: 🧪 Run Gate Tests with Coverage
+        run: |
+          cd frontend/apps/gate
+          pnpm test:coverage
+
+      # Strip branch data (BRDA/BRF/BRH) from frontend LCOV reports before uploading.
+      # React Compiler (babel-plugin-react-compiler) generates phantom branch points in compiled
+      # output that inflate the partial-line count in Codecov's coverage calculation.
+      # This is a known upstream issue: https://github.com/facebook/react/issues/32950
+      # Line and function coverage remain unaffected and accurately reflect test quality.
+      - name: 🧹 Strip branch data from gate LCOV report
+        run: |
+          if [ -f "frontend/apps/gate/coverage/lcov.info" ]; then
+            sed -i '/^BRDA:/d;/^BRF:/d;/^BRH:/d' "frontend/apps/gate/coverage/lcov.info"
+          fi
+
+      - name: 📦 Upload gate coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gate-coverage
+          path: frontend/apps/gate/coverage/lcov.info
+          if-no-files-found: error
+
+  test-frontend-console:
+    name: 🧪 Console Tests (shard ${{ matrix.shard }}/4)
+    needs: [detect-code-changes]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group') && (needs.detect-code-changes.result == 'skipped' || needs.detect-code-changes.outputs.should-run == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -319,69 +410,54 @@ jobs:
       - name: ⚙️ Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 'lts/*'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: 📦 Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
-          version: 'latest'
           run_install: false
-          cache_dependency_path: frontend/pnpm-lock.yaml
+          cache_dependency_path: pnpm-lock.yaml
 
       - name: 📦 Install Frontend Dependencies
         run: |
-          cd frontend
           pnpm install --frozen-lockfile
 
-      - name: 🔨 Build Frontend Packages
+      - name: 🔨 Build Frontend
         run: |
-          cd frontend
-          pnpm build:packages
+          pnpm build:frontend
 
       - name: 🧪 Run Console Tests with Coverage
         run: |
-          cd frontend/apps/thunder-console
+          cd frontend/apps/console
           pnpm vitest run --coverage --shard=${{ matrix.shard }}/4
-
-      - name: 🧪 Run Gate Tests with Coverage
-        if: matrix.shard == 1
-        run: |
-          cd frontend/apps/thunder-gate
-          pnpm test:coverage
 
       # Strip branch data (BRDA/BRF/BRH) from frontend LCOV reports before uploading.
       # React Compiler (babel-plugin-react-compiler) generates phantom branch points in compiled
       # output that inflate the partial-line count in Codecov's coverage calculation.
       # This is a known upstream issue: https://github.com/facebook/react/issues/32950
       # Line and function coverage remain unaffected and accurately reflect test quality.
-      - name: 🧹 Strip branch data from frontend LCOV reports
+      - name: 🧹 Strip branch data from console LCOV report
         run: |
-          for lcov_file in frontend/apps/thunder-console/coverage/lcov.info frontend/apps/thunder-gate/coverage/lcov.info; do
-            if [ -f "$lcov_file" ]; then
-              sed -i '/^BRDA:/d;/^BRF:/d;/^BRH:/d' "$lcov_file"
-            fi
-          done
+          if [ -f "frontend/apps/console/coverage/lcov.info" ]; then
+            sed -i '/^BRDA:/d;/^BRF:/d;/^BRH:/d' "frontend/apps/console/coverage/lcov.info"
+          fi
 
       - name: 📦 Upload console coverage artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: console-coverage-shard-${{ matrix.shard }}
-          path: frontend/apps/thunder-console/coverage/lcov.info
-          if-no-files-found: error
-
-      - name: 📦 Upload gate coverage artifact
-        if: matrix.shard == 1
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: gate-coverage
-          path: frontend/apps/thunder-gate/coverage/lcov.info
+          path: frontend/apps/console/coverage/lcov.info
           if-no-files-found: error
 
   upload-frontend-coverage:
     name: 📊 Upload Frontend Coverage
-    needs: test-frontend
-    if: always() && needs.test-frontend.result == 'success'
+    needs: [test-frontend-packages, test-frontend-console]
+    if: always() && needs.test-frontend-packages.result == 'success' && needs.test-frontend-console.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -402,20 +478,24 @@ jobs:
         run: |
           cat coverage/console/console-coverage-shard-*/lcov.info > coverage/console-merged-lcov.info
 
-      - name: 📊 Upload `@thunder/console` Unit Test Coverage Report to Codecov
-        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
+      - name: 📊 Upload `@thunderid/console` Unit Test Coverage Report to Codecov
+        uses: codecov/codecov-action@v5
+        timeout-minutes: 5
+        continue-on-error: true
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: coverage/console-merged-lcov.info
           disable_search: true
           flags: frontend-apps-console-unit
           name: Frontend Console App Unit Tests
           fail_ci_if_error: false
 
-      - name: 📊 Upload `@thunder/gate` Unit Test Coverage Report to Codecov
-        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
+      - name: 📊 Upload `@thunderid/gate` Unit Test Coverage Report to Codecov
+        uses: codecov/codecov-action@v5
+        timeout-minutes: 5
+        continue-on-error: true
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: coverage/gate/lcov.info
           disable_search: true
           flags: frontend-apps-gate-unit
@@ -424,8 +504,10 @@ jobs:
 
   build_samples:
     name: 🛠️ Build Sample Apps
-    if: ${{ github.event.label.name == 'trigger-pr-builder' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group'}}
+    needs: [detect-code-changes]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group') && (needs.detect-code-changes.result == 'skipped' || needs.detect-code-changes.outputs.should-run == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -436,14 +518,13 @@ jobs:
       - name: ⚙️ Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 'lts/*'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: 📦 Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
-          version: 'latest'
           run_install: false
-          cache_dependency_path: frontend/pnpm-lock.yaml
+          cache_dependency_path: pnpm-lock.yaml
 
       - name: 🧩 Build and Package Sample Apps
         run: |
@@ -459,22 +540,36 @@ jobs:
   test-integration:
     name: 🧪 Integration Tests (${{ matrix.database }})
     needs: build
+    if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
     strategy:
       matrix:
-        database: [sqlite, postgres]
+        database: [sqlite, postgres, redis]
       fail-fast: false
     services:
       postgres:
         image: postgres:latest
         env:
-          POSTGRES_USER: asgthunder
-          POSTGRES_PASSWORD: asgthunder
-          POSTGRES_DB: thunderdb
+          POSTGRES_USER: dbuser
+          POSTGRES_PASSWORD: dbpassword
+          POSTGRES_DB: postgredb
         ports:
           - 5432:5432
         options: >-
           --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -523,9 +618,11 @@ jobs:
           coverage-enabled: true
 
       - name: 📊 Upload Integration Test Coverage Report to Codecov
-        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
+        uses: codecov/codecov-action@v5
+        timeout-minutes: 5
+        continue-on-error: true
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: target/coverage_integration.out
           disable_search: true
           flags: backend-integration-${{ matrix.database }}
@@ -536,7 +633,7 @@ jobs:
       #   run: ./build.sh merge_coverage
 
       # - name: 📊 Upload Combined Coverage Report to Codecov
-      #   uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
+      #   uses: codecov/codecov-action@v4
       #   with:
       #     token: ${{ secrets.CODECOV_TOKEN }}
       #     files: target/coverage_combined.out
@@ -547,8 +644,10 @@ jobs:
 
   test-e2e:
     name: 🎭 Playwright E2E Tests
-    needs: [build, build_samples]
+    needs: [build, build_samples, detect-code-changes]
+    if: ${{ always() && needs.build.result == 'success' && needs.build_samples.result == 'success' && (needs.detect-code-changes.result == 'skipped' || needs.detect-code-changes.outputs.should-run == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -558,10 +657,16 @@ jobs:
         with:
           node-version: 'lts/*'
 
+      - name: 📦 Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          run_install: false
+          cache_dependency_path: pnpm-lock.yaml
+
       - name: 📥 Download Built Distribution
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: thunder-distribution
+          name: product-distribution
           path: target/dist/
 
       - name: 📥 Download Built Sample App
@@ -572,24 +677,24 @@ jobs:
 
       - name: 📂 Extract Server to E2E
         run: |
-          mkdir -p tests/e2e/thunder-server
-          unzip target/dist/thunder-*.zip -d tests/e2e/thunder-server
-          cd tests/e2e/thunder-server
-          # Find the extracted folder (name includes version and arch) and move its contents to the root of tests/e2e/thunder-server
-          EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "thunder-*" | head -n 1)
+          mkdir -p tests/e2e/server
+          unzip target/dist/$PRODUCT_NAME_LOWER-*.zip -d tests/e2e/server
+          cd tests/e2e/server
+          # Find the extracted folder (name includes version and arch) and move its contents to the root of tests/e2e/server
+          EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "$PRODUCT_NAME_LOWER-*" | head -n 1)
           if [ -n "$EXTRACTED_DIR" ]; then
             mv "$EXTRACTED_DIR"/* .
             rmdir "$EXTRACTED_DIR"
           fi
           chmod +x setup.sh start.sh
 
-      - name: 🚀 Start Thunder Server
+      - name: 🚀 Start the Server
         run: |
-          cd tests/e2e/thunder-server
+          cd tests/e2e/server
           ./setup.sh
-          THUNDER_SKIP_SECURITY=true ./start.sh &
-          THUNDER_PID=$!
-          echo "THUNDER_PID=$THUNDER_PID" >> $GITHUB_ENV
+          SKIP_SECURITY=true ./start.sh &
+          SERVER_PID=$!
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
           # Wait for server to be ready
           echo "Waiting for server to be ready on https://localhost:8090..."
           for i in {1..60}; do
@@ -609,38 +714,91 @@ jobs:
           
           echo "Server started successfully!"
       
+      - name: 📦 Import Sample App Resources
+        run: |
+          echo "Importing React Vanilla Sample declarative resources..."
+          YAML_CONTENT=$(cat samples/apps/react-vanilla-sample/thunderid-config/basic/thunderid-config.yaml)
+          HTTP_STATUS=$(curl -k -s -o /tmp/import_response.json -w "%{http_code}" \
+            -X POST https://localhost:8090/import \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"content\": $(echo "$YAML_CONTENT" | jq -Rs .),
+              \"variables\": {
+                \"SAMPLE_APP_CLIENT_ID\": \"sample_app_client\",
+                \"SAMPLE_APP_REDIRECT_URIS\": [\"https://localhost:3000\"],
+                \"SAMPLE_APP_GOOGLE_CLIENT_ID\": \"test-google-client-id\",
+                \"SAMPLE_APP_GOOGLE_CLIENT_SECRET\": \"test-google-client-secret\",
+                \"SAMPLE_APP_GOOGLE_REDIRECT_URI\": \"https://localhost:3000/\",
+                \"SAMPLE_APP_GOOGLE_SCOPES\": \"openid,email,profile\",
+                \"SAMPLE_APP_GITHUB_CLIENT_ID\": \"test-github-client-id\",
+                \"SAMPLE_APP_GITHUB_CLIENT_SECRET\": \"test-github-client-secret\",
+                \"SAMPLE_APP_GITHUB_REDIRECT_URI\": \"https://localhost:3000/\",
+                \"SAMPLE_APP_SMS_SENDER_ID\": \"test-sms-sender-id\"
+              },
+              \"options\": {\"upsert\": true}
+            }")
+          echo "Import HTTP status: $HTTP_STATUS"
+          cat /tmp/import_response.json | jq . || cat /tmp/import_response.json
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ Failed to import React Vanilla Sample resources (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+          echo "✅ React Vanilla Sample resources imported successfully"
+
+          echo "Importing React SDK Sample declarative resources..."
+          YAML_CONTENT=$(cat samples/apps/react-sdk-sample/thunderid-config/thunderid-config.yaml)
+          HTTP_STATUS=$(curl -k -s -o /tmp/import_response.json -w "%{http_code}" \
+            -X POST https://localhost:8090/import \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"content\": $(echo "$YAML_CONTENT" | jq -Rs .),
+              \"variables\": {
+                \"REACT_SDK_SAMPLE_CLIENT_ID\": \"REACT_SDK_SAMPLE\",
+                \"REACT_SDK_SAMPLE_REDIRECT_URIS\": [\"https://localhost:3000\"]
+              },
+              \"options\": {\"upsert\": true}
+            }")
+          echo "Import HTTP status: $HTTP_STATUS"
+          cat /tmp/import_response.json | jq . || cat /tmp/import_response.json
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ Failed to import React SDK Sample resources (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+          echo "✅ React SDK Sample resources imported successfully"
+
       - name: 🔍 Extract Sample App ID
         id: extract-app-id
         run: |
-          echo "Fetching applications from Thunder..."
-          
+          echo "Fetching applications from the server..."
+
           # Get applications list
           APPS_RESPONSE=$(curl -s -k https://localhost:8090/applications)
-          
-          # Extract Sample App ID using jq
-          SAMPLE_APP_ID=$(echo "$APPS_RESPONSE" | jq -r '.applications[] | select(.name == "Sample App") | .id')
-          
+
+          # Extract Sample App ID using jq (uses "Sample App" from vanilla sample,
+          # which is unaffected by MFA test setup/teardown)
+          SAMPLE_APP_ID=$(echo "$APPS_RESPONSE" | jq -r '(.applications // [])[] | select(.name == "Sample App") | .id')
+
           if [ -z "$SAMPLE_APP_ID" ] || [ "$SAMPLE_APP_ID" == "null" ]; then
             echo "⚠️  Warning: Sample App not found in applications list"
             echo "Available applications:"
-            echo "$APPS_RESPONSE" | jq -r '.applications[] | "  - \(.name) (\(.id))"'
+            echo "$APPS_RESPONSE" | jq -r '(.applications // [])[] | "  - \(.name) (\(.id))"'
             echo "sample_app_id=" >> $GITHUB_OUTPUT
           else
             echo "✓ Sample App ID extracted: $SAMPLE_APP_ID"
             echo "sample_app_id=$SAMPLE_APP_ID" >> $GITHUB_OUTPUT
           fi
       
-      - name: 🔄 Restart Thunder Server with Security Enabled
+      - name: 🔄 Restart the Server with Security Enabled
         run: |
-          cd tests/e2e/thunder-server
+          cd tests/e2e/server
 
-          echo "Stopping Thunder server..."
+          echo "Stopping the server..."
           # Kill the start.sh wrapper process
-          kill $THUNDER_PID 2>/dev/null || true
+          kill $SERVER_PID 2>/dev/null || true
 
           # Also kill any process still listening on port 8090
-          # (start.sh backgrounds the thunder binary, so killing start.sh
-          # may leave the thunder process running as an orphan)
+          # (start.sh backgrounds the server binary, so killing start.sh
+          # may leave the server process running as an orphan)
           sleep 2
           if lsof -ti tcp:8090 >/dev/null 2>&1; then
             echo "Port 8090 still in use, killing remaining processes..."
@@ -650,10 +808,10 @@ jobs:
           # Wait for port to be fully released
           sleep 3
 
-          echo "Starting Thunder server with security enabled..."
+          echo "Starting the server with security enabled..."
           ./start.sh &
-          THUNDER_PID=$!
-          echo "THUNDER_PID=$THUNDER_PID" >> $GITHUB_ENV
+          SERVER_PID=$!
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
           
           # Wait for server to be ready
           echo "Waiting for server to be ready on https://localhost:8090..."
@@ -703,7 +861,7 @@ jobs:
           
           # Make start script executable
           chmod +x start.sh
-          
+
           echo "Starting Sample App..."
           ./start.sh &
           
@@ -730,9 +888,17 @@ jobs:
         run: npm ci
         working-directory: tests/e2e
 
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
+      - name: Install Playwright System Dependencies
+        run: npx playwright install-deps
         working-directory: tests/e2e
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Install Playwright Browsers
+        run: npx playwright install
+        working-directory: tests/e2e
+        timeout-minutes: 15
 
       - name: Run Playwright tests
         run: npx playwright test
@@ -749,7 +915,7 @@ jobs:
           # MFA Test Configuration
           SAMPLE_APP_ID: ${{ steps.extract-app-id.outputs.sample_app_id }}
           SAMPLE_APP_URL: 'https://localhost:3000'
-          THUNDER_URL: 'https://localhost:8090'
+          SERVER_URL: 'https://localhost:8090'
           AUTO_SETUP_MFA: ${{ vars.AUTO_SETUP_MFA || 'true' }}
           MOCK_SMS_SERVER_PORT: ${{ vars.MOCK_SMS_SERVER_PORT || 8098 }}
           SAMPLE_APP_USERNAME: ${{ secrets.SAMPLE_APP_USERNAME || 'e2e-test-user' }}
@@ -767,6 +933,7 @@ jobs:
     name: 🔍 Detect PowerShell Changes
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       should-run: ${{ steps.filter.outputs.powershell }}
     steps:
@@ -786,6 +953,107 @@ jobs:
       - name: ⏭️ No PowerShell changes
         if: steps.filter.outputs.powershell != 'true'
         run: echo "No PowerShell changes - skipping validation"
+
+  detect-sdk-changes:
+    name: 🔍 Detect SDK Changes
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      should-run: ${{ steps.filter.outputs.sdks }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
+        id: filter
+        with:
+          base: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          ref: ${{ github.event_name == 'merge_group' && github.sha || github.event.pull_request.head.sha }}
+          filters: |
+            sdks:
+              - 'sdks/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+      - name: ✅ SDK changes detected
+        if: steps.filter.outputs.sdks == 'true'
+        run: echo "SDK files changed - SDK build will run"
+      - name: ⏭️ No SDK changes
+        if: steps.filter.outputs.sdks != 'true'
+        run: echo "No SDK changes - skipping SDK build"
+
+  detect-docs-changes:
+    name: 🔍 Detect Documentation Changes
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      should-run: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
+        id: filter
+        with:
+          base: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          ref: ${{ github.event_name == 'merge_group' && github.sha || github.event.pull_request.head.sha }}
+          filters: |
+            docs:
+              - 'docs/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+      - name: ✅ Documentation changes detected
+        if: steps.filter.outputs.docs == 'true'
+        run: echo "Documentation files changed - docs build will run"
+      - name: ⏭️ No documentation changes
+        if: steps.filter.outputs.docs != 'true'
+        run: echo "No documentation changes - skipping docs build"
+
+  build-test-sdks:
+    name: 🔨 Build, Lint & Test SDKs
+    needs: [detect-sdk-changes]
+    if: ${{ always() && needs.detect-sdk-changes.outputs.should-run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: ⚙️ Set up Node.js
+        uses: ./.github/actions/setup-node
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          run_install: false
+          cache_dependency_path: pnpm-lock.yaml
+
+      - name: 🔨 Build SDKs
+        run: make build_sdks
+
+  build-docs:
+    name: 📚 Build Documentation
+    needs: [detect-docs-changes]
+    if: ${{ always() && needs.detect-docs-changes.outputs.should-run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: ⚙️ Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          run_install: false
+
+      - name: 📚 Build docs
+        run: make build_docs
 
   validate-windows:
     name: 🪟 Validate Windows PowerShell

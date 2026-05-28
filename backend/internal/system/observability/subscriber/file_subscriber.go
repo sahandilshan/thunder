@@ -22,12 +22,12 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/observability/adapter"
-	"github.com/asgardeo/thunder/internal/system/observability/event"
-	"github.com/asgardeo/thunder/internal/system/observability/formatter"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/observability/adapter"
+	"github.com/thunder-id/thunderid/internal/system/observability/event"
+	"github.com/thunder-id/thunderid/internal/system/observability/formatter"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const fileSubscriberComponentName = "FileSubscriber"
@@ -60,13 +60,13 @@ func NewFileSubscriber() *FileSubscriber {
 
 // IsEnabled checks if the file subscriber should be activated based on configuration.
 func (fs *FileSubscriber) IsEnabled() bool {
-	return config.GetThunderRuntime().Config.Observability.Output.File.Enabled
+	return config.GetServerRuntime().Config.Observability.Output.File.Enabled
 }
 
 // Initialize sets up the file subscriber with the provided configuration.
 func (fs *FileSubscriber) Initialize() error {
 	// Get config from observability service
-	fileConfig := config.GetThunderRuntime().Config.Observability.Output.File
+	fileConfig := config.GetServerRuntime().Config.Observability.Output.File
 
 	// Create formatter based on config using the Initialize pattern
 	fmtr := formatter.Initialize(fileConfig.Format)
@@ -74,7 +74,7 @@ func (fs *FileSubscriber) Initialize() error {
 	// Determine file path
 	filePath := fileConfig.FilePath
 	if filePath == "" {
-		observability := filepath.Join(config.GetThunderRuntime().ThunderHome, "logs", "observability")
+		observability := filepath.Join(config.GetServerRuntime().ServerHome, "logs", "observability")
 		filePath = filepath.Join(observability, "observability.log")
 	}
 

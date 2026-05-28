@@ -38,8 +38,8 @@ func (_m *AuthorizationEngineMock) EXPECT() *AuthorizationEngineMock_Expecter {
 }
 
 // GetAuthorizedPermissions provides a mock function for the type AuthorizationEngineMock
-func (_mock *AuthorizationEngineMock) GetAuthorizedPermissions(ctx context.Context, userID string, groupIDs []string, requestedPermissions []string) ([]string, error) {
-	ret := _mock.Called(ctx, userID, groupIDs, requestedPermissions)
+func (_mock *AuthorizationEngineMock) GetAuthorizedPermissions(ctx context.Context, entityID string, groupIDs []string, requestedPermissions []string) ([]string, error) {
+	ret := _mock.Called(ctx, entityID, groupIDs, requestedPermissions)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAuthorizedPermissions")
@@ -48,17 +48,17 @@ func (_mock *AuthorizationEngineMock) GetAuthorizedPermissions(ctx context.Conte
 	var r0 []string
 	var r1 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string, []string) ([]string, error)); ok {
-		return returnFunc(ctx, userID, groupIDs, requestedPermissions)
+		return returnFunc(ctx, entityID, groupIDs, requestedPermissions)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string, []string) []string); ok {
-		r0 = returnFunc(ctx, userID, groupIDs, requestedPermissions)
+		r0 = returnFunc(ctx, entityID, groupIDs, requestedPermissions)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, []string, []string) error); ok {
-		r1 = returnFunc(ctx, userID, groupIDs, requestedPermissions)
+		r1 = returnFunc(ctx, entityID, groupIDs, requestedPermissions)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -72,14 +72,14 @@ type AuthorizationEngineMock_GetAuthorizedPermissions_Call struct {
 
 // GetAuthorizedPermissions is a helper method to define mock.On call
 //   - ctx context.Context
-//   - userID string
+//   - entityID string
 //   - groupIDs []string
 //   - requestedPermissions []string
-func (_e *AuthorizationEngineMock_Expecter) GetAuthorizedPermissions(ctx interface{}, userID interface{}, groupIDs interface{}, requestedPermissions interface{}) *AuthorizationEngineMock_GetAuthorizedPermissions_Call {
-	return &AuthorizationEngineMock_GetAuthorizedPermissions_Call{Call: _e.mock.On("GetAuthorizedPermissions", ctx, userID, groupIDs, requestedPermissions)}
+func (_e *AuthorizationEngineMock_Expecter) GetAuthorizedPermissions(ctx interface{}, entityID interface{}, groupIDs interface{}, requestedPermissions interface{}) *AuthorizationEngineMock_GetAuthorizedPermissions_Call {
+	return &AuthorizationEngineMock_GetAuthorizedPermissions_Call{Call: _e.mock.On("GetAuthorizedPermissions", ctx, entityID, groupIDs, requestedPermissions)}
 }
 
-func (_c *AuthorizationEngineMock_GetAuthorizedPermissions_Call) Run(run func(ctx context.Context, userID string, groupIDs []string, requestedPermissions []string)) *AuthorizationEngineMock_GetAuthorizedPermissions_Call {
+func (_c *AuthorizationEngineMock_GetAuthorizedPermissions_Call) Run(run func(ctx context.Context, entityID string, groupIDs []string, requestedPermissions []string)) *AuthorizationEngineMock_GetAuthorizedPermissions_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -112,7 +112,7 @@ func (_c *AuthorizationEngineMock_GetAuthorizedPermissions_Call) Return(strings 
 	return _c
 }
 
-func (_c *AuthorizationEngineMock_GetAuthorizedPermissions_Call) RunAndReturn(run func(ctx context.Context, userID string, groupIDs []string, requestedPermissions []string) ([]string, error)) *AuthorizationEngineMock_GetAuthorizedPermissions_Call {
+func (_c *AuthorizationEngineMock_GetAuthorizedPermissions_Call) RunAndReturn(run func(ctx context.Context, entityID string, groupIDs []string, requestedPermissions []string) ([]string, error)) *AuthorizationEngineMock_GetAuthorizedPermissions_Call {
 	_c.Call.Return(run)
 	return _c
 }

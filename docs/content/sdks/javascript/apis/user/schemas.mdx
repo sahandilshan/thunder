@@ -1,0 +1,59 @@
+---
+title: User Schemas
+displayed_sidebar: javascriptSdkSidebar
+description: Utility functions for working with user attribute schemas
+---
+
+# User Schemas
+
+The SDK provides helpers for working with user schema data.
+
+## Utility Functions
+
+### `flattenUserSchema(schemas, user)`
+
+Produce a flat `Record<string, any>` from nested attribute paths.
+
+```ts
+import { flattenUserSchema } from '@thunderid/javascript'
+
+const flat = flattenUserSchema(schemas, userProfile)
+```
+
+### `generateUserProfile(flatProfile, schemas)`
+
+Convert a flat profile map back to a typed `UserProfile`.
+
+```ts
+import { generateUserProfile } from '@thunderid/javascript'
+
+const profile = generateUserProfile(flatProfile, schemas)
+```
+
+**Returns:** `UserProfile` — `{ profile, flattenedProfile, schemas[] }`
+
+### `generateFlattenedUserProfile(profile, schemas)`
+
+Generate a flattened version of a full user profile.
+
+```ts
+import { generateFlattenedUserProfile } from '@thunderid/javascript'
+
+const flat = generateFlattenedUserProfile(user, schemas)
+```
+
+**Returns:** `User`
+
+### `resolveFieldType(type)`
+
+Map an attribute type string to a `FieldType` enum value for rendering form inputs.
+
+```ts
+import { resolveFieldType, FieldType } from '@thunderid/javascript'
+
+const fieldType = resolveFieldType('STRING') // FieldType.Text
+```
+
+### `resolveFieldName(schema, path)`
+
+Resolve a human-readable display name for an attribute path.

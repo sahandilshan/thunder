@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -338,7 +338,7 @@ var (
 		ClientID:                  "ou_reg_flow_test_client",
 		ClientSecret:              "ou_reg_flow_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{dynamicUserSchema.Name},
+		AllowedUserTypes:          []string{dynamicEntityType.Name},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
 		},
@@ -351,7 +351,7 @@ var (
 		ClientID:                  "ou_sms_reg_flow_test_client",
 		ClientSecret:              "ou_sms_reg_flow_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{dynamicUserSchema.Name},
+		AllowedUserTypes:          []string{dynamicEntityType.Name},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
 		},
@@ -371,7 +371,7 @@ var (
 		Parent:      nil,
 	}
 
-	dynamicUserSchema = testutils.UserSchema{
+	dynamicEntityType = testutils.UserType{
 		Name: "dynamic-user-type",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
@@ -406,7 +406,7 @@ type OURegistrationFlowTestSuite struct {
 	basicFlowTestOUID  string
 	smsFlowTestAppID   string
 	smsFlowTestOUID    string
-	userSchemaID       string
+	entityTypeID       string
 }
 
 func TestOURegistrationFlowTestSuite(t *testing.T) {
@@ -430,14 +430,14 @@ func (ts *OURegistrationFlowTestSuite) SetupSuite() {
 	}
 	ts.smsFlowTestOUID = smsOUID
 
-	// Create dynamic user schema
-	dynamicUserSchema.OUID = ts.basicFlowTestOUID
-	dynamicUserSchema.AllowSelfRegistration = true
-	schemaID, err := testutils.CreateUserType(dynamicUserSchema)
+	// Create dynamic user type
+	dynamicEntityType.OUID = ts.basicFlowTestOUID
+	dynamicEntityType.AllowSelfRegistration = true
+	schemaID, err := testutils.CreateUserType(dynamicEntityType)
 	if err != nil {
-		ts.T().Fatalf("Failed to create dynamic user schema during setup: %v", err)
+		ts.T().Fatalf("Failed to create dynamic user type during setup: %v", err)
 	}
-	ts.userSchemaID = schemaID
+	ts.entityTypeID = schemaID
 
 	// Start mock notification server for SMS flow
 	ts.mockServer = testutils.NewMockNotificationServer(mockNotificationServerPortOU)
@@ -493,12 +493,14 @@ func (ts *OURegistrationFlowTestSuite) SetupSuite() {
 	smsApp.RegistrationFlowID = smsFlowID
 
 	// Create test applications with allowed user types
+	ouRegTestApp.OUID = ts.basicFlowTestOUID
 	appID, err := testutils.CreateApplication(ouRegTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
 	}
 	ts.basicFlowTestAppID = appID
 
+	smsApp.OUID = ts.smsFlowTestOUID
 	smsAppID, err := testutils.CreateApplication(smsApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create SMS test application during setup: %v", err)
@@ -565,10 +567,10 @@ func (ts *OURegistrationFlowTestSuite) TearDownSuite() {
 		}
 	}
 
-	// Delete user schema
-	if ts.userSchemaID != "" {
-		if err := testutils.DeleteUserType(ts.userSchemaID); err != nil {
-			ts.T().Logf("Failed to delete dynamic user schema during teardown: %v", err)
+	// delete user type
+	if ts.entityTypeID != "" {
+		if err := testutils.DeleteUserType(ts.entityTypeID); err != nil {
+			ts.T().Logf("Failed to delete dynamic user type during teardown: %v", err)
 		}
 	}
 }
@@ -615,7 +617,7 @@ func (ts *OURegistrationFlowTestSuite) TestBasicRegistrationFlowWithOU() {
 
 			jwtClaims, err := testutils.DecodeJWT(flowStep.Assertion)
 			ts.Require().NoError(err)
-			ts.Require().Equal(dynamicUserSchema.Name, jwtClaims.UserType)
+			ts.Require().Equal(dynamicEntityType.Name, jwtClaims.UserType)
 			ts.Require().NotEmpty(jwtClaims.OUID)
 
 			user, err := testutils.FindUserByAttribute("username", username)
@@ -633,7 +635,7 @@ func (ts *OURegistrationFlowTestSuite) TestBasicRegistrationFlowWithOU() {
 			ts.Require().Equal(tc.ouHandle, ou.Handle)
 			ts.Require().NotNil(ou.Parent, "Created OU should have a parent")
 			ts.Require().Equal(ts.basicFlowTestOUID, *ou.Parent,
-				"Created OU should be a child of the user schema's OU")
+				"Created OU should be a child of the user type's OU")
 
 			if tc.ouDescription != "" {
 				ts.Require().Equal(tc.ouDescription, ou.Description)
@@ -703,7 +705,7 @@ func (ts *OURegistrationFlowTestSuite) TestBasicRegistrationFlowWithOUCreationDu
 
 			flowStep, err := common.InitiateRegistrationFlow(ts.basicFlowTestAppID, false, inputs, "")
 			ts.Require().NoError(err)
-			ts.Require().Equal("ERROR", flowStep.FlowStatus)
+			ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 			ts.Require().Empty(flowStep.Assertion)
 			ts.Require().Contains(flowStep.FailureReason, tc.expectedErrorSubstr)
 		})
@@ -747,7 +749,8 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreation() {
 				"mobileNumber": mobileNumber,
 			}
 
-			flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+			flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001",
+				flowStep.ChallengeToken)
 			ts.Require().NoError(err)
 			ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 
@@ -763,7 +766,8 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreation() {
 				"otp": lastMessage.OTP,
 			}
 
-			flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "action_002")
+			flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, "action_002",
+				flowStep.ChallengeToken)
 			ts.Require().NoError(err)
 			ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 
@@ -774,7 +778,7 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreation() {
 				"ouDescription": tc.ouDescription,
 			}
 
-			flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "")
+			flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, "", flowStep.ChallengeToken)
 			ts.Require().NoError(err)
 			ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 
@@ -786,14 +790,14 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreation() {
 				"email":        mobileNumber + "@example.com",
 			}
 
-			flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "")
+			flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, "", flowStep.ChallengeToken)
 			ts.Require().NoError(err)
 			ts.Require().Equal("COMPLETE", flowStep.FlowStatus)
 			ts.Require().NotEmpty(flowStep.Assertion)
 
 			jwtClaims, err := testutils.DecodeJWT(flowStep.Assertion)
 			ts.Require().NoError(err)
-			ts.Require().Equal(dynamicUserSchema.Name, jwtClaims.UserType)
+			ts.Require().Equal(dynamicEntityType.Name, jwtClaims.UserType)
 			ts.Require().NotEmpty(jwtClaims.OUID)
 
 			user, err := testutils.FindUserByAttribute("mobileNumber", mobileNumber)
@@ -811,7 +815,7 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreation() {
 			ts.Require().Equal(tc.ouHandle, ou.Handle)
 			ts.Require().NotNil(ou.Parent, "Created OU should have a parent")
 			ts.Require().Equal(ts.basicFlowTestOUID, *ou.Parent,
-				"Created OU should be a child of the user schema's OU")
+				"Created OU should be a child of the user type's OU")
 
 			if tc.ouDescription != "" {
 				ts.Require().Equal(tc.ouDescription, ou.Description)
@@ -877,7 +881,8 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreationDupl
 			// Wait for OTP to be sent
 			time.Sleep(1 * time.Second)
 
-			flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "action_001")
+			flowStep, err = 
+				common.CompleteFlow(flowStep.ExecutionID, inputs, "action_001", flowStep.ChallengeToken)
 			ts.Require().NoError(err)
 			ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 
@@ -889,7 +894,8 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreationDupl
 				"otp": lastMessage.OTP,
 			}
 
-			flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "action_002")
+			flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, "action_002",
+				flowStep.ChallengeToken)
 			ts.Require().NoError(err)
 			ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 
@@ -905,9 +911,9 @@ func (ts *OURegistrationFlowTestSuite) TestSMSRegistrationFlowWithOUCreationDupl
 				"ouDescription": "Should fail due to duplicate",
 			}
 
-			flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "")
+			flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, "", flowStep.ChallengeToken)
 			ts.Require().NoError(err)
-			ts.Require().Equal("ERROR", flowStep.FlowStatus)
+			ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 			ts.Require().Empty(flowStep.Assertion)
 			ts.Require().Contains(flowStep.FailureReason, tc.expectedErrorSubstr)
 		})
@@ -920,5 +926,5 @@ func generateUniqueHandle(prefix string) string {
 
 // Helper function to generate unique mobile numbers
 func generateUniqueMobileNumber() string {
-	return fmt.Sprintf("+1234567%d", time.Now().UnixNano()%10000)
+	return fmt.Sprintf("+1%d", time.Now().UnixNano())
 }

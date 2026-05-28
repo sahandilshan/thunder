@@ -22,10 +22,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/cache"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/cache"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 const cacheBackedStoreLoggerComponentName = "CacheBackedFlowStore"
@@ -39,14 +39,17 @@ type cacheBackedFlowStore struct {
 }
 
 // newCacheBackedFlowStore creates a new instance of cacheBackedFlowStore.
-func newCacheBackedFlowStore() (flowStoreInterface, transaction.Transactioner, error) {
+func newCacheBackedFlowStore(
+	flowByIDCache cache.CacheInterface[*CompleteFlowDefinition],
+	flowByHandleCache cache.CacheInterface[*CompleteFlowDefinition],
+) (flowStoreInterface, transaction.Transactioner, error) {
 	store, transactioner, err := newFlowStore()
 	if err != nil {
 		return nil, nil, err
 	}
 	return &cacheBackedFlowStore{
-		flowByIDCache:     cache.GetCache[*CompleteFlowDefinition]("FlowByIDCache"),
-		flowByHandleCache: cache.GetCache[*CompleteFlowDefinition]("FlowByHandleCache"),
+		flowByIDCache:     flowByIDCache,
+		flowByHandleCache: flowByHandleCache,
 		store:             store,
 		logger: log.GetLogger().With(
 			log.String(log.LoggerKeyComponentName, cacheBackedStoreLoggerComponentName)),

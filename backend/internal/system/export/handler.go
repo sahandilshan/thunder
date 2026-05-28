@@ -23,12 +23,13 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"strings"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // exportHandler defines the handler for managing export API requests.
@@ -42,7 +43,7 @@ func newExportHandler(service ExportServiceInterface) *exportHandler {
 	}
 }
 
-// HandleExportRequest handles the export request and returns YAML content.
+// HandleExportJSONRequest handles the export request and returns JSON with files.
 func (eh *exportHandler) HandleExportRequest(w http.ResponseWriter, r *http.Request) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ExportHandler"))
 
@@ -60,52 +61,38 @@ func (eh *exportHandler) HandleExportRequest(w http.ResponseWriter, r *http.Requ
 	// Export resources using the export service
 	exportResponse, svcErr := eh.service.ExportResources(r.Context(), exportRequest)
 	if svcErr != nil {
+		if svcErr.Type == serviceerror.ServerErrorType {
+			logger.Error("Error exporting resources", log.Any("serviceError", svcErr))
+		}
 		eh.handleError(w, svcErr)
 		return
 	}
 
-	// Combine all YAML files into a single response with separators
-	var combinedYAML string
-	for i, file := range exportResponse.Files {
-		if i > 0 {
-			combinedYAML += "\n---\n" // YAML document separator
-		}
-		combinedYAML += "# File: " + file.FileName + "\n"
-		combinedYAML += file.Content
+	jsonResponse := JSONExportResponse{
+		Resources:            buildCombinedResources(exportResponse.Files),
+		EnvironmentVariables: "",
+	}
+	if exportResponse.EnvFile != nil {
+		jsonResponse.EnvironmentVariables = exportResponse.EnvFile.Content
 	}
 
-	// Return the combined YAML content
-	w.Header().Set(serverconst.ContentTypeHeaderName, "application/yaml")
-	w.WriteHeader(http.StatusOK)
-
-	if _, err := w.Write([]byte(combinedYAML)); err != nil {
-		logger.Error("Error writing YAML response", log.Error(err))
-		return
-	}
+	sysutils.WriteSuccessResponse(w, http.StatusOK, jsonResponse)
 }
 
-// HandleExportJSONRequest handles the export request and returns JSON with files.
-func (eh *exportHandler) HandleExportJSONRequest(w http.ResponseWriter, r *http.Request) {
-	exportRequest, err := sysutils.DecodeJSONBody[ExportRequest](r)
-	if err != nil {
-		errResp := apierror.ErrorResponse{
-			Code:        ErrorInvalidRequest.Code,
-			Message:     ErrorInvalidRequest.Error,
-			Description: ErrorInvalidRequest.ErrorDescription,
+func buildCombinedResources(files []ExportFile) string {
+	var builder strings.Builder
+
+	for i, file := range files {
+		if i > 0 {
+			builder.WriteString("\n---\n")
 		}
-		sysutils.WriteErrorResponse(w, http.StatusBadRequest, errResp)
-		return
+		builder.WriteString("# File: ")
+		builder.WriteString(file.FileName)
+		builder.WriteString("\n")
+		builder.WriteString(file.Content)
 	}
 
-	// Export resources using the export service
-	exportResponse, svcErr := eh.service.ExportResources(r.Context(), exportRequest)
-	if svcErr != nil {
-		eh.handleError(w, svcErr)
-		return
-	}
-
-	// Return the JSON response with files
-	sysutils.WriteSuccessResponse(w, http.StatusOK, exportResponse)
+	return builder.String()
 }
 
 // HandleExportZipRequest handles the export request and returns a ZIP file containing all resources.
@@ -126,6 +113,9 @@ func (eh *exportHandler) HandleExportZipRequest(w http.ResponseWriter, r *http.R
 	// Export resources using the export service
 	exportResponse, svcErr := eh.service.ExportResources(r.Context(), exportRequest)
 	if svcErr != nil {
+		if svcErr.Type == serviceerror.ServerErrorType {
+			logger.Error("Error exporting resources", log.Any("serviceError", svcErr))
+		}
 		eh.handleError(w, svcErr)
 		return
 	}
@@ -134,9 +124,9 @@ func (eh *exportHandler) HandleExportZipRequest(w http.ResponseWriter, r *http.R
 	if err := eh.generateAndSendZipResponse(w, logger, exportResponse); err != nil {
 		logger.Error("Error generating ZIP response", log.Error(err))
 		errResp := apierror.ErrorResponse{
-			Code:        ErrorInternalServerError.Code,
-			Message:     ErrorInternalServerError.Error,
-			Description: ErrorInternalServerError.ErrorDescription,
+			Code:        serviceerror.InternalServerError.Code,
+			Message:     serviceerror.InternalServerError.Error,
+			Description: serviceerror.InternalServerError.ErrorDescription,
 		}
 		sysutils.WriteErrorResponse(w, http.StatusInternalServerError, errResp)
 		return
@@ -167,6 +157,22 @@ func (eh *exportHandler) generateAndSendZipResponse(
 		if _, err := fileWriter.Write([]byte(file.Content)); err != nil {
 			logger.Error("Error writing file content to ZIP", log.String("zipPath", zipPath), log.Error(err))
 			return fmt.Errorf("failed to write content to ZIP: %w", err)
+		}
+	}
+
+	if exportResponse.EnvFile != nil {
+		envWriter, err := zipWriter.Create(exportResponse.EnvFile.FileName)
+		if err != nil {
+			logger.Error("Error creating env file in ZIP", log.String("fileName", exportResponse.EnvFile.FileName),
+				log.Error(err))
+			return fmt.Errorf("failed to create env file in ZIP: %w", err)
+		}
+
+		if _, err = envWriter.Write([]byte(exportResponse.EnvFile.Content)); err != nil {
+			logger.Error("Error writing env file content to ZIP",
+				log.String("fileName", exportResponse.EnvFile.FileName),
+				log.Error(err))
+			return fmt.Errorf("failed to write env file content to ZIP: %w", err)
 		}
 	}
 

@@ -18,23 +18,43 @@
 
 package group
 
-import "github.com/asgardeo/thunder/internal/system/utils"
+import "github.com/thunder-id/thunderid/internal/system/utils"
 
-// MemberType represents the type of member entity.
+// MemberType represents the type of member principal.
 type MemberType string
 
+// Public member types accepted in requests and returned in responses.
 const (
-	// MemberTypeUser is the type for users.
+	// MemberTypeUser is the public type for user members.
 	MemberTypeUser MemberType = "user"
-	// MemberTypeGroup is the type for groups.
+	// MemberTypeApp is the public type for application members.
+	MemberTypeApp MemberType = "app"
+	// MemberTypeAgent is the public type for agent members.
+	MemberTypeAgent MemberType = "agent"
+	// MemberTypeGroup is the public type for group members.
 	MemberTypeGroup MemberType = "group"
 )
 
+// Internal member types used only for storage.
+const (
+	memberTypeEntity MemberType = "entity"
+)
+
+// IsEntityType reports whether t is an entity type (user, app, agent) that maps
+// to the internal entity storage type.
+func (t MemberType) IsEntityType() bool {
+	switch t {
+	case MemberTypeUser, MemberTypeApp, MemberTypeAgent:
+		return true
+	}
+	return false
+}
+
 // Member represents a member of a group (either user or another group).
 type Member struct {
-	ID      string     `json:"id"`
-	Type    MemberType `json:"type"`
-	Display string     `json:"display,omitempty"`
+	ID      string     `json:"id" yaml:"id"`
+	Type    MemberType `json:"type" yaml:"type"`
+	Display string     `json:"display,omitempty" yaml:"display,omitempty"`
 }
 
 // GroupBasic represents the basic information of a group.
@@ -43,6 +63,7 @@ type GroupBasic struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	OUID        string `json:"ouId"`
+	OUHandle    string `json:"ouHandle,omitempty"`
 }
 
 // GroupBasicDAO represents a data access object for basic group information,
@@ -59,6 +80,7 @@ type Group struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
 	OUID        string   `json:"ouId"`
+	OUHandle    string   `json:"ouHandle,omitempty"`
 	Members     []Member `json:"members,omitempty"`
 }
 
@@ -78,6 +100,7 @@ type MembersRequest struct {
 
 // CreateGroupRequest represents the request body for creating a group.
 type CreateGroupRequest struct {
+	ID          string   `json:"-"`
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
 	OUID        string   `json:"ouId"`

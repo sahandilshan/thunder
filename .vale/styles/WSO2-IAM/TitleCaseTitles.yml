@@ -23,7 +23,15 @@ exceptions:
   - per
   - the
   - to
-  - up
   - via
   - with
   - without
+  - i18n
+  - v7
+  - Basepath
+  - Basename
+  - Per-Cache
+  - act
+  - Sign-In
+  - Sign-Out
+  - Sign-Up

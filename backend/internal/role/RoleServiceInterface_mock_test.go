@@ -7,8 +7,8 @@ package role
 import (
 	"context"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // NewRoleServiceInterfaceMock creates a new instance of RoleServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -36,71 +36,6 @@ type RoleServiceInterfaceMock_Expecter struct {
 
 func (_m *RoleServiceInterfaceMock) EXPECT() *RoleServiceInterfaceMock_Expecter {
 	return &RoleServiceInterfaceMock_Expecter{mock: &_m.Mock}
-}
-
-// AddAssignments provides a mock function for the type RoleServiceInterfaceMock
-func (_mock *RoleServiceInterfaceMock) AddAssignments(ctx context.Context, id string, assignments []RoleAssignment) *serviceerror.ServiceError {
-	ret := _mock.Called(ctx, id, assignments)
-
-	if len(ret) == 0 {
-		panic("no return value specified for AddAssignments")
-	}
-
-	var r0 *serviceerror.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []RoleAssignment) *serviceerror.ServiceError); ok {
-		r0 = returnFunc(ctx, id, assignments)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*serviceerror.ServiceError)
-		}
-	}
-	return r0
-}
-
-// RoleServiceInterfaceMock_AddAssignments_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddAssignments'
-type RoleServiceInterfaceMock_AddAssignments_Call struct {
-	*mock.Call
-}
-
-// AddAssignments is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - assignments []RoleAssignment
-func (_e *RoleServiceInterfaceMock_Expecter) AddAssignments(ctx interface{}, id interface{}, assignments interface{}) *RoleServiceInterfaceMock_AddAssignments_Call {
-	return &RoleServiceInterfaceMock_AddAssignments_Call{Call: _e.mock.On("AddAssignments", ctx, id, assignments)}
-}
-
-func (_c *RoleServiceInterfaceMock_AddAssignments_Call) Run(run func(ctx context.Context, id string, assignments []RoleAssignment)) *RoleServiceInterfaceMock_AddAssignments_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 []RoleAssignment
-		if args[2] != nil {
-			arg2 = args[2].([]RoleAssignment)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *RoleServiceInterfaceMock_AddAssignments_Call) Return(serviceError *serviceerror.ServiceError) *RoleServiceInterfaceMock_AddAssignments_Call {
-	_c.Call.Return(serviceError)
-	return _c
-}
-
-func (_c *RoleServiceInterfaceMock_AddAssignments_Call) RunAndReturn(run func(ctx context.Context, id string, assignments []RoleAssignment) *serviceerror.ServiceError) *RoleServiceInterfaceMock_AddAssignments_Call {
-	_c.Call.Return(run)
-	return _c
 }
 
 // CreateRole provides a mock function for the type RoleServiceInterfaceMock
@@ -233,8 +168,8 @@ func (_c *RoleServiceInterfaceMock_DeleteRole_Call) RunAndReturn(run func(ctx co
 }
 
 // GetAuthorizedPermissions provides a mock function for the type RoleServiceInterfaceMock
-func (_mock *RoleServiceInterfaceMock) GetAuthorizedPermissions(ctx context.Context, userID string, groups []string, requestedPermissions []string) ([]string, *serviceerror.ServiceError) {
-	ret := _mock.Called(ctx, userID, groups, requestedPermissions)
+func (_mock *RoleServiceInterfaceMock) GetAuthorizedPermissions(ctx context.Context, entityID string, groups []string, requestedPermissions []string) ([]string, *serviceerror.ServiceError) {
+	ret := _mock.Called(ctx, entityID, groups, requestedPermissions)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAuthorizedPermissions")
@@ -243,17 +178,17 @@ func (_mock *RoleServiceInterfaceMock) GetAuthorizedPermissions(ctx context.Cont
 	var r0 []string
 	var r1 *serviceerror.ServiceError
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string, []string) ([]string, *serviceerror.ServiceError)); ok {
-		return returnFunc(ctx, userID, groups, requestedPermissions)
+		return returnFunc(ctx, entityID, groups, requestedPermissions)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string, []string) []string); ok {
-		r0 = returnFunc(ctx, userID, groups, requestedPermissions)
+		r0 = returnFunc(ctx, entityID, groups, requestedPermissions)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, []string, []string) *serviceerror.ServiceError); ok {
-		r1 = returnFunc(ctx, userID, groups, requestedPermissions)
+		r1 = returnFunc(ctx, entityID, groups, requestedPermissions)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(*serviceerror.ServiceError)
@@ -269,14 +204,14 @@ type RoleServiceInterfaceMock_GetAuthorizedPermissions_Call struct {
 
 // GetAuthorizedPermissions is a helper method to define mock.On call
 //   - ctx context.Context
-//   - userID string
+//   - entityID string
 //   - groups []string
 //   - requestedPermissions []string
-func (_e *RoleServiceInterfaceMock_Expecter) GetAuthorizedPermissions(ctx interface{}, userID interface{}, groups interface{}, requestedPermissions interface{}) *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call {
-	return &RoleServiceInterfaceMock_GetAuthorizedPermissions_Call{Call: _e.mock.On("GetAuthorizedPermissions", ctx, userID, groups, requestedPermissions)}
+func (_e *RoleServiceInterfaceMock_Expecter) GetAuthorizedPermissions(ctx interface{}, entityID interface{}, groups interface{}, requestedPermissions interface{}) *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call {
+	return &RoleServiceInterfaceMock_GetAuthorizedPermissions_Call{Call: _e.mock.On("GetAuthorizedPermissions", ctx, entityID, groups, requestedPermissions)}
 }
 
-func (_c *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call) Run(run func(ctx context.Context, userID string, groups []string, requestedPermissions []string)) *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call {
+func (_c *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call) Run(run func(ctx context.Context, entityID string, groups []string, requestedPermissions []string)) *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -309,95 +244,7 @@ func (_c *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call) Return(strings
 	return _c
 }
 
-func (_c *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call) RunAndReturn(run func(ctx context.Context, userID string, groups []string, requestedPermissions []string) ([]string, *serviceerror.ServiceError)) *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetRoleAssignments provides a mock function for the type RoleServiceInterfaceMock
-func (_mock *RoleServiceInterfaceMock) GetRoleAssignments(ctx context.Context, id string, limit int, offset int, includeDisplay bool) (*AssignmentList, *serviceerror.ServiceError) {
-	ret := _mock.Called(ctx, id, limit, offset, includeDisplay)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetRoleAssignments")
-	}
-
-	var r0 *AssignmentList
-	var r1 *serviceerror.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, int, int, bool) (*AssignmentList, *serviceerror.ServiceError)); ok {
-		return returnFunc(ctx, id, limit, offset, includeDisplay)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, int, int, bool) *AssignmentList); ok {
-		r0 = returnFunc(ctx, id, limit, offset, includeDisplay)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*AssignmentList)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, int, int, bool) *serviceerror.ServiceError); ok {
-		r1 = returnFunc(ctx, id, limit, offset, includeDisplay)
-	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*serviceerror.ServiceError)
-		}
-	}
-	return r0, r1
-}
-
-// RoleServiceInterfaceMock_GetRoleAssignments_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRoleAssignments'
-type RoleServiceInterfaceMock_GetRoleAssignments_Call struct {
-	*mock.Call
-}
-
-// GetRoleAssignments is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - limit int
-//   - offset int
-//   - includeDisplay bool
-func (_e *RoleServiceInterfaceMock_Expecter) GetRoleAssignments(ctx interface{}, id interface{}, limit interface{}, offset interface{}, includeDisplay interface{}) *RoleServiceInterfaceMock_GetRoleAssignments_Call {
-	return &RoleServiceInterfaceMock_GetRoleAssignments_Call{Call: _e.mock.On("GetRoleAssignments", ctx, id, limit, offset, includeDisplay)}
-}
-
-func (_c *RoleServiceInterfaceMock_GetRoleAssignments_Call) Run(run func(ctx context.Context, id string, limit int, offset int, includeDisplay bool)) *RoleServiceInterfaceMock_GetRoleAssignments_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 int
-		if args[2] != nil {
-			arg2 = args[2].(int)
-		}
-		var arg3 int
-		if args[3] != nil {
-			arg3 = args[3].(int)
-		}
-		var arg4 bool
-		if args[4] != nil {
-			arg4 = args[4].(bool)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-			arg3,
-			arg4,
-		)
-	})
-	return _c
-}
-
-func (_c *RoleServiceInterfaceMock_GetRoleAssignments_Call) Return(assignmentList *AssignmentList, serviceError *serviceerror.ServiceError) *RoleServiceInterfaceMock_GetRoleAssignments_Call {
-	_c.Call.Return(assignmentList, serviceError)
-	return _c
-}
-
-func (_c *RoleServiceInterfaceMock_GetRoleAssignments_Call) RunAndReturn(run func(ctx context.Context, id string, limit int, offset int, includeDisplay bool) (*AssignmentList, *serviceerror.ServiceError)) *RoleServiceInterfaceMock_GetRoleAssignments_Call {
+func (_c *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call) RunAndReturn(run func(ctx context.Context, entityID string, groups []string, requestedPermissions []string) ([]string, *serviceerror.ServiceError)) *RoleServiceInterfaceMock_GetAuthorizedPermissions_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -548,6 +395,82 @@ func (_c *RoleServiceInterfaceMock_GetRoleWithPermissions_Call) RunAndReturn(run
 	return _c
 }
 
+// GetUserRoles provides a mock function for the type RoleServiceInterfaceMock
+func (_mock *RoleServiceInterfaceMock) GetUserRoles(ctx context.Context, entityID string, groupIDs []string) ([]string, *serviceerror.ServiceError) {
+	ret := _mock.Called(ctx, entityID, groupIDs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetUserRoles")
+	}
+
+	var r0 []string
+	var r1 *serviceerror.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string) ([]string, *serviceerror.ServiceError)); ok {
+		return returnFunc(ctx, entityID, groupIDs)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string) []string); ok {
+		r0 = returnFunc(ctx, entityID, groupIDs)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, []string) *serviceerror.ServiceError); ok {
+		r1 = returnFunc(ctx, entityID, groupIDs)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*serviceerror.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// RoleServiceInterfaceMock_GetUserRoles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetUserRoles'
+type RoleServiceInterfaceMock_GetUserRoles_Call struct {
+	*mock.Call
+}
+
+// GetUserRoles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - entityID string
+//   - groupIDs []string
+func (_e *RoleServiceInterfaceMock_Expecter) GetUserRoles(ctx interface{}, entityID interface{}, groupIDs interface{}) *RoleServiceInterfaceMock_GetUserRoles_Call {
+	return &RoleServiceInterfaceMock_GetUserRoles_Call{Call: _e.mock.On("GetUserRoles", ctx, entityID, groupIDs)}
+}
+
+func (_c *RoleServiceInterfaceMock_GetUserRoles_Call) Run(run func(ctx context.Context, entityID string, groupIDs []string)) *RoleServiceInterfaceMock_GetUserRoles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 []string
+		if args[2] != nil {
+			arg2 = args[2].([]string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *RoleServiceInterfaceMock_GetUserRoles_Call) Return(strings []string, serviceError *serviceerror.ServiceError) *RoleServiceInterfaceMock_GetUserRoles_Call {
+	_c.Call.Return(strings, serviceError)
+	return _c
+}
+
+func (_c *RoleServiceInterfaceMock_GetUserRoles_Call) RunAndReturn(run func(ctx context.Context, entityID string, groupIDs []string) ([]string, *serviceerror.ServiceError)) *RoleServiceInterfaceMock_GetUserRoles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // IsRoleDeclarative provides a mock function for the type RoleServiceInterfaceMock
 func (_mock *RoleServiceInterfaceMock) IsRoleDeclarative(ctx context.Context, id string) (bool, *serviceerror.ServiceError) {
 	ret := _mock.Called(ctx, id)
@@ -616,17 +539,17 @@ func (_c *RoleServiceInterfaceMock_IsRoleDeclarative_Call) RunAndReturn(run func
 	return _c
 }
 
-// RemoveAssignments provides a mock function for the type RoleServiceInterfaceMock
-func (_mock *RoleServiceInterfaceMock) RemoveAssignments(ctx context.Context, id string, assignments []RoleAssignment) *serviceerror.ServiceError {
-	ret := _mock.Called(ctx, id, assignments)
+// ResolveRoleOUHandle provides a mock function for the type RoleServiceInterfaceMock
+func (_mock *RoleServiceInterfaceMock) ResolveRoleOUHandle(ctx context.Context, role *RoleWithPermissionsAndAssignments) *serviceerror.ServiceError {
+	ret := _mock.Called(ctx, role)
 
 	if len(ret) == 0 {
-		panic("no return value specified for RemoveAssignments")
+		panic("no return value specified for ResolveRoleOUHandle")
 	}
 
 	var r0 *serviceerror.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []RoleAssignment) *serviceerror.ServiceError); ok {
-		r0 = returnFunc(ctx, id, assignments)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *RoleWithPermissionsAndAssignments) *serviceerror.ServiceError); ok {
+		r0 = returnFunc(ctx, role)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*serviceerror.ServiceError)
@@ -635,48 +558,42 @@ func (_mock *RoleServiceInterfaceMock) RemoveAssignments(ctx context.Context, id
 	return r0
 }
 
-// RoleServiceInterfaceMock_RemoveAssignments_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveAssignments'
-type RoleServiceInterfaceMock_RemoveAssignments_Call struct {
+// RoleServiceInterfaceMock_ResolveRoleOUHandle_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveRoleOUHandle'
+type RoleServiceInterfaceMock_ResolveRoleOUHandle_Call struct {
 	*mock.Call
 }
 
-// RemoveAssignments is a helper method to define mock.On call
+// ResolveRoleOUHandle is a helper method to define mock.On call
 //   - ctx context.Context
-//   - id string
-//   - assignments []RoleAssignment
-func (_e *RoleServiceInterfaceMock_Expecter) RemoveAssignments(ctx interface{}, id interface{}, assignments interface{}) *RoleServiceInterfaceMock_RemoveAssignments_Call {
-	return &RoleServiceInterfaceMock_RemoveAssignments_Call{Call: _e.mock.On("RemoveAssignments", ctx, id, assignments)}
+//   - role *RoleWithPermissionsAndAssignments
+func (_e *RoleServiceInterfaceMock_Expecter) ResolveRoleOUHandle(ctx interface{}, role interface{}) *RoleServiceInterfaceMock_ResolveRoleOUHandle_Call {
+	return &RoleServiceInterfaceMock_ResolveRoleOUHandle_Call{Call: _e.mock.On("ResolveRoleOUHandle", ctx, role)}
 }
 
-func (_c *RoleServiceInterfaceMock_RemoveAssignments_Call) Run(run func(ctx context.Context, id string, assignments []RoleAssignment)) *RoleServiceInterfaceMock_RemoveAssignments_Call {
+func (_c *RoleServiceInterfaceMock_ResolveRoleOUHandle_Call) Run(run func(ctx context.Context, role *RoleWithPermissionsAndAssignments)) *RoleServiceInterfaceMock_ResolveRoleOUHandle_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 string
+		var arg1 *RoleWithPermissionsAndAssignments
 		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 []RoleAssignment
-		if args[2] != nil {
-			arg2 = args[2].([]RoleAssignment)
+			arg1 = args[1].(*RoleWithPermissionsAndAssignments)
 		}
 		run(
 			arg0,
 			arg1,
-			arg2,
 		)
 	})
 	return _c
 }
 
-func (_c *RoleServiceInterfaceMock_RemoveAssignments_Call) Return(serviceError *serviceerror.ServiceError) *RoleServiceInterfaceMock_RemoveAssignments_Call {
+func (_c *RoleServiceInterfaceMock_ResolveRoleOUHandle_Call) Return(serviceError *serviceerror.ServiceError) *RoleServiceInterfaceMock_ResolveRoleOUHandle_Call {
 	_c.Call.Return(serviceError)
 	return _c
 }
 
-func (_c *RoleServiceInterfaceMock_RemoveAssignments_Call) RunAndReturn(run func(ctx context.Context, id string, assignments []RoleAssignment) *serviceerror.ServiceError) *RoleServiceInterfaceMock_RemoveAssignments_Call {
+func (_c *RoleServiceInterfaceMock_ResolveRoleOUHandle_Call) RunAndReturn(run func(ctx context.Context, role *RoleWithPermissionsAndAssignments) *serviceerror.ServiceError) *RoleServiceInterfaceMock_ResolveRoleOUHandle_Call {
 	_c.Call.Return(run)
 	return _c
 }

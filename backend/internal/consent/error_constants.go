@@ -19,14 +19,14 @@
 package consent
 
 import (
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 // Client-facing service errors.
 var (
 	// ErrorInvalidRequestFormat is returned when the request format is invalid.
-	ErrorInvalidRequestFormat = serviceerror.I18nServiceError{
+	ErrorInvalidRequestFormat = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1001",
 		Error: core.I18nMessage{
@@ -40,7 +40,7 @@ var (
 	}
 
 	// ErrorConsentServiceReturnedUnauthorized is returned when the consent service returns a unauthorized response.
-	ErrorConsentServiceReturnedUnauthorized = serviceerror.I18nServiceError{
+	ErrorConsentServiceReturnedUnauthorized = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1002",
 		Error: core.I18nMessage{
@@ -54,7 +54,7 @@ var (
 	}
 
 	// ErrorConsentServiceReturnedForbidden is returned when the consent service returns a forbidden response.
-	ErrorConsentServiceReturnedForbidden = serviceerror.I18nServiceError{
+	ErrorConsentServiceReturnedForbidden = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1003",
 		Error: core.I18nMessage{
@@ -68,7 +68,7 @@ var (
 	}
 
 	// ErrorInvalidConsentRequest is returned when the consent backend rejects a request as invalid (400).
-	ErrorInvalidConsentRequest = serviceerror.I18nServiceError{
+	ErrorInvalidConsentRequest = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1004",
 		Error: core.I18nMessage{
@@ -82,7 +82,7 @@ var (
 	}
 
 	// ErrorInvalidConsentElementRequest is returned when the consent service rejects a consent element request.
-	ErrorInvalidConsentElementRequest = serviceerror.I18nServiceError{
+	ErrorInvalidConsentElementRequest = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1005",
 		Error: core.I18nMessage{
@@ -96,7 +96,7 @@ var (
 	}
 
 	// ErrorConsentElementAlreadyExists is returned when a consent element with the same name already exists.
-	ErrorConsentElementAlreadyExists = serviceerror.I18nServiceError{
+	ErrorConsentElementAlreadyExists = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1006",
 		Error: core.I18nMessage{
@@ -110,7 +110,7 @@ var (
 	}
 
 	// ErrorConsentElementNotFound is returned when a consent element is not found.
-	ErrorConsentElementNotFound = serviceerror.I18nServiceError{
+	ErrorConsentElementNotFound = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1007",
 		Error: core.I18nMessage{
@@ -125,7 +125,7 @@ var (
 
 	// ErrorDeletingConsentElementWithAssociatedPurpose is returned when attempting to delete a consent element
 	// that is still associated with a purpose.
-	ErrorDeletingConsentElementWithAssociatedPurpose = serviceerror.I18nServiceError{
+	ErrorDeletingConsentElementWithAssociatedPurpose = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1008",
 		Error: core.I18nMessage{
@@ -140,7 +140,7 @@ var (
 	}
 
 	// ErrorInvalidConsentPurposeRequest is returned when the consent service rejects a consent purpose request.
-	ErrorInvalidConsentPurposeRequest = serviceerror.I18nServiceError{
+	ErrorInvalidConsentPurposeRequest = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1009",
 		Error: core.I18nMessage{
@@ -154,7 +154,7 @@ var (
 	}
 
 	// ErrorConsentPurposeAlreadyExists is returned when a consent purpose with the same name already exists.
-	ErrorConsentPurposeAlreadyExists = serviceerror.I18nServiceError{
+	ErrorConsentPurposeAlreadyExists = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1010",
 		Error: core.I18nMessage{
@@ -168,7 +168,7 @@ var (
 	}
 
 	// ErrorConsentPurposeNotFound is returned when a consent purpose is not found.
-	ErrorConsentPurposeNotFound = serviceerror.I18nServiceError{
+	ErrorConsentPurposeNotFound = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1011",
 		Error: core.I18nMessage{
@@ -183,7 +183,7 @@ var (
 
 	// ErrorDeletingConsentPurposeWithAssociatedRecords is returned when attempting to delete a consent purpose that
 	// has associated consent records.
-	ErrorDeletingConsentPurposeWithAssociatedRecords = serviceerror.I18nServiceError{
+	ErrorDeletingConsentPurposeWithAssociatedRecords = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1012",
 		Error: core.I18nMessage{
@@ -197,7 +197,7 @@ var (
 	}
 
 	// ErrorInvalidConsentRecordRequest is returned when the consent service rejects a consent request.
-	ErrorInvalidConsentRecordRequest = serviceerror.I18nServiceError{
+	ErrorInvalidConsentRecordRequest = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1013",
 		Error: core.I18nMessage{
@@ -211,7 +211,7 @@ var (
 	}
 
 	// ErrorConsentRecordNotFound is returned when a consent record is not found.
-	ErrorConsentRecordNotFound = serviceerror.I18nServiceError{
+	ErrorConsentRecordNotFound = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1014",
 		Error: core.I18nMessage{
@@ -225,7 +225,7 @@ var (
 	}
 
 	// ErrorInvalidConsentSearchFilter is returned when the consent service rejects a consent search filter.
-	ErrorInvalidConsentSearchFilter = serviceerror.I18nServiceError{
+	ErrorInvalidConsentSearchFilter = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1015",
 		Error: core.I18nMessage{
@@ -239,7 +239,7 @@ var (
 	}
 
 	// ErrorInvalidConsentValidationRequest is returned when the consent service rejects a consent validation request.
-	ErrorInvalidConsentValidationRequest = serviceerror.I18nServiceError{
+	ErrorInvalidConsentValidationRequest = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1016",
 		Error: core.I18nMessage{
@@ -253,7 +253,7 @@ var (
 	}
 
 	// ErrorInvalidConsentRevokeRequest is returned when the consent service rejects a consent revoke request.
-	ErrorInvalidConsentRevokeRequest = serviceerror.I18nServiceError{
+	ErrorInvalidConsentRevokeRequest = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1017",
 		Error: core.I18nMessage{
@@ -267,7 +267,7 @@ var (
 	}
 
 	// ErrorInvalidConsentUpdateRequest is returned when the consent service rejects a consent update request.
-	ErrorInvalidConsentUpdateRequest = serviceerror.I18nServiceError{
+	ErrorInvalidConsentUpdateRequest = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "CSE-1018",
 		Error: core.I18nMessage{

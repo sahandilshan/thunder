@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 const (
@@ -52,10 +52,10 @@ func (suite *CacheTestSuite) SetupSuite() {
 			CleanupInterval: 300,
 		},
 	}
-	config.ResetThunderRuntime()
-	err := config.InitializeThunderRuntime("/test/thunder/home", mockConfig)
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime("/test/thunderid/home", mockConfig)
 	if err != nil {
-		suite.T().Fatal("Failed to initialize ThunderRuntime:", err)
+		suite.T().Fatal("Failed to initialize server runtime:", err)
 	}
 }
 

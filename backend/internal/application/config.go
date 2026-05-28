@@ -21,9 +21,9 @@ package application
 import (
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 )
 
 // getApplicationStoreMode determines the store mode for applications.
@@ -36,7 +36,7 @@ import (
 //
 // Returns normalized store mode: "mutable", "declarative", or "composite"
 func getApplicationStoreMode() serverconst.StoreMode {
-	cfg := config.GetThunderRuntime().Config
+	cfg := config.GetServerRuntime().Config
 	// Check if service-level configuration is explicitly set
 	if cfg.Application.Store != "" {
 		mode := serverconst.StoreMode(strings.ToLower(strings.TrimSpace(cfg.Application.Store)))
@@ -58,4 +58,11 @@ func getApplicationStoreMode() serverconst.StoreMode {
 // isDeclarativeModeEnabled checks if immutable-only store mode is enabled for applications.
 func isDeclarativeModeEnabled() bool {
 	return getApplicationStoreMode() == serverconst.StoreModeDeclarative
+}
+
+// TODO: Move this to application config (similar to user indexed attributes)
+// getAppIndexedAttributes returns the entity attribute names that applications need indexed
+// for fast lookups.
+func getAppIndexedAttributes() []string {
+	return []string{"name", "clientId"}
 }

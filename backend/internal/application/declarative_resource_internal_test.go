@@ -19,256 +19,20 @@
 package application
 
 import (
-	"github.com/stretchr/testify/mock"
-
+	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/application/model"
-	oauth2const "github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/application/model"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 )
 
 // ValidateApplicationWrapperTestSuite tests the validateApplicationWrapper function.
-type ValidateApplicationWrapperTestSuite struct {
-	suite.Suite
-	mockFileStore *applicationStoreInterfaceMock
-	mockDBStore   *applicationStoreInterfaceMock
-}
-
-func TestValidateApplicationWrapperTestSuite(t *testing.T) {
-	suite.Run(t, new(ValidateApplicationWrapperTestSuite))
-}
-
-func (s *ValidateApplicationWrapperTestSuite) SetupTest() {
-	s.mockFileStore = newApplicationStoreInterfaceMock(s.T())
-	s.mockDBStore = newApplicationStoreInterfaceMock(s.T())
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_Success_DeclarativeMode() {
-	// Test successful validation in declarative-only mode (no DB store)
-	app := &model.ApplicationProcessedDTO{
-		ID:   "app123",
-		Name: "Test Application",
-	}
-
-	// Mock file store check - app does not exist
-	s.mockFileStore.EXPECT().IsApplicationExists(mock.Anything, "app123").Return(false, nil)
-
-	err := validateApplicationWrapper(app, s.mockFileStore, nil)
-
-	assert.Nil(s.T(), err)
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_Success_CompositeMode() {
-	// Test successful validation in composite mode (both file and DB stores)
-	app := &model.ApplicationProcessedDTO{
-		ID:   "app456",
-		Name: "Another Application",
-	}
-
-	// Mock file store check - app does not exist
-	s.mockFileStore.EXPECT().IsApplicationExists(mock.Anything, "app456").Return(false, nil)
-
-	// Mock DB store check - app does not exist
-	s.mockDBStore.EXPECT().IsApplicationExists(mock.Anything, "app456").Return(false, nil)
-
-	err := validateApplicationWrapper(app, s.mockFileStore, s.mockDBStore)
-
-	assert.Nil(s.T(), err)
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_InvalidType() {
-	// Test with invalid data type
-	invalidData := "not an ApplicationProcessedDTO"
-
-	err := validateApplicationWrapper(invalidData, s.mockFileStore, nil)
-
-	assert.NotNil(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "invalid type: expected *ApplicationProcessedDTO")
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_EmptyName() {
-	// Test with empty application name
-	app := &model.ApplicationProcessedDTO{
-		ID:   "app789",
-		Name: "",
-	}
-
-	err := validateApplicationWrapper(app, s.mockFileStore, nil)
-
-	assert.NotNil(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "application name cannot be empty")
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_DuplicateInFileStore() {
-	// Test duplicate ID in file store
-	app := &model.ApplicationProcessedDTO{
-		ID:   "duplicate123",
-		Name: "Duplicate App",
-	}
-
-	// Mock file store check - app already exists
-	s.mockFileStore.EXPECT().IsApplicationExists(mock.Anything, "duplicate123").Return(true, nil)
-
-	err := validateApplicationWrapper(app, s.mockFileStore, nil)
-
-	assert.NotNil(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "duplicate application ID 'duplicate123'")
-	assert.Contains(s.T(), err.Error(), "already exists in declarative resources")
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_DuplicateInDBStore() {
-	// Test duplicate ID in database store (composite mode)
-	app := &model.ApplicationProcessedDTO{
-		ID:   "duplicate456",
-		Name: "Another Duplicate",
-	}
-
-	// Mock file store check - app does not exist in file store
-	s.mockFileStore.EXPECT().IsApplicationExists(mock.Anything, "duplicate456").Return(false, nil)
-
-	// Mock DB store check - app already exists in DB
-	s.mockDBStore.EXPECT().IsApplicationExists(mock.Anything, "duplicate456").Return(true, nil)
-
-	err := validateApplicationWrapper(app, s.mockFileStore, s.mockDBStore)
-
-	assert.NotNil(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "duplicate application ID 'duplicate456'")
-	assert.Contains(s.T(), err.Error(), "already exists in the database store")
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_FileStoreCheckError() {
-	// Test when file store check returns an error
-	app := &model.ApplicationProcessedDTO{
-		ID:   "app999",
-		Name: "Error Test App",
-	}
-
-	// Mock file store check returns an error
-	s.mockFileStore.EXPECT().IsApplicationExists(mock.Anything, "app999").Return(false, assert.AnError)
-
-	err := validateApplicationWrapper(app, s.mockFileStore, nil)
-
-	assert.NotNil(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "failed to check application existence")
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_DBStoreCheckError() {
-	// Test when DB store check returns an error (composite mode)
-	app := &model.ApplicationProcessedDTO{
-		ID:   "app888",
-		Name: "DB Error Test App",
-	}
-
-	// Mock file store check - app does not exist
-	s.mockFileStore.EXPECT().IsApplicationExists(mock.Anything, "app888").Return(false, nil)
-
-	// Mock DB store check returns an error
-	s.mockDBStore.EXPECT().IsApplicationExists(mock.Anything, "app888").Return(false, assert.AnError)
-
-	err := validateApplicationWrapper(app, s.mockFileStore, s.mockDBStore)
-
-	assert.NotNil(s.T(), err)
-	assert.Contains(s.T(), err.Error(), "failed to check application existence")
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_DeclarativeMode_NoDBStoreCheck() {
-	// Test that DB store is not checked when it's nil (declarative-only mode)
-	app := &model.ApplicationProcessedDTO{
-		ID:   "app777",
-		Name: "Declarative Only App",
-	}
-
-	// Mock file store check - app does not exist
-	s.mockFileStore.EXPECT().IsApplicationExists(mock.Anything, "app777").Return(false, nil)
-
-	// DB store should not be called (nil check prevents it)
-	// No expectations set for mockDBStore
-
-	err := validateApplicationWrapper(app, s.mockFileStore, nil)
-
-	assert.Nil(s.T(), err)
-}
-
-func (s *ValidateApplicationWrapperTestSuite) TestValidateApplicationWrapper_MultipleValidations() {
-	// Test multiple validations to ensure store mocks are reusable
-	testCases := []struct {
-		name          string
-		app           *model.ApplicationProcessedDTO
-		fileExists    bool
-		dbExists      bool
-		useDBStore    bool
-		expectedError bool
-		errorContains string
-	}{
-		{
-			name:          "Valid app in declarative mode",
-			app:           &model.ApplicationProcessedDTO{ID: "app1", Name: "App 1"},
-			fileExists:    false,
-			useDBStore:    false,
-			expectedError: false,
-		},
-		{
-			name:          "Valid app in composite mode",
-			app:           &model.ApplicationProcessedDTO{ID: "app2", Name: "App 2"},
-			fileExists:    false,
-			dbExists:      false,
-			useDBStore:    true,
-			expectedError: false,
-		},
-		{
-			name:          "Duplicate in file store",
-			app:           &model.ApplicationProcessedDTO{ID: "app3", Name: "App 3"},
-			fileExists:    true,
-			useDBStore:    false,
-			expectedError: true,
-			errorContains: "already exists in declarative resources",
-		},
-		{
-			name:          "Duplicate in DB store",
-			app:           &model.ApplicationProcessedDTO{ID: "app4", Name: "App 4"},
-			fileExists:    false,
-			dbExists:      true,
-			useDBStore:    true,
-			expectedError: true,
-			errorContains: "already exists in the database store",
-		},
-	}
-
-	for _, tc := range testCases {
-		s.Run(tc.name, func() {
-			// Create fresh mocks for each test case
-			mockFileStore := newApplicationStoreInterfaceMock(s.T())
-			var mockDBStore applicationStoreInterface
-			if tc.useDBStore {
-				mockDBStore = newApplicationStoreInterfaceMock(s.T())
-			}
-
-			// Setup expectations
-			mockFileStore.EXPECT().IsApplicationExists(mock.Anything, tc.app.ID).Return(tc.fileExists, nil)
-			if tc.useDBStore && !tc.fileExists {
-				dbStoreMock := mockDBStore.(*applicationStoreInterfaceMock)
-				dbStoreMock.EXPECT().IsApplicationExists(mock.Anything, tc.app.ID).Return(tc.dbExists, nil)
-			}
-
-			// Execute
-			err := validateApplicationWrapper(tc.app, mockFileStore, mockDBStore)
-
-			// Assert
-			if tc.expectedError {
-				assert.NotNil(s.T(), err)
-				if tc.errorContains != "" {
-					assert.Contains(s.T(), err.Error(), tc.errorContains)
-				}
-			} else {
-				assert.Nil(s.T(), err)
-			}
-		})
-	}
-}
-
 // ParseToApplicationDTOTestSuite tests the parseToApplicationDTO function.
 type ParseToApplicationDTOTestSuite struct {
 	suite.Suite
@@ -464,9 +228,9 @@ inbound_auth_config:
 
 	// Verify OAuth configuration was parsed correctly
 	assert.Len(s.T(), appDTO.InboundAuthConfig, 1)
-	assert.Equal(s.T(), model.OAuthInboundAuthType, appDTO.InboundAuthConfig[0].Type)
+	assert.Equal(s.T(), inboundmodel.OAuthInboundAuthType, appDTO.InboundAuthConfig[0].Type)
 
-	oauthConfig := appDTO.InboundAuthConfig[0].OAuthAppConfig
+	oauthConfig := appDTO.InboundAuthConfig[0].OAuthConfig
 	assert.NotNil(s.T(), oauthConfig)
 	assert.Equal(s.T(), "client-123", oauthConfig.ClientID)
 	assert.Equal(s.T(), "secret-456", oauthConfig.ClientSecret)
@@ -545,7 +309,7 @@ allowed_user_types:
 	assert.Contains(s.T(), appDTO.AllowedUserTypes, "guest")
 }
 
-func (s *ValidateApplicationWrapperTestSuite) TestParseToApplicationDTO_WithMetadata() {
+func (s *ParseToApplicationDTOTestSuite) TestParseToApplicationDTO_WithMetadata() {
 	yamlData := []byte(`
 id: app-123
 name: Test App
@@ -562,4 +326,191 @@ metadata:
 	assert.NotNil(s.T(), dto.Metadata)
 	assert.Equal(s.T(), "production", dto.Metadata["env"])
 	assert.Equal(s.T(), "platform", dto.Metadata["team"])
+}
+
+func (s *ParseToApplicationDTOTestSuite) TestMakeAppEntityParser_PublicClientWithoutSecretStoresClientID() {
+	yamlData := []byte(`
+id: public-oauth-app
+name: Public OAuth Application
+inbound_auth_config:
+  - type: oauth2
+    config:
+      client_id: public-client-id-123
+      pkce_required: true
+      public_client: true
+`)
+
+	mockAppService := NewApplicationServiceInterfaceMock(s.T())
+	mockAppService.EXPECT().ValidateApplication(mock.Anything, mock.Anything).Return(
+		&model.ApplicationProcessedDTO{ID: "public-oauth-app", Name: "Public OAuth Application"},
+		&inboundmodel.InboundAuthConfigWithSecret{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+				ClientID: "public-client-id-123",
+			},
+		},
+		nil,
+	)
+
+	parser := makeAppEntityParser(mockAppService)
+	entityObj, _, sysCredsJSON, err := parser(yamlData)
+
+	assert.NoError(s.T(), err)
+	assert.NotNil(s.T(), entityObj)
+	assert.Nil(s.T(), sysCredsJSON)
+
+	var sysAttrs map[string]interface{}
+	err = json.Unmarshal(entityObj.SystemAttributes, &sysAttrs)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "Public OAuth Application", sysAttrs[fieldName])
+	assert.Equal(s.T(), "public-client-id-123", sysAttrs[fieldClientID])
+}
+
+func (s *ParseToApplicationDTOTestSuite) TestMakeAppEntityParser_ConfidentialClientStoresSecretAndClientID() {
+	yamlData := []byte(`
+id: confidential-oauth-app
+name: Confidential OAuth Application
+inbound_auth_config:
+  - type: oauth2
+    config:
+      client_id: confidential-client-id-123
+      client_secret: confidential-secret-456
+`)
+
+	mockAppService := NewApplicationServiceInterfaceMock(s.T())
+	mockAppService.EXPECT().ValidateApplication(mock.Anything, mock.Anything).Return(
+		&model.ApplicationProcessedDTO{ID: "confidential-oauth-app", Name: "Confidential OAuth Application"},
+		&inboundmodel.InboundAuthConfigWithSecret{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+				ClientID:     "confidential-client-id-123",
+				ClientSecret: "confidential-secret-456",
+			},
+		},
+		nil,
+	)
+
+	parser := makeAppEntityParser(mockAppService)
+	entityObj, _, sysCredsJSON, err := parser(yamlData)
+
+	assert.NoError(s.T(), err)
+	assert.NotNil(s.T(), entityObj)
+	assert.NotNil(s.T(), sysCredsJSON)
+
+	var sysAttrs map[string]interface{}
+	err = json.Unmarshal(entityObj.SystemAttributes, &sysAttrs)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "confidential-client-id-123", sysAttrs[fieldClientID])
+
+	var sysCreds map[string]interface{}
+	err = json.Unmarshal(sysCredsJSON, &sysCreds)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "confidential-secret-456", sysCreds[fieldClientSecret])
+}
+
+func (s *ParseToApplicationDTOTestSuite) TestMakeAppEntityParser_UsesValidatedGeneratedClientCredentials() {
+	yamlData := []byte(`
+id: generated-credentials-app
+name: Generated Credentials App
+inbound_auth_config:
+  - type: oauth2
+    config:
+      grant_types:
+        - client_credentials
+`)
+
+	mockAppService := NewApplicationServiceInterfaceMock(s.T())
+	mockAppService.EXPECT().ValidateApplication(mock.Anything, mock.Anything).Run(
+		func(_ context.Context, app *model.ApplicationDTO) {
+			assert.Equal(s.T(), "generated-credentials-app", app.ID)
+			assert.Equal(s.T(), "Generated Credentials App", app.Name)
+		},
+	).Return(
+		&model.ApplicationProcessedDTO{ID: "generated-credentials-app", Name: "Generated Credentials App"},
+		&inboundmodel.InboundAuthConfigWithSecret{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+				ClientID:     "generated-client-id",
+				ClientSecret: "generated-client-secret",
+			},
+		},
+		nil,
+	)
+
+	parser := makeAppEntityParser(mockAppService)
+	entityObj, _, sysCredsJSON, err := parser(yamlData)
+
+	assert.NoError(s.T(), err)
+	assert.NotNil(s.T(), entityObj)
+	assert.NotNil(s.T(), sysCredsJSON)
+
+	var sysAttrs map[string]interface{}
+	err = json.Unmarshal(entityObj.SystemAttributes, &sysAttrs)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "generated-client-id", sysAttrs[fieldClientID])
+
+	var sysCreds map[string]interface{}
+	err = json.Unmarshal(sysCredsJSON, &sysCreds)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "generated-client-secret", sysCreds[fieldClientSecret])
+}
+
+func (s *ParseToApplicationDTOTestSuite) TestMakeAppEntityParser_SelectsOAuthConfigWhenFirstInboundIsNotOAuth() {
+	yamlData := []byte(`
+id: mixed-inbound-app
+name: Mixed Inbound App
+inbound_auth_config:
+  - type: saml
+    config: {}
+  - type: oauth2
+    config:
+      client_id: oauth-client-id
+      client_secret: oauth-client-secret
+`)
+
+	mockAppService := NewApplicationServiceInterfaceMock(s.T())
+	mockAppService.EXPECT().ValidateApplication(mock.Anything, mock.Anything).Run(
+		func(_ context.Context, app *model.ApplicationDTO) {
+			assert.Len(s.T(), app.InboundAuthConfig, 1)
+			assert.Equal(s.T(), inboundmodel.OAuthInboundAuthType, app.InboundAuthConfig[0].Type)
+			assert.Equal(s.T(), "oauth-client-id", app.InboundAuthConfig[0].OAuthConfig.ClientID)
+		},
+	).Return(
+		&model.ApplicationProcessedDTO{ID: "mixed-inbound-app", Name: "Mixed Inbound App"},
+		&inboundmodel.InboundAuthConfigWithSecret{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+				ClientID:     "oauth-client-id",
+				ClientSecret: "oauth-client-secret",
+			},
+		},
+		nil,
+	)
+
+	parser := makeAppEntityParser(mockAppService)
+	entityObj, _, sysCredsJSON, err := parser(yamlData)
+
+	assert.NoError(s.T(), err)
+	assert.NotNil(s.T(), entityObj)
+	assert.NotNil(s.T(), sysCredsJSON)
+
+	var sysAttrs map[string]interface{}
+	err = json.Unmarshal(entityObj.SystemAttributes, &sysAttrs)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "oauth-client-id", sysAttrs[fieldClientID])
+
+	var sysCreds map[string]interface{}
+	err = json.Unmarshal(sysCredsJSON, &sysCreds)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "oauth-client-secret", sysCreds[fieldClientSecret])
+}
+
+func (s *ParseToApplicationDTOTestSuite) TestParseToApplicationDTO_OUHandlePassedThrough() {
+	yamlData := []byte("id: app-1\nname: My App\nou_handle: default\n")
+
+	appDTO, err := parseToApplicationDTO(yamlData)
+
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "default", appDTO.OUHandle)
+	assert.Empty(s.T(), appDTO.OUID)
 }

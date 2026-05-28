@@ -17,7 +17,7 @@
  */
 
 import { Box, Button, Divider, Typography } from "@wso2/oxygen-ui";
-import { Link } from "@tanstack/react-router";
+import { Link } from "react-router";
 
 function HomePage() {
   return (
@@ -54,7 +54,7 @@ function HomePage() {
               letterSpacing: "-0.5px",
             }}
           >
-            Thunder Sample App
+            ThunderID Sample App
           </Typography>
           <Typography
             variant="h6"
@@ -87,7 +87,7 @@ function HomePage() {
               mb: 4,
             }}
           >
-            This sample demonstrates Thunder&apos;s API-based authentication
+            This sample demonstrates ThunderID&apos;s API-based authentication
             flow and Atomic APIs, allowing direct integration with sign-in and
             sign-up APIs without browser redirects.
           </Typography>
@@ -182,7 +182,7 @@ function HomePage() {
               display: "block",
             }}
           >
-            Powered by Thunder Identity Server
+            Powered by ThunderID Identity Server
           </Typography>
         </Box>
       </Box>

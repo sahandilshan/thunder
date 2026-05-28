@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 )
 
 const testServerURL = "https://localhost:8095"
@@ -41,6 +41,12 @@ func InitiateAuthenticationFlow(appID string, verbose bool, inputs map[string]st
 func InitiateRegistrationFlow(appID string, verbose bool, inputs map[string]string, action string) (
 	*FlowStep, error) {
 	return initiateFlow(appID, "REGISTRATION", verbose, inputs, action)
+}
+
+// InitiateRecoveryFlow initiates the recovery flow
+func InitiateRecoveryFlow(appID string, verbose bool, inputs map[string]string, action string) (
+	*FlowStep, error) {
+	return initiateFlow(appID, "RECOVERY", verbose, inputs, action)
 }
 
 // initiateFlow is a generic helper to initiate a flow of a given type
@@ -139,11 +145,17 @@ func InitiateAuthFlowWithError(appID string, inputs map[string]string) (*ErrorRe
 	return &errorResponse, nil
 }
 
-// CompleteFlow completes the flow with given inputs and action
-func CompleteFlow(flowID string, inputs map[string]string, action string) (
+// ResumeFlow resumes a flow without new inputs or an action selection.
+func ResumeFlow(flowID string) (*FlowStep, error) {
+	return CompleteFlow(flowID, map[string]string{}, "", "")
+}
+
+// CompleteFlow completes the flow with given inputs, action and challenge token
+func CompleteFlow(executionId string, inputs map[string]string, action string, challengeToken string) (
 	*FlowStep, error) {
 	flowReqBody := map[string]interface{}{
-		"flowId": flowID,
+		"executionId":    executionId,
+		"challengeToken": challengeToken,
 	}
 	if len(inputs) > 0 {
 		flowReqBody["inputs"] = inputs
@@ -188,10 +200,12 @@ func CompleteFlow(flowID string, inputs map[string]string, action string) (
 }
 
 // CompleteAuthFlowWithError completes the authentication flow and expects an error response
-func CompleteAuthFlowWithError(flowID string, inputs map[string]string) (*ErrorResponse, error) {
+func CompleteAuthFlowWithError(executionId string, inputs map[string]string, challengeToken string) (
+	*ErrorResponse, error) {
 	flowReqBody := map[string]interface{}{
-		"flowId": flowID,
-		"inputs": inputs,
+		"executionId":    executionId,
+		"challengeToken": challengeToken,
+		"inputs":         inputs,
 	}
 
 	reqBody, err := json.Marshal(flowReqBody)

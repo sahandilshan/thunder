@@ -1,0 +1,457 @@
+openapi: 3.0.3
+info:
+  title: Import API
+  version: "1.0"
+  description: This API imports declarative resources from YAML content into runtime stores or file storage.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://{host}:{port}
+    variables:
+      host:
+        default: "localhost"
+      port:
+        default: "8090"
+
+tags:
+  - name: Import
+    description: Import declarative resource definitions from YAML into the runtime store, or delete resources by declaration.
+
+security:
+  - OAuth2: [system]
+
+paths:
+  /import:
+    post:
+      tags:
+        - Import
+      summary: Import declarative resources
+      description: >
+        Imports one or more declarative YAML documents into runtime stores or file storage.
+        Supports template variable substitution, dry-run mode, and configurable error handling.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportRequest'
+            examples:
+              simple-import:
+                summary: Simple import with single resource
+                value:
+                  content: |
+                    apiVersion: v1
+                    kind: Application
+                    metadata:
+                      name: my-app
+                  options:
+                    upsert: true
+                    continueOnError: false
+              import-with-templates:
+                summary: Import with template variables
+                value:
+                  content: |
+                    apiVersion: v1
+                    kind: IdentityProvider
+                    metadata:
+                      name: Google IDP
+                    spec:
+                      clientId: "{{.GOOGLE_CLIENT_ID}}"
+                      clientSecret: "{{.GOOGLE_CLIENT_SECRET}}"
+                  variables:
+                    GOOGLE_CLIENT_ID: "client-123"
+                    GOOGLE_CLIENT_SECRET: "secret-456"
+                  options:
+                    upsert: true
+              dry-run-import:
+                summary: Dry-run import without persisting changes
+                value:
+                  content: |
+                    apiVersion: v1
+                    kind: Flow
+                    metadata:
+                      name: login-flow
+                  dryRun: true
+      responses:
+        "200":
+          description: Import completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResponse'
+              example:
+                summary:
+                  totalDocuments: 2
+                  imported: 2
+                  failed: 0
+                  importedAt: "2026-04-22T10:00:00Z"
+                results:
+                  - resourceType: "Application"
+                    resourceId: "550e8400-e29b-41d4-a716-446655440000"
+                    resourceName: "my-app"
+                    operation: "create"
+                    status: "success"
+                  - resourceType: "IdentityProvider"
+                    resourceId: "660e8400-e29b-41d4-a716-446655440001"
+                    resourceName: "google-idp"
+                    operation: "update"
+                    status: "success"
+        "400":
+          description: Invalid import request or processing error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-request:
+                  summary: Malformed request body
+                  value:
+                    code: "IMP-1001"
+                    message:
+                      key: "error.import.invalidRequest"
+                      defaultValue: "Invalid import request"
+                    description:
+                      key: "error.import.invalidRequest.description"
+                      defaultValue: "The provided import request is invalid or malformed"
+                invalid-yaml:
+                  summary: Invalid YAML content
+                  value:
+                    code: "IMP-1002"
+                    message:
+                      key: "error.import.invalidYaml"
+                      defaultValue: "Invalid YAML content"
+                    description:
+                      key: "error.import.invalidYaml.description"
+                      defaultValue: "The provided YAML content cannot be parsed"
+                template-resolution-failed:
+                  summary: Template variable resolution failed
+                  value:
+                    code: "IMP-1003"
+                    message:
+                      key: "error.import.templateResolutionFailed"
+                      defaultValue: "Template resolution failed"
+                    description:
+                      key: "error.import.templateResolutionFailed.description"
+                      defaultValue: "Failed to resolve one or more template variables in YAML content"
+                adapter-not-configured:
+                  summary: Resource adapter not configured
+                  value:
+                    code: "IMP-1004"
+                    message:
+                      key: "error.import.adapterNotConfigured"
+                      defaultValue: "Adapter not configured"
+                    description:
+                      key: "error.import.adapterNotConfigured.description"
+                      defaultValue: "The required resource adapter is not configured"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the import request"
+
+  /import/delete:
+    post:
+      tags:
+        - Import
+      summary: Delete imported declarative resource file
+      description: >
+        Deletes a file-backed declarative resource by resource type and key.
+        This removes the declarative resource file from the file storage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteResourceRequest'
+            example:
+              resourceType: "Application"
+              resourceKey: "my-app"
+      responses:
+        "200":
+          description: Resource file deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResourceResponse'
+              example:
+                resourceType: "Application"
+                resourceKey: "my-app"
+                deletedFile: "repository/resources/applications/my-app.yaml"
+        "400":
+          description: Invalid delete request or deletion error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "IMP-1001"
+                message:
+                  key: "error.import.invalidRequest"
+                  defaultValue: "Invalid import request"
+                description:
+                  key: "error.import.invalidRequest.description"
+                  defaultValue: "The provided import request is invalid or malformed"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the delete request"
+
+components:
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: /oauth2/token
+          scopes:
+            system: Full system access
+
+  responses:
+    Unauthorized:
+      description: Unauthorized - missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "AUTH-4010"
+            message:
+              key: "error.unauthorized"
+              defaultValue: "Unauthorized"
+            description:
+              key: "error.unauthorized_description"
+              defaultValue: "Authentication is required to access this resource"
+
+  schemas:
+    ImportRequest:
+      type: object
+      required: [content]
+      description: >
+        Request payload for importing declarative resources.
+        The content should contain one or more YAML documents separated by `---`.
+      properties:
+        content:
+          type: string
+          description: >
+            YAML content to import. May contain multiple YAML documents separated by `---`.
+            Supports template variables in the format `{{.VARIABLE_NAME}}`.
+          example: |
+            apiVersion: v1
+            kind: Application
+            metadata:
+              name: my-app
+        variables:
+          type: object
+          additionalProperties: {}
+          description: >
+            Key-value pairs for template variable substitution.
+            Variables referenced in the YAML content via `{{.VARIABLE_NAME}}` syntax
+            are replaced with their corresponding values.
+          example:
+            GOOGLE_CLIENT_ID: "123456789"
+            GOOGLE_CLIENT_SECRET: "secret123"
+        dryRun:
+          type: boolean
+          default: false
+          description: >
+            When true, validates the import content and returns expected outcomes
+            without persisting any changes to the system.
+        options:
+          $ref: '#/components/schemas/ImportOptions'
+
+    ImportOptions:
+      type: object
+      description: Configuration options that control import behavior.
+      properties:
+        upsert:
+          type: boolean
+          default: true
+          description: >
+            When true, attempts to update existing resources and creates them if they don't exist.
+            When false, only creates new resources and fails if resource already exists.
+        continueOnError:
+          type: boolean
+          default: true
+          description: >
+            When true, continues processing remaining documents even if one document fails.
+            When false, stops processing and returns error on first failure.
+        target:
+          type: string
+          enum: [runtime]
+          default: runtime
+          description: >
+            Target storage for imported resources.
+            - `runtime`: Imports into runtime stores (database/in-memory)
+            Currently only `runtime` is supported.
+
+    ImportResponse:
+      type: object
+      description: Response containing import operation results.
+      required: [summary, results]
+      properties:
+        summary:
+          $ref: '#/components/schemas/ImportSummary'
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportItemOutcome'
+          description: Detailed outcome for each imported resource document.
+
+    ImportSummary:
+      type: object
+      description: Aggregated metrics for the import operation.
+      required: [totalDocuments, imported, failed, importedAt]
+      properties:
+        totalDocuments:
+          type: integer
+          description: Total number of YAML documents processed.
+          example: 5
+        imported:
+          type: integer
+          description: Number of documents successfully imported or validated.
+          example: 4
+        failed:
+          type: integer
+          description: Number of documents that failed during import.
+          example: 1
+        importedAt:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of when the import was performed.
+          example: "2026-04-22T10:00:00Z"
+
+    ImportItemOutcome:
+      type: object
+      description: Result of importing a single resource document.
+      required: [resourceType, status]
+      properties:
+        resourceType:
+          type: string
+          description: Type of the resource being imported.
+          example: "Application"
+        resourceId:
+          type: string
+          format: uuid
+          description: >
+            UUID identifier of the imported resource.
+            Only present when import succeeded.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        resourceName:
+          type: string
+          description: >
+            Name or display identifier of the imported resource.
+            Only present when import succeeded.
+          example: "my-application"
+        operation:
+          type: string
+          enum: [create, update]
+          description: >
+            Type of operation performed on the resource.
+            Only present when import succeeded.
+          example: "create"
+        status:
+          type: string
+          enum: [success, failed]
+          description: Status of the import operation for this resource.
+        code:
+          type: string
+          description: >
+            Error code when status is `failed`.
+            Omitted when status is `success`.
+          example: "APP-1001"
+        message:
+          type: string
+          description: >
+            Human-readable message describing the result.
+            Contains error details when status is `failed`.
+          example: "Resource created successfully"
+
+    DeleteResourceRequest:
+      type: object
+      required: [resourceType, resourceKey]
+      description: Request to delete a file-backed declarative resource.
+      properties:
+        resourceType:
+          type: string
+          description: >
+            Type of the resource to delete (e.g., Application, IdentityProvider, Flow, etc.).
+          example: "Application"
+        resourceKey:
+          type: string
+          description: >
+            Unique identifier or key of the resource within its type.
+            Typically the resource name or handle.
+          example: "my-app"
+
+    DeleteResourceResponse:
+      type: object
+      required: [resourceType, resourceKey, deletedFile]
+      description: Response confirming deletion of a declarative resource file.
+      properties:
+        resourceType:
+          type: string
+          description: Type of the deleted resource.
+          example: "Application"
+        resourceKey:
+          type: string
+          description: Unique identifier of the deleted resource.
+          example: "my-app"
+        deletedFile:
+          type: string
+          description: >
+            File path of the deleted declarative resource file,
+            relative to the repository root.
+          example: "repository/resources/applications/my-app.yaml"
+
+    Error:
+      type: object
+      description: Standard error response.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: "Error code. Codes follow the IMP-XXXX convention."
+          example: "IMP-1001"
+        message:
+          $ref: '#/components/schemas/I18nMessage'
+        description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
+          type: string
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

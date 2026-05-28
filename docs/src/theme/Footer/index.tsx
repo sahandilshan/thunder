@@ -16,9 +16,9 @@
  * under the License.
  */
 
-import React, {type ReactNode} from 'react';
-import type FooterType from '@theme/Footer';
 import type {WrapperProps} from '@docusaurus/types';
+import type FooterType from '@theme/Footer';
+import {type ReactNode} from 'react';
 import Footer from '@site/src/components/Footer';
 
 type Props = WrapperProps<typeof FooterType>;

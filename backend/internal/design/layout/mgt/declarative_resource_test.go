@@ -26,11 +26,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -47,20 +48,20 @@ func (s *DeclarativeResourceTestSuite) SetupSuite() {
 	// Create temporary directory for tests
 	tempDir := s.T().TempDir()
 
-	// Initialize ThunderRuntime once for all tests
+	// Initialize server runtime once for all tests
 	testConfig := &config.Config{
 		DeclarativeResources: config.DeclarativeResources{
 			Enabled: false,
 		},
 	}
-	config.ResetThunderRuntime()
-	err := config.InitializeThunderRuntime(tempDir, testConfig)
-	s.Require().NoError(err, "Failed to initialize ThunderRuntime")
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime(tempDir, testConfig)
+	s.Require().NoError(err, "Failed to initialize server runtime")
 }
 
 func (s *DeclarativeResourceTestSuite) TearDownSuite() {
-	// Clean up ThunderRuntime after all tests
-	config.ResetThunderRuntime()
+	// Clean up server runtime after all tests
+	config.ResetServerRuntime()
 }
 
 func (s *DeclarativeResourceTestSuite) TestLayoutExporter_GetResourceType() {
@@ -121,7 +122,7 @@ func (s *DeclarativeResourceTestSuite) TestLayoutExporter_GetAllResourceIDs_Succ
 
 func (s *DeclarativeResourceTestSuite) TestLayoutExporter_GetAllResourceIDs_ServiceError() {
 	// Arrange
-	serviceErr := &serviceerror.ServiceError{Error: "Database error"}
+	serviceErr := &serviceerror.ServiceError{Error: i18ncore.I18nMessage{DefaultValue: "Database error"}}
 	mockService := NewLayoutMgtServiceInterfaceMock(s.T())
 	mockService.EXPECT().GetLayoutList(100, 0).Return(&LayoutList{}, serviceErr).Once()
 	exporter := &layoutExporter{service: mockService}
@@ -179,7 +180,7 @@ func (s *DeclarativeResourceTestSuite) TestLayoutExporter_GetResourceByID_Succes
 
 func (s *DeclarativeResourceTestSuite) TestLayoutExporter_GetResourceByID_NotFound() {
 	// Arrange
-	serviceErr := &serviceerror.ServiceError{Error: "Layout not found"}
+	serviceErr := &serviceerror.ServiceError{Error: i18ncore.I18nMessage{DefaultValue: "Layout not found"}}
 	mockService := NewLayoutMgtServiceInterfaceMock(s.T())
 	mockService.EXPECT().GetLayout("non-existent").Return(&Layout{}, serviceErr).Once()
 	exporter := &layoutExporter{service: mockService}
@@ -317,8 +318,8 @@ func (s *DeclarativeResourceTestSuite) TestLoadDeclarativeResources_Integration(
 }
 
 func (s *DeclarativeResourceTestSuite) TestLoadDeclarativeResources_WithDBStore() {
-	thunderHome := config.GetThunderRuntime().ThunderHome
-	resourceDir := filepath.Join(thunderHome, "repository", "resources", "layouts")
+	serverHome := config.GetServerRuntime().ServerHome
+	resourceDir := filepath.Join(serverHome, "repository", "resources", "layouts")
 	err := os.MkdirAll(resourceDir, 0o750)
 	s.Require().NoError(err)
 

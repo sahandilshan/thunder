@@ -22,12 +22,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/config"
-	dbmodel "github.com/asgardeo/thunder/internal/system/database/model"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 var getDBProvider = provider.GetDBProvider
@@ -39,6 +39,7 @@ type idpStoreInterface interface {
 	GetIdentityProviderListCount(ctx context.Context) (int, error)
 	GetIdentityProvider(ctx context.Context, idpID string) (*IDPDTO, error)
 	GetIdentityProviderByName(ctx context.Context, idpName string) (*IDPDTO, error)
+	GetIdentityProvidersByProperty(ctx context.Context, propertyKey, propertyValue string) ([]IDPDTO, error)
 	UpdateIdentityProvider(ctx context.Context, idp *IDPDTO) error
 	DeleteIdentityProvider(ctx context.Context, idpID string) error
 }
@@ -62,7 +63,7 @@ func newIDPStore() (idpStoreInterface, transaction.Transactioner, error) {
 	}
 	return &idpStore{
 		dbProvider:   dbProvider,
-		deploymentID: config.GetThunderRuntime().Config.Server.Identifier,
+		deploymentID: config.GetServerRuntime().Config.Server.Identifier,
 	}, transactioner, nil
 }
 
@@ -75,7 +76,7 @@ func (s *idpStore) CreateIdentityProvider(ctx context.Context, idp IDPDTO) error
 
 	var propertiesJSON string
 	if len(idp.Properties) > 0 {
-		propertiesJSON, err = cmodels.SerializePropertiesToJSONArray(idp.Properties)
+		propertiesJSON, err = cmodels.SerializePropertiesToJSONObject(idp.Properties)
 		if err != nil {
 			return fmt.Errorf("failed to serialize properties to JSON: %w", err)
 		}
@@ -158,6 +159,56 @@ func (s *idpStore) GetIdentityProviderByName(ctx context.Context, name string) (
 	return s.getIDP(ctx, queryGetIdentityProviderByName, name)
 }
 
+// GetIdentityProvidersByProperty retrieves IDPs matching a given property key and value.
+func (s *idpStore) GetIdentityProvidersByProperty(ctx context.Context,
+	propertyKey, propertyValue string) ([]IDPDTO, error) {
+	dbClient, err := s.dbProvider.GetConfigDBClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database client: %w", err)
+	}
+
+	results, err := dbClient.QueryContext(ctx, queryGetIdentityProvidersByProperty,
+		propertyKey, propertyValue, s.deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	if len(results) == 0 {
+		return nil, ErrIDPNotFound
+	}
+
+	idps := make([]IDPDTO, 0, len(results))
+	for _, row := range results {
+		basicIDP, err := buildIDPFromResultRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build idp from result row: %w", err)
+		}
+
+		var properties []cmodels.Property
+		var propertiesJSON string
+		switch v := row["properties"].(type) {
+		case string:
+			propertiesJSON = v
+		case []byte:
+			propertiesJSON = string(v)
+		}
+		if propertiesJSON != "" {
+			properties, err = cmodels.DeserializePropertiesFromJSONObject(propertiesJSON)
+			if err != nil {
+				return nil, fmt.Errorf("failed to deserialize properties from JSON: %w", err)
+			}
+		}
+
+		idps = append(idps, IDPDTO{
+			ID:          basicIDP.ID,
+			Name:        basicIDP.Name,
+			Description: basicIDP.Description,
+			Type:        basicIDP.Type,
+			Properties:  properties,
+		})
+	}
+	return idps, nil
+}
+
 // getIDP retrieves an IDP based on the provided query and identifier.
 func (s *idpStore) getIDP(ctx context.Context, query dbmodel.DBQuery, identifier string) (*IDPDTO, error) {
 	dbClient, err := s.dbProvider.GetConfigDBClient()
@@ -196,7 +247,7 @@ func (s *idpStore) getIDP(ctx context.Context, query dbmodel.DBQuery, identifier
 
 	if propertiesJSON != "" {
 		var err error
-		properties, err = cmodels.DeserializePropertiesFromJSON(propertiesJSON)
+		properties, err = cmodels.DeserializePropertiesFromJSONObject(propertiesJSON)
 		if err != nil {
 			return nil, fmt.Errorf("failed to deserialize properties from JSON: %w", err)
 		}
@@ -222,7 +273,7 @@ func (s *idpStore) UpdateIdentityProvider(ctx context.Context, idp *IDPDTO) erro
 
 	var propertiesJSON string
 	if len(idp.Properties) > 0 {
-		propertiesJSON, err = cmodels.SerializePropertiesToJSONArray(idp.Properties)
+		propertiesJSON, err = cmodels.SerializePropertiesToJSONObject(idp.Properties)
 		if err != nil {
 			return fmt.Errorf("failed to serialize properties to JSON: %w", err)
 		}

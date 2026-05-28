@@ -1,0 +1,64 @@
+---
+title: Groups
+sidebar_position: 4
+description: Create and manage groups to organize users and simplify role assignments.
+---
+
+# Groups
+
+A group is a named collection of users within an **Organization Unit (OU)**. You can use groups to organize users and assign roles to multiple users at once rather than assigning roles individually.
+Every group belongs to exactly one OU, which determines which users can be members. 
+
+:::note
+A group's OU cannot be changed after creation. If you need to move a group to a different OU, delete it and recreate it under the correct OU.
+:::
+
+## Create a Group
+
+1. Navigate to **Groups** in the <ProductName /> Console and click **New Group**.
+2. Enter a **Name** and an optional **Description**.
+3. Select the **Organization Unit** the group belongs to.
+4. Optionally add **Members** — search for users or existing groups to include.
+5. Click **Create Group**.
+
+## Update a Group
+
+1. Open the group from the **Groups** list.
+2. Edit the **Name** or **Description**.
+3. Click **Save**.
+
+## Delete a Group
+
+1. Open the group from the **Groups** list.
+2. Click **Delete** and confirm.
+
+:::warning
+Deleting a group is permanent. Members are not deleted — only the group itself and its role assignments are removed.
+:::
+
+## Manage Members
+
+### Add Members
+
+1. Open the group from the **Groups** list.
+2. Click **Add Members**.
+3. Search for the users or groups you want to add and select them.
+4. Click **Add**.
+
+### Remove Members
+
+1. Open the group from the **Groups** list.
+2. Locate the member you want to remove.
+3. Click **Remove** next to the member and confirm.
+
+## Assign Roles to a Group
+
+Roles assigned to a group apply to all members of that group. This is the recommended way to grant permissions to a set of users instead of assigning roles individually.
+
+To assign a role to a group, see the Roles guide.
+
+## Related Guides
+
+- [Organization Units](../../organization-units) - Each group is scoped to an organization unit
+- [Users](../manage-users) - Create and manage the users you add to groups
+- [User Types](../user-types) - User types determine which users belong to which OU

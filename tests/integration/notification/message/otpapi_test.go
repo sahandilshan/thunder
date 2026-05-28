@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -60,9 +60,9 @@ type OTPVerifyResponse struct {
 
 // ErrorResponse represents an API error response
 type ErrorResponse struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Description string `json:"description"`
+	Code        string                `json:"code"`
+	Message     testutils.I18nMessage `json:"message"`
+	Description testutils.I18nMessage `json:"description"`
 }
 
 // OTPAPITestSuite tests the OTP API endpoints
@@ -219,7 +219,7 @@ func (ts *OTPAPITestSuite) TestOTPSendInvalidSender() {
 	ts.Require().NoError(err, "Failed to decode error response")
 
 	ts.Assert().NotEmpty(errResp.Code, "Error code should not be empty")
-	ts.Assert().NotEmpty(errResp.Message, "Error message should not be empty")
+	ts.Assert().NotEmpty(errResp.Message.DefaultValue, "Error message should not be empty")
 }
 
 // TestOTPSendMissingFields tests OTP sending with missing required fields
@@ -286,7 +286,7 @@ func (ts *OTPAPITestSuite) TestOTPSendMissingFields() {
 			ts.Require().NoError(err, "Failed to decode error response")
 
 			ts.Assert().NotEmpty(errResp.Code, "Error code should not be empty")
-			ts.Assert().NotEmpty(errResp.Message, "Error message should not be empty")
+			ts.Assert().NotEmpty(errResp.Message.DefaultValue, "Error message should not be empty")
 		})
 	}
 }
@@ -393,7 +393,7 @@ func (ts *OTPAPITestSuite) TestOTPVerifyInvalidToken() {
 	ts.Require().NoError(err, "Failed to decode error response")
 
 	ts.Assert().NotEmpty(errResp.Code, "Error code should not be empty")
-	ts.Assert().NotEmpty(errResp.Message, "Error message should not be empty")
+	ts.Assert().NotEmpty(errResp.Message.DefaultValue, "Error message should not be empty")
 }
 
 // TestOTPVerifyInvalidCode tests OTP verification with invalid OTP code
@@ -519,7 +519,7 @@ func (ts *OTPAPITestSuite) TestOTPVerifyMissingFields() {
 			ts.Require().NoError(err, "Failed to decode error response")
 
 			ts.Assert().NotEmpty(errResp.Code, "Error code should not be empty")
-			ts.Assert().NotEmpty(errResp.Message, "Error message should not be empty")
+			ts.Assert().NotEmpty(errResp.Message.DefaultValue, "Error message should not be empty")
 		})
 	}
 }

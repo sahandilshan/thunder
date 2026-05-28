@@ -47,3 +47,15 @@ const (
 	// defaultNodeYPos is the default Y position for a node layout
 	defaultNodeYPos = 0
 )
+
+// authToRegLabelTerms maps authentication UI label terms to their registration equivalents.
+// Ordered by specificity (longest/most-specific first) to avoid partial matches.
+var authToRegLabelTerms = []struct{ auth, reg string }{
+	{"Authentication", "Registration"},
+	{"Authenticate", "Register"},
+	{"Sign-in", "Sign-up"},
+	{"Sign In", "Sign Up"},
+	{"Signin", "Signup"},
+	{"Log In", "Register"},
+	{"Login", "Register"},
+}

@@ -24,13 +24,13 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
 var (
 	// Test users specifically for filtering tests
-	filterTestUserSchemas = []testutils.UserSchema{
+	filterTestEntityTypes = []testutils.UserType{
 		{
 			Name: "employee",
 			Schema: map[string]interface{}{
@@ -129,12 +129,12 @@ func (ts *UserFilterTestSuite) SetupSuite() {
 	}
 	filterTestOUID = ouID
 
-	filterTestSchemaIDs = make([]string, 0, len(filterTestUserSchemas))
-	for _, schema := range filterTestUserSchemas {
+	filterTestSchemaIDs = make([]string, 0, len(filterTestEntityTypes))
+	for _, schema := range filterTestEntityTypes {
 		schema.OUID = filterTestOUID
 		schemaID, err := testutils.CreateUserType(schema)
 		if err != nil {
-			ts.T().Fatalf("Failed to create user schema during filter test setup: %v", err)
+			ts.T().Fatalf("Failed to create user type during filter test setup: %v", err)
 		}
 		filterTestSchemaIDs = append(filterTestSchemaIDs, schemaID)
 	}
@@ -174,7 +174,7 @@ func (ts *UserFilterTestSuite) TearDownSuite() {
 			continue
 		}
 		if err := testutils.DeleteUserType(schemaID); err != nil {
-			ts.T().Logf("Failed to delete filter test user schema during teardown: %v", err)
+			ts.T().Logf("Failed to delete filter test user type during teardown: %v", err)
 		}
 	}
 }
@@ -394,7 +394,9 @@ func (ts *UserFilterTestSuite) TestInvalidFilterFormats() {
 		err = json.NewDecoder(resp.Body).Decode(&errorResp)
 		if err == nil {
 			ts.Equal("USR-1020", errorResp["code"], "Expected error code USR-1020")
-			ts.Contains(errorResp["message"], "Invalid filter parameter", "Expected filter error message")
+			message, ok := errorResp["message"].(map[string]interface{})
+			ts.True(ok, "Expected message to be an i18n object")
+			ts.Contains(message["defaultValue"], "Invalid filter parameter", "Expected filter error message")
 		}
 
 		resp.Body.Close()

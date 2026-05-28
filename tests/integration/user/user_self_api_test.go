@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -59,7 +59,7 @@ func (s *SelfUserEndpointsSuite) SetupSuite() {
 	s.Require().NoError(err)
 	s.ouID = ouID
 
-	schema := testutils.UserSchema{
+	schema := testutils.UserType{
 		Name:                  s.userType,
 		OUID:                  ouID,
 		AllowSelfRegistration: true,

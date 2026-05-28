@@ -21,8 +21,8 @@ package resource
 import (
 	"context"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 )
 
 // compositeResourceStore implements a composite store that combines file-based (immutable) and
@@ -164,12 +164,42 @@ func (c *compositeResourceStore) CheckResourceServerNameExists(ctx context.Conte
 	)
 }
 
+func (c *compositeResourceStore) CheckResourceServerHandleExists(
+	ctx context.Context, handle string) (bool, error) {
+	return declarativeresource.CompositeBooleanCheckHelper(
+		func() (bool, error) { return c.fileStore.CheckResourceServerHandleExists(ctx, handle) },
+		func() (bool, error) { return c.dbStore.CheckResourceServerHandleExists(ctx, handle) },
+	)
+}
+
 func (c *compositeResourceStore) CheckResourceServerIdentifierExists(
 	ctx context.Context, identifier string) (bool, error) {
 	return declarativeresource.CompositeBooleanCheckHelper(
 		func() (bool, error) { return c.fileStore.CheckResourceServerIdentifierExists(ctx, identifier) },
 		func() (bool, error) { return c.dbStore.CheckResourceServerIdentifierExists(ctx, identifier) },
 	)
+}
+
+func (c *compositeResourceStore) GetResourceServerByIdentifier(
+	ctx context.Context, identifier string) (ResourceServer, error) {
+	server, err := declarativeresource.CompositeGetHelper(
+		func() (ResourceServer, error) {
+			s, err := c.dbStore.GetResourceServerByIdentifier(ctx, identifier)
+			if err == nil {
+				s.IsReadOnly = false
+			}
+			return s, err
+		},
+		func() (ResourceServer, error) {
+			s, err := c.fileStore.GetResourceServerByIdentifier(ctx, identifier)
+			if err == nil {
+				s.IsReadOnly = true
+			}
+			return s, err
+		},
+		errResourceServerNotFound,
+	)
+	return server, err
 }
 
 func (c *compositeResourceStore) CheckResourceServerHasDependencies(
@@ -275,6 +305,11 @@ func (c *compositeResourceStore) GetResourceListCountByParent(
 func (c *compositeResourceStore) UpdateResource(
 	ctx context.Context, id string, resServerID string, res Resource) error {
 	return c.dbStore.UpdateResource(ctx, id, resServerID, res)
+}
+
+func (c *compositeResourceStore) UpdateResourcePermission(
+	ctx context.Context, id string, resServerID string, permission string) error {
+	return c.dbStore.UpdateResourcePermission(ctx, id, resServerID, permission)
 }
 
 func (c *compositeResourceStore) DeleteResource(
@@ -465,6 +500,11 @@ func (c *compositeResourceStore) UpdateAction(
 	return c.dbStore.UpdateAction(ctx, id, resServerID, resID, action)
 }
 
+func (c *compositeResourceStore) UpdateActionPermission(
+	ctx context.Context, id string, resServerID string, resID *string, permission string) error {
+	return c.dbStore.UpdateActionPermission(ctx, id, resServerID, resID, permission)
+}
+
 func (c *compositeResourceStore) DeleteAction(
 	ctx context.Context, id string, resServerID string, resID *string) error {
 	return c.dbStore.DeleteAction(ctx, id, resServerID, resID)
@@ -521,6 +561,26 @@ func (c *compositeResourceStore) ValidatePermissions(
 	}
 
 	return result, nil
+}
+
+func (c *compositeResourceStore) FindResourceServersByPermissions(
+	ctx context.Context, permissions []string,
+) ([]ResourceServer, error) {
+	if len(permissions) == 0 {
+		return []ResourceServer{}, nil
+	}
+
+	dbServers, err := c.dbStore.FindResourceServersByPermissions(ctx, permissions)
+	if err != nil {
+		return nil, err
+	}
+
+	fileServers, err := c.fileStore.FindResourceServersByPermissions(ctx, permissions)
+	if err != nil {
+		return nil, err
+	}
+
+	return mergeAndDeduplicateResourceServers(dbServers, fileServers), nil
 }
 
 func mergeAndDeduplicateResourceServers(dbServers, fileServers []ResourceServer) []ResourceServer {

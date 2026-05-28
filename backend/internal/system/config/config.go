@@ -22,6 +22,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	urlpath "path"
 	"path/filepath"
@@ -29,18 +30,44 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/cors"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 
 	yaml "gopkg.in/yaml.v3"
 )
 
+const schemeHTTPS = "https"
+
+// SecurityConfig holds the security-related configuration details.
+//
+// JWKSCacheTTL controls how long fetched JWKS responses are reused from the in-process
+// cache before being re-fetched. It is not specific to trusted_issuer: the same cache
+// backs every JWKS consumer in the server (trusted issuer validation, federated OIDC
+// authenticators such as Google, etc.), so the setting lives at the security level
+// rather than nested under any particular consumer. Value is in seconds; zero disables
+// the cache; negative values are rejected at load time.
+type SecurityConfig struct {
+	JWKSCacheTTL  int                 `yaml:"jwks_cache_ttl" json:"jwks_cache_ttl"`
+	TrustedIssuer TrustedIssuerConfig `yaml:"trusted_issuer" json:"trusted_issuer"`
+}
+
+// Validate checks the security configuration for correctness, including any nested
+// sections that expose their own Validate method.
+func (c *SecurityConfig) Validate() error {
+	if c.JWKSCacheTTL < 0 {
+		return fmt.Errorf("server.security.jwks_cache_ttl must be non-negative (got %d)", c.JWKSCacheTTL)
+	}
+	return c.TrustedIssuer.Validate()
+}
+
 // ServerConfig holds the server configuration details.
 type ServerConfig struct {
-	Hostname   string `yaml:"hostname" json:"hostname"`
-	Port       int    `yaml:"port" json:"port"`
-	HTTPOnly   bool   `yaml:"http_only" json:"http_only"`
-	PublicURL  string `yaml:"public_url" json:"public_url"`
-	Identifier string `yaml:"identifier" json:"identifier"`
+	Hostname       string         `yaml:"hostname" json:"hostname"`
+	Port           int            `yaml:"port" json:"port"`
+	HTTPOnly       bool           `yaml:"http_only" json:"http_only"`
+	PublicURL      string         `yaml:"public_url" json:"public_url"`
+	Identifier     string         `yaml:"identifier" json:"identifier"`
+	SecurityConfig SecurityConfig `yaml:"security" json:"security"`
 }
 
 // GateClientConfig holds the client configuration details.
@@ -61,19 +88,56 @@ type TLSConfig struct {
 }
 
 // DataSource holds the individual database connection details.
+// Type is the only common field; connection parameters live under the
+// matching sub-struct (Postgres, SQLite, or Redis).
 type DataSource struct {
-	Type            string `yaml:"type" json:"type"`
-	Hostname        string `yaml:"hostname" json:"hostname"`
-	Port            int    `yaml:"port" json:"port"`
-	Name            string `yaml:"name" json:"name"`
-	Username        string `yaml:"username" json:"username"`
-	Password        string `yaml:"password" json:"password"`
-	SSLMode         string `yaml:"sslmode" json:"sslmode"`
-	Path            string `yaml:"path" json:"path"`
-	Options         string `yaml:"options" json:"options"`
-	MaxOpenConns    int    `yaml:"max_open_conns" json:"max_open_conns"`
-	MaxIdleConns    int    `yaml:"max_idle_conns" json:"max_idle_conns"`
-	ConnMaxLifetime int    `yaml:"conn_max_lifetime" json:"conn_max_lifetime"`
+	Type     string             `yaml:"type" json:"type"`
+	Postgres PostgresDataSource `yaml:"postgres" json:"postgres"`
+	SQLite   SQLiteDataSource   `yaml:"sqlite" json:"sqlite"`
+	Redis    RedisDataSource    `yaml:"redis" json:"redis"`
+}
+
+// PostgresDataSource holds PostgreSQL-specific connection details.
+type PostgresDataSource struct {
+	Hostname          string `yaml:"hostname" json:"hostname"`
+	Port              int    `yaml:"port" json:"port"`
+	Name              string `yaml:"name" json:"name"`
+	Username          string `yaml:"username" json:"username"`
+	Password          string `yaml:"password" json:"password"`
+	SSLMode           string `yaml:"sslmode" json:"sslmode"`
+	MaxOpenConns      int    `yaml:"max_open_conns" json:"max_open_conns"`
+	MaxIdleConns      int    `yaml:"max_idle_conns" json:"max_idle_conns"`
+	ConnMaxLifetime   int    `yaml:"conn_max_lifetime" json:"conn_max_lifetime"`
+	MaxRetries        int    `yaml:"max_retries" json:"max_retries"`
+	MinRetryBackoffMS int    `yaml:"min_retry_backoff_ms" json:"min_retry_backoff_ms"`
+	MaxRetryBackoffMS int    `yaml:"max_retry_backoff_ms" json:"max_retry_backoff_ms"`
+}
+
+// SQLiteDataSource holds SQLite-specific connection details.
+type SQLiteDataSource struct {
+	Path              string `yaml:"path" json:"path"`
+	Options           string `yaml:"options" json:"options"`
+	MaxOpenConns      int    `yaml:"max_open_conns" json:"max_open_conns"`
+	MaxIdleConns      int    `yaml:"max_idle_conns" json:"max_idle_conns"`
+	ConnMaxLifetime   int    `yaml:"conn_max_lifetime" json:"conn_max_lifetime"`
+	MaxRetries        int    `yaml:"max_retries" json:"max_retries"`
+	MinRetryBackoffMS int    `yaml:"min_retry_backoff_ms" json:"min_retry_backoff_ms"`
+	MaxRetryBackoffMS int    `yaml:"max_retry_backoff_ms" json:"max_retry_backoff_ms"`
+}
+
+// RedisDataSource holds Redis-specific connection details.
+type RedisDataSource struct {
+	Address           string `yaml:"address" json:"address"`
+	Username          string `yaml:"username" json:"username"`
+	Password          string `yaml:"password" json:"password"`
+	DB                int    `yaml:"db" json:"db"`
+	KeyPrefix         string `yaml:"key_prefix" json:"key_prefix"`
+	MaxRetries        int    `yaml:"max_retries" json:"max_retries"`
+	MinRetryBackoffMS int    `yaml:"min_retry_backoff_ms" json:"min_retry_backoff_ms"`
+	MaxRetryBackoffMS int    `yaml:"max_retry_backoff_ms" json:"max_retry_backoff_ms"`
+	DialTimeoutMS     int    `yaml:"dial_timeout_ms" json:"dial_timeout_ms"`
+	ReadTimeoutMS     int    `yaml:"read_timeout_ms" json:"read_timeout_ms"`
+	WriteTimeoutMS    int    `yaml:"write_timeout_ms" json:"write_timeout_ms"`
 }
 
 // DatabaseConfig holds the different database configuration details.
@@ -106,10 +170,17 @@ type CacheConfig struct {
 
 // RedisConfig holds the Redis connection configuration.
 type RedisConfig struct {
-	Address   string `yaml:"address" json:"address"`
-	Password  string `yaml:"password" json:"password"`
-	DB        int    `yaml:"db" json:"db"`
-	KeyPrefix string `yaml:"key_prefix" json:"key_prefix"`
+	Address           string `yaml:"address" json:"address"`
+	Username          string `yaml:"username" json:"username"`
+	Password          string `yaml:"password" json:"password"`
+	DB                int    `yaml:"db" json:"db"`
+	KeyPrefix         string `yaml:"key_prefix" json:"key_prefix"`
+	MaxRetries        int    `yaml:"max_retries" json:"max_retries"`
+	MinRetryBackoffMS int    `yaml:"min_retry_backoff_ms" json:"min_retry_backoff_ms"`
+	MaxRetryBackoffMS int    `yaml:"max_retry_backoff_ms" json:"max_retry_backoff_ms"`
+	DialTimeoutMS     int    `yaml:"dial_timeout_ms" json:"dial_timeout_ms"`
+	ReadTimeoutMS     int    `yaml:"read_timeout_ms" json:"read_timeout_ms"`
+	WriteTimeoutMS    int    `yaml:"write_timeout_ms" json:"write_timeout_ms"`
 }
 
 // JWTConfig holds the JWT configuration details.
@@ -137,11 +208,72 @@ type DCRConfig struct {
 	Insecure bool `yaml:"insecure" json:"insecure"`
 }
 
+// PARConfig holds the Pushed Authorization Request (RFC 9126) configuration.
+type PARConfig struct {
+	RequirePAR bool  `yaml:"require_par" json:"require_par"`
+	ExpiresIn  int64 `yaml:"expires_in" json:"expires_in"`
+}
+
+// DPoPConfig holds the OAuth 2.0 DPoP configuration.
+type DPoPConfig struct {
+	Required     bool     `yaml:"required" json:"required"`
+	IatWindow    int      `yaml:"iat_window" json:"iat_window"`
+	Leeway       int      `yaml:"leeway" json:"leeway"`
+	AllowedAlgs  []string `yaml:"allowed_algs" json:"allowed_algs"`
+	MaxJTILength int      `yaml:"max_jti_length" json:"max_jti_length"`
+}
+
+// IsConfigured reports whether any DPoP field has been set. When false, callers should
+// skip validation: this matches the convention used by TrustedIssuerConfig and keeps
+// config-loading tests that omit the dpop section working without surprise failures.
+func (c *DPoPConfig) IsConfigured() bool {
+	return c.Required || c.IatWindow != 0 || c.Leeway != 0 ||
+		c.MaxJTILength != 0 || len(c.AllowedAlgs) > 0
+}
+
+// Validate ensures DPoP configuration values are within accepted bounds and the
+// allowed_algs list contains only asymmetric JWS algorithms supported for DPoP.
+func (c *DPoPConfig) Validate() error {
+	if !c.IsConfigured() {
+		return nil
+	}
+	if c.IatWindow <= 0 {
+		return fmt.Errorf("oauth.dpop.iat_window must be greater than 0")
+	}
+	if c.Leeway < 0 {
+		return fmt.Errorf("oauth.dpop.leeway must be greater than or equal to 0")
+	}
+	if c.MaxJTILength <= 0 {
+		return fmt.Errorf("oauth.dpop.max_jti_length must be greater than 0")
+	}
+	if len(c.AllowedAlgs) == 0 {
+		return fmt.Errorf("oauth.dpop.allowed_algs must contain at least one algorithm")
+	}
+	supported := map[string]struct{}{
+		"ES256": {}, "ES384": {}, "ES512": {},
+		"PS256": {}, "PS384": {}, "PS512": {},
+		"RS256": {}, "RS384": {}, "RS512": {},
+		"EdDSA": {},
+	}
+	for _, alg := range c.AllowedAlgs {
+		if _, ok := supported[alg]; !ok {
+			return fmt.Errorf("oauth.dpop.allowed_algs contains unsupported or symmetric algorithm: %q", alg)
+		}
+	}
+	return nil
+}
+
 // OAuthConfig holds the OAuth configuration details.
 type OAuthConfig struct {
 	RefreshToken      RefreshTokenConfig      `yaml:"refresh_token" json:"refresh_token"`
 	AuthorizationCode AuthorizationCodeConfig `yaml:"authorization_code" json:"authorization_code"`
 	DCR               DCRConfig               `yaml:"dcr" json:"dcr"`
+	PAR               PARConfig               `yaml:"par" json:"par"`
+	DPoP              DPoPConfig              `yaml:"dpop" json:"dpop"`
+	AuthClass         AuthClassConfig         `yaml:"auth_class" json:"auth_class"`
+	// AllowWildcardRedirectURI enables wildcard pattern matching for redirect URIs.
+	// When false (default), only exact redirect URI matching is performed.
+	AllowWildcardRedirectURI bool `yaml:"allow_wildcard_redirect_uri" json:"allow_wildcard_redirect_uri"`
 }
 
 // FlowConfig holds the configuration details for the flow service.
@@ -201,9 +333,26 @@ type SHA256Config struct {
 	SaltSize int `yaml:"salt_size" json:"salt_size"`
 }
 
-// CORSConfig holds the configuration details for the CORS.
+// CORSConfig holds the configuration details for the CORS middleware.
+//
+// AllowedOrigins is heterogeneous: each entry is either a bare string (a
+// literal origin matched after RFC-6454 canonicalization, with the special
+// value "null" denoting the CORS null origin) or an object of the shape
+// { regex: "..." } (an RE2 pattern matched against the raw request Origin
+// header byte for byte). See the CORS section of
+// docs/content/guides/getting-started/configuration.mdx.
 type CORSConfig struct {
-	AllowedOrigins []string `yaml:"allowed_origins" json:"allowed_origins"`
+	AllowedOrigins cors.OriginEntries `yaml:"allowed_origins" json:"allowed_origins"`
+}
+
+// Validate checks every allowed-origins entry so configuration errors —
+// invalid literals, malformed regexes, the unsupported "*" wildcard — are
+// surfaced at server start rather than on the first cross-origin request.
+// Installation of the runtime matcher is the server bootstrap's
+// responsibility (see cors.InitializeMatcher); this config layer only owns
+// YAML validation.
+func (c *CORSConfig) Validate() error {
+	return cors.Validate(c.AllowedOrigins)
 }
 
 // DeclarativeResources holds the configuration details for the declarative resources.
@@ -267,6 +416,12 @@ type UserConfig struct {
 	Store string `yaml:"store" json:"store"`
 }
 
+// SystemResourceServerConfig holds configuration for the built-in system resource server.
+type SystemResourceServerConfig struct {
+	Handle     string `yaml:"handle" json:"handle"`
+	Identifier string `yaml:"identifier" json:"identifier"`
+}
+
 // ResourceConfig holds the resource management configuration details.
 type ResourceConfig struct {
 	DefaultDelimiter string `yaml:"default_delimiter" json:"default_delimiter"`
@@ -275,7 +430,8 @@ type ResourceConfig struct {
 	// If not specified, falls back to global DeclarativeResources.Enabled setting:
 	//   - If DeclarativeResources.Enabled = true: behaves as "declarative"
 	//   - If DeclarativeResources.Enabled = false: behaves as "mutable"
-	Store string `yaml:"store" json:"store"`
+	Store                string                     `yaml:"store" json:"store"`
+	SystemResourceServer SystemResourceServerConfig `yaml:"system_resource_server" json:"system_resource_server"`
 }
 
 // OrganizationUnitConfig holds the organization unit service configuration.
@@ -308,9 +464,19 @@ type ApplicationConfig struct {
 	Store string `yaml:"store" json:"store"`
 }
 
-// UserSchemaConfig holds the user schema service configuration.
-type UserSchemaConfig struct {
-	// Store defines the storage mode for user schemas.
+// AgentConfig holds the agent service configuration.
+type AgentConfig struct {
+	// Store defines the storage mode for agents.
+	// Valid values: "mutable", "declarative", "composite" (hybrid mode)
+	// If not specified, falls back to global DeclarativeResources.Enabled setting:
+	//   - If DeclarativeResources.Enabled = true: behaves as "declarative"
+	//   - If DeclarativeResources.Enabled = false: behaves as "mutable"
+	Store string `yaml:"store" json:"store"`
+}
+
+// EntityTypeConfig holds the entity type service configuration.
+type EntityTypeConfig struct {
+	// Store defines the storage mode for entity types.
 	// Valid values: "mutable", "declarative", "composite" (hybrid mode)
 	// If not specified, falls back to global DeclarativeResources.Enabled setting:
 	//   - If DeclarativeResources.Enabled = true: behaves as "declarative"
@@ -348,6 +514,16 @@ type LayoutConfig struct {
 	Store string `yaml:"store" json:"store"`
 }
 
+// TranslationConfig holds the translation service configuration.
+type TranslationConfig struct {
+	// Store defines the storage mode for translations.
+	// Valid values: "mutable", "declarative", "composite" (hybrid mode)
+	// If not specified, falls back to global DeclarativeResources.Enabled setting:
+	//   - If DeclarativeResources.Enabled = true: behaves as "declarative"
+	//   - If DeclarativeResources.Enabled = false: behaves as "mutable"
+	Store string `yaml:"store" json:"store"`
+}
+
 // PasskeyConfig holds the passkey configuration details.
 type PasskeyConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins" json:"allowed_origins"`
@@ -361,6 +537,11 @@ type AuthnProviderConfig struct {
 
 // UserProviderConfig holds the user provider configuration details.
 type UserProviderConfig struct {
+	Type string `yaml:"type" json:"type"`
+}
+
+// EntityProviderConfig holds the entity provider configuration details.
+type EntityProviderConfig struct {
 	Type string `yaml:"type" json:"type"`
 }
 
@@ -400,6 +581,114 @@ type ConsentConfig struct {
 	MaxRetries int    `yaml:"max_retries" json:"max_retries"` // Max retry attempts for transient errors. Default: 3
 }
 
+// RequiredClaim defines a claim name and expected value that must be present in the token.
+type RequiredClaim struct {
+	Claim string `yaml:"claim" json:"claim"`
+	Value string `yaml:"value" json:"value"`
+}
+
+// TrustedIssuerConfig holds configuration for trusted external issuer authentication.
+// Setting Issuer activates the feature: the server trusts tokens carrying that iss claim
+// and validates them via the external authentication server's JWKS endpoint. When Issuer
+// is set, JWKSURL and Audience are required and the server fails to start if either is
+// missing.
+//
+// Per RFC 9068 §2.2 and RFC 8707, the Audience field must be set to this server's own
+// identifier (typically its public URL). The frontend must include a matching "resource"
+// parameter in the authorization request so the auth server sets the token's "aud" claim
+// to this server's identifier.
+//
+// RequiredClaims enforces that incoming tokens contain specific claims with expected values.
+// Each entry specifies a claim name and the value it must hold. If any required claim is
+// missing or does not match, the token is rejected.
+type TrustedIssuerConfig struct {
+	Issuer         string          `yaml:"issuer" json:"issuer"`
+	JWKSURL        string          `yaml:"jwks_url" json:"jwks_url"`
+	Audience       string          `yaml:"audience" json:"audience"`
+	RequiredClaims []RequiredClaim `yaml:"required_claims" json:"required_claims"`
+}
+
+// IsConfigured reports whether the trusted issuer feature is configured and active.
+// Setting issuer is the activation signal; jwks_url and audience are then required.
+func (c *TrustedIssuerConfig) IsConfigured() bool {
+	return c.Issuer != ""
+}
+
+// Validate checks the trusted issuer configuration for correctness.
+// When issuer is set, jwks_url and audience must also be set.
+// JWKS URL must use HTTPS to prevent MITM attacks on public key retrieval.
+// HTTP is allowed only for localhost/127.0.0.1 to support local development and tests.
+func (c *TrustedIssuerConfig) Validate() error {
+	if !c.IsConfigured() {
+		return nil
+	}
+	if c.JWKSURL == "" {
+		return fmt.Errorf("trusted_issuer.jwks_url must be set when trusted_issuer.issuer is set")
+	}
+	if c.Audience == "" {
+		return fmt.Errorf("trusted_issuer.audience must be set when trusted_issuer.issuer is set")
+	}
+
+	parsed, err := url.Parse(c.JWKSURL)
+	if err != nil {
+		return fmt.Errorf("trusted_issuer.jwks_url is not a valid URL: %w", err)
+	}
+	switch parsed.Scheme {
+	case schemeHTTPS:
+		return nil
+	case "http":
+		host := parsed.Hostname()
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+			return nil
+		}
+		return fmt.Errorf(
+			"trusted_issuer.jwks_url must use https (got http://%s); "+
+				"http is only allowed for localhost", host)
+	default:
+		return fmt.Errorf("trusted_issuer.jwks_url must use https scheme (got %q)", parsed.Scheme)
+	}
+}
+
+// AuthClassConfig holds the ACR-AMR mapping configuration.
+type AuthClassConfig struct {
+	Amrs   []string            `yaml:"amrs" json:"amrs"`
+	AcrAMR map[string][]string `yaml:"acr_amr" json:"acr_amr"`
+}
+
+// Validate checks the ACR-AMR mapping for configuration errors.
+func (c *AuthClassConfig) Validate() error {
+	amrSet := make(map[string]struct{}, len(c.Amrs))
+	for _, amr := range c.Amrs {
+		if strings.TrimSpace(amr) == "" {
+			return fmt.Errorf("auth_class: AMR entry must not be empty")
+		}
+		amrSet[amr] = struct{}{}
+	}
+
+	if len(c.AcrAMR) == 0 {
+		return nil
+	}
+
+	for acr, amrKeys := range c.AcrAMR {
+		if strings.TrimSpace(acr) == "" {
+			return fmt.Errorf("auth_class: ACR value must not be empty")
+		}
+		if len(amrKeys) == 0 {
+			return fmt.Errorf("auth_class: ACR %q has an empty AMR list", acr)
+		}
+		for _, amrKey := range amrKeys {
+			if strings.TrimSpace(amrKey) == "" {
+				return fmt.Errorf("auth_class: ACR %q references an empty AMR key", acr)
+			}
+			if _, ok := amrSet[amrKey]; !ok {
+				return fmt.Errorf("auth_class: ACR %q references unknown AMR key %q", acr, amrKey)
+			}
+		}
+	}
+
+	return nil
+}
+
 // Config holds the complete configuration details of the server.
 type Config struct {
 	Server               ServerConfig           `yaml:"server" json:"server"`
@@ -418,25 +707,28 @@ type Config struct {
 	OrganizationUnit     OrganizationUnitConfig `yaml:"organization_unit" json:"organization_unit"`
 	IdentityProvider     IdentityProviderConfig `yaml:"identity_provider" json:"identity_provider"`
 	Application          ApplicationConfig      `yaml:"application" json:"application"`
-	UserSchema           UserSchemaConfig       `yaml:"user_schema" json:"user_schema"`
+	Agent                AgentConfig            `yaml:"agent" json:"agent"`
+	EntityType           EntityTypeConfig       `yaml:"user_type" json:"user_type"`
 	Observability        ObservabilityConfig    `yaml:"observability" json:"observability"`
 	Passkey              PasskeyConfig          `yaml:"passkey" json:"passkey"`
 	AuthnProvider        AuthnProviderConfig    `yaml:"authn_provider" json:"authn_provider"`
 	UserProvider         UserProviderConfig     `yaml:"user_provider" json:"user_provider"`
+	EntityProvider       EntityProviderConfig   `yaml:"entity_provider" json:"entity_provider"`
 	Role                 RoleConfig             `yaml:"role" json:"role"`
 	Theme                ThemeConfig            `yaml:"theme" json:"theme"`
 	Layout               LayoutConfig           `yaml:"layout" json:"layout"`
+	Translation          TranslationConfig      `yaml:"translation" json:"translation"`
 	Email                EmailConfig            `yaml:"email" json:"email"`
 	Consent              ConsentConfig          `yaml:"consent" json:"consent"`
 }
 
 // LoadConfig loads the configurations from the specified YAML file and applies defaults.
-func LoadConfig(configPath string, defaultPath string, thunderHome string) (*Config, error) {
+func LoadConfig(configPath string, defaultPath string, serverHome string) (*Config, error) {
 	var cfg Config
 
 	// Load default configuration if provided
 	if defaultPath != "" {
-		defaultCfg, err := loadDefaultConfig(defaultPath, thunderHome)
+		defaultCfg, err := loadDefaultConfig(defaultPath, serverHome)
 		if err != nil {
 			return nil, err
 		}
@@ -445,7 +737,7 @@ func LoadConfig(configPath string, defaultPath string, thunderHome string) (*Con
 
 	// Load user configuration
 	var userCfg Config
-	userCfg, err := loadUserConfig(configPath, thunderHome)
+	userCfg, err := loadUserConfig(configPath, serverHome)
 	if err != nil {
 		return nil, err
 	}
@@ -467,18 +759,38 @@ func LoadConfig(configPath string, defaultPath string, thunderHome string) (*Con
 		cfg.JWT.Issuer = GetServerURL(&cfg.Server)
 	}
 
+	// Default system resource server identifier to "system" if not set.
+	if cfg.Resource.SystemResourceServer.Identifier == "" {
+		cfg.Resource.SystemResourceServer.Identifier = "system"
+	}
+
+	if err := cfg.Server.SecurityConfig.Validate(); err != nil {
+		return nil, err
+	}
+	if err := cfg.CORS.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Validate ACR-AMR mapping.
+	if err := cfg.OAuth.AuthClass.Validate(); err != nil {
+		return nil, err
+	}
+	if err := cfg.OAuth.DPoP.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
 }
 
 // loadDefaultConfig loads the default configuration from a JSON file.
-func loadDefaultConfig(path string, thunderHome string) (*Config, error) {
+func loadDefaultConfig(path string, serverHome string) (*Config, error) {
 	var cfg Config
 	configPath := filepath.Clean(path)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
-	data, err = utils.SubstituteFilePaths(data, thunderHome)
+	data, err = utils.SubstituteFilePaths(data, serverHome)
 	if err != nil {
 		return nil, err
 	}
@@ -489,7 +801,7 @@ func loadDefaultConfig(path string, thunderHome string) (*Config, error) {
 	return &cfg, nil
 }
 
-func loadUserConfig(path string, thunderHome string) (Config, error) {
+func loadUserConfig(path string, serverHome string) (Config, error) {
 	var cfg Config
 	configPath := filepath.Clean(path)
 	data, err := os.ReadFile(configPath)
@@ -500,7 +812,7 @@ func loadUserConfig(path string, thunderHome string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	data, err = utils.SubstituteFilePaths(data, thunderHome)
+	data, err = utils.SubstituteFilePaths(data, serverHome)
 	if err != nil {
 		return Config{}, err
 	}
@@ -519,7 +831,7 @@ func GetServerURL(server *ServerConfig) string {
 	if server.PublicURL != "" {
 		return server.PublicURL
 	}
-	scheme := "https"
+	scheme := schemeHTTPS
 	if server.HTTPOnly {
 		scheme = "http"
 	}

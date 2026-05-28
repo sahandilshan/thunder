@@ -1,0 +1,56 @@
+# Entrypoint workflow for releasing tools.
+
+name: 🔧 Release Tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+      tool_npx_thunderid:
+        description: 'thunderid (npx-thunderid)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  # IMPORTANT: DO NOT REMOVE. `id-token` is required for OIDC publishing.
+  id-token: write
+
+env:
+  RELEASE_GIT_USER_NAME: "thunderid-automation-bot"
+  RELEASE_GIT_USER_EMAIL: "thunderid-bot@wso2.com"
+  NODE_VERSION: "lts/*"
+  PNPM_VERSION: "latest"
+
+jobs:
+  release-npx-thunderid:
+    name: ⚡ Release thunderid (npx-thunderid)
+    if: ${{ github.event.inputs.tool_npx_thunderid == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          token: ${{ secrets.THUNDER_AUTOMATION_BOT }}
+
+      - name: 🚀 Release
+        uses: ./.github/actions/release-tool/npm
+        with:
+          tool: npx-thunderid
+          bump-type: ${{ github.event.inputs.bump_type }}
+          git-user-name: ${{ env.RELEASE_GIT_USER_NAME }}
+          git-user-email: ${{ env.RELEASE_GIT_USER_EMAIL }}
+          node-version: ${{ env.NODE_VERSION }}
+          pnpm-version: ${{ env.PNPM_VERSION }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

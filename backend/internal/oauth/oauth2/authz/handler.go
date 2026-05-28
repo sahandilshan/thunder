@@ -24,11 +24,11 @@ import (
 	"net/http"
 	"net/url"
 
-	oauth2const "github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	oauth2utils "github.com/asgardeo/thunder/internal/oauth/oauth2/utils"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // AuthorizeHandlerInterface defines the interface for handling OAuth2 authorization requests.
@@ -65,6 +65,7 @@ func (ah *authorizeHandler) HandleAuthorizeGetRequest(w http.ResponseWriter, r *
 			queryParams := map[string]string{
 				oauth2const.RequestParamError:            authErr.Code,
 				oauth2const.RequestParamErrorDescription: authErr.Message,
+				oauth2const.RequestParamIss:              config.GetServerRuntime().Config.JWT.Issuer,
 			}
 			if authErr.State != "" {
 				queryParams[oauth2const.RequestParamState] = authErr.State
@@ -142,6 +143,7 @@ func (ah *authorizeHandler) getOAuthMessage(r *http.Request, w http.ResponseWrit
 	}
 
 	if err != nil {
+		ah.logger.Debug("Invalid authorize request", log.Error(err))
 		utils.WriteJSONError(w, oauth2const.ErrorInvalidRequest, "Invalid authorization request",
 			http.StatusBadRequest, nil)
 	}
@@ -150,21 +152,34 @@ func (ah *authorizeHandler) getOAuthMessage(r *http.Request, w http.ResponseWrit
 }
 
 // getOAuthMessageForGetRequest extracts the OAuth message from an authorization GET request.
+// Only the resource parameter is permitted to be repeated (RFC 8707 §2). Any other parameter
+// appearing more than once is rejected with invalid_request per RFC 6749 §3.1.
 func (ah *authorizeHandler) getOAuthMessageForGetRequest(r *http.Request) (*OAuthMessage, error) {
 	if err := r.ParseForm(); err != nil {
 		return nil, fmt.Errorf("failed to parse form data: %w", err)
 	}
 
 	queryParams := make(map[string]string)
+	var resources []string
 	for key, values := range r.URL.Query() {
-		if len(values) > 0 {
-			queryParams[key] = values[0]
+		if len(values) == 0 {
+			continue
 		}
+		if key == oauth2const.RequestParamResource {
+			resources = values
+			queryParams[key] = values[0]
+			continue
+		}
+		if len(values) > 1 {
+			return nil, fmt.Errorf("query parameter %q must not be repeated", key)
+		}
+		queryParams[key] = values[0]
 	}
 
 	return &OAuthMessage{
 		RequestType:        oauth2const.TypeInitialAuthorizationRequest,
 		RequestQueryParams: queryParams,
+		Resources:          resources,
 	}, nil
 }
 
@@ -193,7 +208,7 @@ func (ah *authorizeHandler) getOAuthMessageForPostRequest(r *http.Request) (*OAu
 
 // getLoginPageRedirectURI constructs the login page URL with the provided query parameters.
 func getLoginPageRedirectURI(queryParams map[string]string) (string, error) {
-	gateClientConfig := config.GetThunderRuntime().Config.GateClient
+	gateClientConfig := config.GetServerRuntime().Config.GateClient
 	loginPageURL := (&url.URL{
 		Scheme: gateClientConfig.Scheme,
 		Host:   fmt.Sprintf("%s:%d", gateClientConfig.Hostname, gateClientConfig.Port),
@@ -226,7 +241,7 @@ func (ah *authorizeHandler) redirectToLoginPage(w http.ResponseWriter, r *http.R
 
 // getErrorPageRedirectURL constructs the error page URL with the provided error code and message.
 func getErrorPageRedirectURL(code, msg string) (string, error) {
-	gateClientConfig := config.GetThunderRuntime().Config.GateClient
+	gateClientConfig := config.GetServerRuntime().Config.GateClient
 	errorPageURL := (&url.URL{
 		Scheme: gateClientConfig.Scheme,
 		Host:   fmt.Sprintf("%s:%d", gateClientConfig.Hostname, gateClientConfig.Port),
@@ -298,6 +313,7 @@ func (ah *authorizeHandler) writeAuthZResponseToClientRedirect(w http.ResponseWr
 	queryParams := map[string]string{
 		oauth2const.RequestParamError:            authErr.Code,
 		oauth2const.RequestParamErrorDescription: authErr.Message,
+		oauth2const.RequestParamIss:              config.GetServerRuntime().Config.JWT.Issuer,
 	}
 	if authErr.State != "" {
 		queryParams[oauth2const.RequestParamState] = authErr.State

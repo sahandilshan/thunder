@@ -20,7 +20,7 @@
  * Console Admin Authentication Utilities for Playwright E2E Tests.
  *
  * This module provides utilities to manage authenticated sessions specifically for the
- * Thunder Console admin user in end-to-end tests using Playwright.
+ * Console admin user in end-to-end tests using Playwright.
  *
  * This application uses OAuth2/OIDC token-based authentication stored in sessionStorage,
  * NOT cookies. Therefore, we need to inject tokens via page.addInitScript() to ensure
@@ -167,7 +167,7 @@ export async function verifyAuthState(page: Page, debug: boolean = false): Promi
     return items;
   });
 
-  const isSessionActive = localStorage["asgardeo-session-active"] === "true";
+  const isSessionActive = localStorage["thunderid-session-active"] === "true";
   const hasSessionData = Object.keys(sessionStorage).some(key => key.includes("session_data-instance_0"));
 
   // Check if tokens exist and are not expired

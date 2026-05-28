@@ -28,9 +28,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/mcp/tool"
+	"github.com/thunder-id/thunderid/internal/application/model"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/mcp/tool"
 )
 
 type ApplicationToolsTestSuite struct {
@@ -88,7 +90,7 @@ func (suite *ApplicationToolsTestSuite) TestListApplications_Error() {
 	tools := &applicationTools{appService: mockService}
 
 	mockService.On("GetApplicationList", mock.Anything).Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "database error",
+		ErrorDescription: i18ncore.I18nMessage{DefaultValue: "database error"},
 	})
 
 	ctx := context.Background()
@@ -134,7 +136,7 @@ func (suite *ApplicationToolsTestSuite) TestGetApplicationByID_Error() {
 	tools := &applicationTools{appService: mockService}
 
 	mockService.On("GetApplication", mock.Anything, "app123").Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "application not found",
+		ErrorDescription: i18ncore.I18nMessage{DefaultValue: "application not found"},
 	})
 
 	ctx := context.Background()
@@ -155,8 +157,8 @@ func (suite *ApplicationToolsTestSuite) TestGetApplicationByClientID_Success() {
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	tools := &applicationTools{appService: mockService}
 
-	oauthApp := &model.OAuthAppConfigProcessedDTO{
-		AppID:    "app123",
+	oauthApp := &inboundmodel.OAuthClient{
+		ID:       "app123",
 		ClientID: "client123",
 	}
 
@@ -186,7 +188,7 @@ func (suite *ApplicationToolsTestSuite) TestGetApplicationByClientID_OAuthError(
 	tools := &applicationTools{appService: mockService}
 
 	mockService.On("GetOAuthApplication", mock.Anything, "client123").Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "OAuth application not found",
+		ErrorDescription: i18ncore.I18nMessage{DefaultValue: "OAuth application not found"},
 	})
 
 	ctx := context.Background()
@@ -207,14 +209,14 @@ func (suite *ApplicationToolsTestSuite) TestGetApplicationByClientID_AppError() 
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	tools := &applicationTools{appService: mockService}
 
-	oauthApp := &model.OAuthAppConfigProcessedDTO{
-		AppID:    "app123",
+	oauthApp := &inboundmodel.OAuthClient{
+		ID:       "app123",
 		ClientID: "client123",
 	}
 
 	mockService.On("GetOAuthApplication", mock.Anything, "client123").Return(oauthApp, nil)
 	mockService.On("GetApplication", mock.Anything, "app123").Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "application not found",
+		ErrorDescription: i18ncore.I18nMessage{DefaultValue: "application not found"},
 	})
 
 	ctx := context.Background()
@@ -269,7 +271,7 @@ func (suite *ApplicationToolsTestSuite) TestCreateApplication_Error() {
 	}
 
 	mockService.On("CreateApplication", mock.Anything, &inputApp).Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "validation error",
+		ErrorDescription: i18ncore.I18nMessage{DefaultValue: "validation error"},
 	})
 
 	ctx := context.Background()
@@ -325,7 +327,7 @@ func (suite *ApplicationToolsTestSuite) TestUpdateApplication_Error() {
 	}
 
 	mockService.On("UpdateApplication", mock.Anything, "app123", &inputApp).Return(nil, &serviceerror.ServiceError{
-		ErrorDescription: "application not found",
+		ErrorDescription: i18ncore.I18nMessage{DefaultValue: "application not found"},
 	})
 
 	ctx := context.Background()
@@ -359,9 +361,19 @@ func (suite *ApplicationToolsTestSuite) TestGetApplicationTemplates_Success() {
 	assert.Contains(suite.T(), output, "m2m")
 
 	// Verify SPA template structure
-	spaTemplate := output["spa"].(map[string]interface{})
-	assert.Equal(suite.T(), "<APP_NAME>", spaTemplate["name"])
-	assert.NotNil(suite.T(), spaTemplate["inbound_auth_config"])
+	spaTemplate := output["spa"]
+	assert.Equal(suite.T(), "<APP_NAME>", spaTemplate.Name)
+	assert.NotEmpty(suite.T(), spaTemplate.InboundAuthConfig)
+	assert.Equal(suite.T(), "<THEME_ID>", spaTemplate.InboundAuthProfile.ThemeID)
+
+	mobileTemplate := output["mobile"]
+	assert.Equal(suite.T(), "<THEME_ID>", mobileTemplate.InboundAuthProfile.ThemeID)
+
+	serverTemplate := output["server"]
+	assert.Equal(suite.T(), "<THEME_ID>", serverTemplate.InboundAuthProfile.ThemeID)
+
+	m2mTemplate := output["m2m"]
+	assert.Empty(suite.T(), m2mTemplate.InboundAuthProfile.ThemeID)
 
 	mockService.AssertExpectations(suite.T())
 }

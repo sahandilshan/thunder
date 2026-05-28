@@ -25,12 +25,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/notification"
-	notifcommon "github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	"github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/notification"
+	notifcommon "github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -45,32 +46,30 @@ var supportedChannels = []notifcommon.ChannelType{notifcommon.ChannelTypeSMS}
 type OTPAuthnServiceInterface interface {
 	SendOTP(ctx context.Context, senderID string, channel notifcommon.ChannelType,
 		recipient string) (string, *serviceerror.ServiceError)
-	VerifyOTP(ctx context.Context, sessionToken, otp string) (*userprovider.User, *serviceerror.ServiceError)
+	VerifyOTP(ctx context.Context, sessionToken, otp string) *serviceerror.ServiceError
+	Authenticate(ctx context.Context, sessionToken, otp string) (*entityprovider.Entity, *serviceerror.ServiceError)
 }
 
 // otpAuthnService is the default implementation of OTPAuthnServiceInterface.
 type otpAuthnService struct {
-	otpService   notification.OTPServiceInterface
-	userProvider userprovider.UserProviderInterface
+	otpService     notification.OTPServiceInterface
+	entityProvider entityprovider.EntityProviderInterface
 }
 
 // newOTPAuthnService creates a new instance of OTPAuthnService.
 func newOTPAuthnService(otpSvc notification.OTPServiceInterface,
-	userProvider userprovider.UserProviderInterface) OTPAuthnServiceInterface {
-	service := &otpAuthnService{
-		otpService:   otpSvc,
-		userProvider: userProvider,
+	entityProvider entityprovider.EntityProviderInterface) OTPAuthnServiceInterface {
+	return &otpAuthnService{
+		otpService:     otpSvc,
+		entityProvider: entityProvider,
 	}
-	common.RegisterAuthenticator(service.getMetadata())
-
-	return service
 }
 
 // SendOTP sends an OTP to the specified recipient using the provided sender.
 func (s *otpAuthnService) SendOTP(ctx context.Context, senderID string, channel notifcommon.ChannelType,
 	recipient string) (string, *serviceerror.ServiceError) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
-	logger.Debug("Sending OTP for authentication", log.String("recipient", log.MaskString(recipient)),
+	logger.Debug("Sending OTP for authentication", log.MaskedString("recipient", recipient),
 		log.String("channel", string(channel)))
 
 	if svcErr := s.validateOTPSendRequest(senderID, channel, recipient); svcErr != nil {
@@ -91,9 +90,33 @@ func (s *otpAuthnService) SendOTP(ctx context.Context, senderID string, channel 
 	return result.SessionToken, nil
 }
 
-// VerifyOTP verifies the provided OTP against the session token and returns the authenticated user.
-func (s *otpAuthnService) VerifyOTP(ctx context.Context, sessionToken,
-	otp string) (*userprovider.User, *serviceerror.ServiceError) {
+// VerifyOTP verifies the provided OTP against the session token without resolving the user.
+func (s *otpAuthnService) VerifyOTP(ctx context.Context, sessionToken, otp string) *serviceerror.ServiceError {
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
+	logger.Debug("Verifying OTP code")
+
+	if svcErr := s.validateOTPVerifyRequest(sessionToken, otp); svcErr != nil {
+		return svcErr
+	}
+
+	verifyData := notifcommon.VerifyOTPDTO{
+		SessionToken: sessionToken,
+		OTPCode:      otp,
+	}
+	result, svcErr := s.otpService.VerifyOTP(ctx, verifyData)
+	if svcErr != nil {
+		return s.handleOTPServiceError(svcErr, true, logger)
+	}
+
+	if result.Status != notifcommon.OTPVerifyStatusVerified {
+		return &ErrorIncorrectOTP
+	}
+	return nil
+}
+
+// Authenticate verifies the provided OTP against the session token and returns the authenticated user.
+func (s *otpAuthnService) Authenticate(ctx context.Context, sessionToken,
+	otp string) (*entityprovider.Entity, *serviceerror.ServiceError) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
 	logger.Debug("Verifying OTP for authentication")
 
@@ -133,11 +156,15 @@ func (s *otpAuthnService) handleOTPServiceError(svcErr *serviceerror.ServiceErro
 	logger *log.Logger) *serviceerror.ServiceError {
 	if svcErr.Type == serviceerror.ClientErrorType {
 		if isVerify {
-			return serviceerror.CustomServiceError(ErrorClientErrorFromOTPService,
-				fmt.Sprintf("Error verifying OTP: %s", svcErr.ErrorDescription))
+			return serviceerror.CustomServiceError(ErrorClientErrorFromOTPService, core.I18nMessage{
+				Key:          "error.otpauthnservice.error_verifying_otp_description",
+				DefaultValue: fmt.Sprintf("Error verifying OTP: %s", svcErr.ErrorDescription.DefaultValue),
+			})
 		} else {
-			return serviceerror.CustomServiceError(ErrorClientErrorFromOTPService,
-				fmt.Sprintf("Error sending OTP: %s", svcErr.ErrorDescription))
+			return serviceerror.CustomServiceError(ErrorClientErrorFromOTPService, core.I18nMessage{
+				Key:          "error.otpauthnservice.error_sending_otp_description",
+				DefaultValue: fmt.Sprintf("Error sending OTP: %s", svcErr.ErrorDescription.DefaultValue),
+			})
 		}
 	}
 
@@ -162,7 +189,7 @@ func (s *otpAuthnService) validateOTPVerifyRequest(sessionToken, otp string) *se
 
 // handleVerifyOTPResponse processes the OTP verification result and resolves the user.
 func (s *otpAuthnService) handleVerifyOTPResponse(result *notifcommon.VerifyOTPResultDTO,
-	logger *log.Logger) (*userprovider.User, *serviceerror.ServiceError) {
+	logger *log.Logger) (*entityprovider.Entity, *serviceerror.ServiceError) {
 	if result.Status != notifcommon.OTPVerifyStatusVerified {
 		return nil, &ErrorIncorrectOTP
 	}
@@ -182,8 +209,8 @@ func (s *otpAuthnService) handleVerifyOTPResponse(result *notifcommon.VerifyOTPR
 
 // resolveUser retrieves a user by their recipient identifier (e.g., mobile number).
 func (s *otpAuthnService) resolveUser(recipient string, channel notifcommon.ChannelType,
-	logger *log.Logger) (*userprovider.User, *serviceerror.ServiceError) {
-	logger.Debug("Resolving user from recipient", log.String("recipient", log.MaskString(recipient)),
+	logger *log.Logger) (*entityprovider.Entity, *serviceerror.ServiceError) {
+	logger.Debug("Resolving user from recipient", log.MaskedString("recipient", recipient),
 		log.String("channel", string(channel)))
 
 	// Build filter based on channel type
@@ -195,42 +222,36 @@ func (s *otpAuthnService) resolveUser(recipient string, channel notifcommon.Chan
 		return nil, &ErrorUnsupportedChannel
 	}
 
-	userID, upErr := s.userProvider.IdentifyUser(filters)
+	userID, upErr := s.entityProvider.IdentifyEntity(filters)
 	if upErr != nil {
 		return nil, s.handleUserProviderError(upErr, logger)
 	}
 	if userID == nil || *userID == "" {
-		logger.Debug("No user found for recipient", log.String("recipient", log.MaskString(recipient)))
+		logger.Debug("No user found for recipient", log.MaskedString("recipient", recipient))
 		return nil, &common.ErrorUserNotFound
 	}
 
-	user, upErr := s.userProvider.GetUser(*userID)
+	user, upErr := s.entityProvider.GetEntity(*userID)
 	if upErr != nil {
 		return nil, s.handleUserProviderError(upErr, logger)
 	}
 
-	logger.Debug("User resolved from recipient", log.String("userId", user.UserID))
+	logger.Debug("User resolved from recipient", log.MaskedString(log.LoggerKeyUserID, user.ID))
 	return user, nil
 }
 
 // handleUserProviderError handles errors from the user provider.
-func (s *otpAuthnService) handleUserProviderError(upErr *userprovider.UserProviderError,
+func (s *otpAuthnService) handleUserProviderError(upErr *entityprovider.EntityProviderError,
 	logger *log.Logger) *serviceerror.ServiceError {
-	if upErr.Code == userprovider.ErrorCodeUserNotFound {
+	if upErr.Code == entityprovider.ErrorCodeEntityNotFound {
 		return &common.ErrorUserNotFound
 	}
-	if upErr.Code == userprovider.ErrorCodeSystemError {
+	if upErr.Code == entityprovider.ErrorCodeSystemError {
 		logger.Error("Error occurred while retrieving user", log.Any("error", upErr))
 		return &serviceerror.InternalServerError
 	}
-	return serviceerror.CustomServiceError(ErrorClientErrorWhileResolvingUser,
-		fmt.Sprintf("An error occurred while retrieving user: %s", upErr.Description))
-}
-
-// getMetadata returns the authenticator metadata for OTP authenticator.
-func (s *otpAuthnService) getMetadata() common.AuthenticatorMeta {
-	return common.AuthenticatorMeta{
-		Name:    common.AuthenticatorSMSOTP,
-		Factors: []common.AuthenticationFactor{common.FactorPossession},
-	}
+	return serviceerror.CustomServiceError(ErrorClientErrorWhileResolvingUser, core.I18nMessage{
+		Key:          "error.otpauthnservice.error_resolving_user_description",
+		DefaultValue: fmt.Sprintf("An error occurred while retrieving user: %s", upErr.Description),
+	})
 }

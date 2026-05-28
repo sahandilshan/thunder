@@ -29,12 +29,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	sysconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	httpservice "github.com/asgardeo/thunder/internal/system/http"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	sysconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	httpservice "github.com/thunder-id/thunderid/internal/system/http"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // External service endpoints.
@@ -233,7 +233,7 @@ type consentBackendErrorDTO struct {
 
 // createConsentElements creates one or more consent elements.
 func (c *defaultClient) createConsentElements(ctx context.Context, ouID string, elements []ConsentElementInput) (
-	[]ConsentElement, *serviceerror.I18nServiceError) {
+	[]ConsentElement, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentElementsEndpoint)
 	if svcErr != nil {
 		return nil, svcErr
@@ -263,7 +263,7 @@ func (c *defaultClient) createConsentElements(ctx context.Context, ouID string, 
 	result, err := sysutils.DecodeJSONResponse[elementsCreateResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode create-elements response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 
 	out := make([]ConsentElement, 0, len(result.Data))
@@ -276,7 +276,7 @@ func (c *defaultClient) createConsentElements(ctx context.Context, ouID string, 
 
 // listConsentElements retrieves consent elements filtered by optional name.
 func (c *defaultClient) listConsentElements(ctx context.Context, ouID string, ns Namespace, nameFilter string) (
-	[]ConsentElement, *serviceerror.I18nServiceError) {
+	[]ConsentElement, *serviceerror.ServiceError) {
 	u, svcErr := c.buildSearchURL(nameFilter, consentElementsEndpoint)
 	if svcErr != nil {
 		return nil, svcErr
@@ -295,7 +295,7 @@ func (c *defaultClient) listConsentElements(ctx context.Context, ouID string, ns
 	result, err := sysutils.DecodeJSONResponse[elementListResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode list-elements response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 
 	out := make([]ConsentElement, 0, len(result.Data))
@@ -308,7 +308,7 @@ func (c *defaultClient) listConsentElements(ctx context.Context, ouID string, ns
 
 // updateConsentElement updates a consent element by ID.
 func (c *defaultClient) updateConsentElement(ctx context.Context, ouID, elementID string,
-	element *ConsentElementInput) (*ConsentElement, *serviceerror.I18nServiceError) {
+	element *ConsentElementInput) (*ConsentElement, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentElementsEndpoint, elementID)
 	if svcErr != nil {
 		return nil, svcErr
@@ -337,7 +337,7 @@ func (c *defaultClient) updateConsentElement(ctx context.Context, ouID, elementI
 	result, err := sysutils.DecodeJSONResponse[elementResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode update-element response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 	el := c.dtoToConsentElement(result)
 
@@ -346,7 +346,7 @@ func (c *defaultClient) updateConsentElement(ctx context.Context, ouID, elementI
 
 // deleteConsentElement deletes a consent element by ID.
 func (c *defaultClient) deleteConsentElement(ctx context.Context,
-	ouID, elementID string) *serviceerror.I18nServiceError {
+	ouID, elementID string) *serviceerror.ServiceError {
 	u, svcErr := c.buildServiceEndpoint(consentElementsEndpoint, elementID)
 	if svcErr != nil {
 		return svcErr
@@ -367,7 +367,7 @@ func (c *defaultClient) deleteConsentElement(ctx context.Context,
 
 // validateConsentElements validates a list of consent element names.
 func (c *defaultClient) validateConsentElements(ctx context.Context, ouID string, names []string) (
-	[]string, *serviceerror.I18nServiceError) {
+	[]string, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentElementsValidateEndpoint)
 	if svcErr != nil {
 		return nil, svcErr
@@ -392,7 +392,7 @@ func (c *defaultClient) validateConsentElements(ctx context.Context, ouID string
 	result, err := sysutils.DecodeJSONResponse[[]string](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode validate-elements response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 
 	if result == nil {
@@ -404,7 +404,7 @@ func (c *defaultClient) validateConsentElements(ctx context.Context, ouID string
 
 // createConsentPurpose creates a consent purpose.
 func (c *defaultClient) createConsentPurpose(ctx context.Context, ouID string, purpose *ConsentPurposeInput) (
-	*ConsentPurpose, *serviceerror.I18nServiceError) {
+	*ConsentPurpose, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentPurposesEndpoint)
 	if svcErr != nil {
 		return nil, svcErr
@@ -431,7 +431,7 @@ func (c *defaultClient) createConsentPurpose(ctx context.Context, ouID string, p
 	result, err := sysutils.DecodeJSONResponse[purposeResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode create-purpose response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 	p := c.dtoToConsentPurpose(result)
 
@@ -441,7 +441,7 @@ func (c *defaultClient) createConsentPurpose(ctx context.Context, ouID string, p
 // listConsentPurposes retrieves consent purposes for the given organization, optionally filtered by
 // group ID (e.g. app ID). If groupID is empty, returns all purposes for the organization.
 func (c *defaultClient) listConsentPurposes(ctx context.Context, ouID, groupID string) (
-	[]ConsentPurpose, *serviceerror.I18nServiceError) {
+	[]ConsentPurpose, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentPurposesEndpoint)
 	if svcErr != nil {
 		return nil, svcErr
@@ -464,7 +464,7 @@ func (c *defaultClient) listConsentPurposes(ctx context.Context, ouID, groupID s
 	result, err := sysutils.DecodeJSONResponse[purposeListResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode list-purposes response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 
 	out := make([]ConsentPurpose, 0, len(result.Data))
@@ -477,7 +477,7 @@ func (c *defaultClient) listConsentPurposes(ctx context.Context, ouID, groupID s
 
 // updateConsentPurpose updates a consent purpose by ID.
 func (c *defaultClient) updateConsentPurpose(ctx context.Context, ouID, purposeID string,
-	purpose *ConsentPurposeInput) (*ConsentPurpose, *serviceerror.I18nServiceError) {
+	purpose *ConsentPurposeInput) (*ConsentPurpose, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentPurposesEndpoint, purposeID)
 	if svcErr != nil {
 		return nil, svcErr
@@ -506,7 +506,7 @@ func (c *defaultClient) updateConsentPurpose(ctx context.Context, ouID, purposeI
 	result, err := sysutils.DecodeJSONResponse[purposeResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode update-purpose response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 	p := c.dtoToConsentPurpose(result)
 
@@ -515,7 +515,7 @@ func (c *defaultClient) updateConsentPurpose(ctx context.Context, ouID, purposeI
 
 // deleteConsentPurpose deletes a consent purpose by ID.
 func (c *defaultClient) deleteConsentPurpose(ctx context.Context,
-	ouID, purposeID string) *serviceerror.I18nServiceError {
+	ouID, purposeID string) *serviceerror.ServiceError {
 	u, svcErr := c.buildServiceEndpoint(consentPurposesEndpoint, purposeID)
 	if svcErr != nil {
 		return svcErr
@@ -542,7 +542,7 @@ func (c *defaultClient) deleteConsentPurpose(ctx context.Context,
 
 // createConsent creates a consent record for a user and resource.
 func (c *defaultClient) createConsent(ctx context.Context, ouID string, req *ConsentRequest) (
-	*Consent, *serviceerror.I18nServiceError) {
+	*Consent, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentsEndpoint)
 	if svcErr != nil {
 		return nil, svcErr
@@ -566,7 +566,7 @@ func (c *defaultClient) createConsent(ctx context.Context, ouID string, req *Con
 	result, err := sysutils.DecodeJSONResponse[consentResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode create-consent response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 	out := c.dtoToConsent(result)
 
@@ -575,7 +575,7 @@ func (c *defaultClient) createConsent(ctx context.Context, ouID string, req *Con
 
 // searchConsents retrieves consent records filtered by the given criteria.
 func (c *defaultClient) searchConsents(ctx context.Context, ouID string, filter *ConsentSearchFilter) (
-	[]Consent, *serviceerror.I18nServiceError) {
+	[]Consent, *serviceerror.ServiceError) {
 	u, svcErr := c.buildConsentSearchURL(filter)
 	if svcErr != nil {
 		return nil, svcErr
@@ -598,7 +598,7 @@ func (c *defaultClient) searchConsents(ctx context.Context, ouID string, filter 
 	result, err := sysutils.DecodeJSONResponse[consentSearchResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode search-consents response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 
 	// Currently the default client does not apply the filtering correctly for some consent statuses (e.g. EXPIRED)
@@ -640,7 +640,7 @@ func (c *defaultClient) searchConsents(ctx context.Context, ouID string, filter 
 // validateConsent validates a consent record by ID and returns the validation result
 // along with the consent information if valid.
 func (c *defaultClient) validateConsent(ctx context.Context, ouID, consentID string) (
-	*ConsentValidationResult, *serviceerror.I18nServiceError) {
+	*ConsentValidationResult, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentValidateEndpoint)
 	if svcErr != nil {
 		return nil, svcErr
@@ -664,7 +664,7 @@ func (c *defaultClient) validateConsent(ctx context.Context, ouID, consentID str
 	result, err := sysutils.DecodeJSONResponse[consentValidateResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode validate-consent response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 
 	return c.dtoToValidationResult(result), nil
@@ -672,7 +672,7 @@ func (c *defaultClient) validateConsent(ctx context.Context, ouID, consentID str
 
 // updateConsent replaces the content of an existing consent record by ID.
 func (c *defaultClient) updateConsent(ctx context.Context, ouID, consentID string,
-	req *ConsentRequest) (*Consent, *serviceerror.I18nServiceError) {
+	req *ConsentRequest) (*Consent, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentsEndpoint, consentID)
 	if svcErr != nil {
 		return nil, svcErr
@@ -699,7 +699,7 @@ func (c *defaultClient) updateConsent(ctx context.Context, ouID, consentID strin
 	result, err := sysutils.DecodeJSONResponse[consentResponseDTO](resp)
 	if err != nil {
 		c.logger.Error("Failed to decode update-consent response", log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 	out := c.dtoToConsent(result)
 
@@ -708,7 +708,7 @@ func (c *defaultClient) updateConsent(ctx context.Context, ouID, consentID strin
 
 // revokeConsent revokes a consent record by ID with an optional reason.
 func (c *defaultClient) revokeConsent(ctx context.Context, ouID, consentID string,
-	payload *ConsentRevokeRequest) *serviceerror.I18nServiceError {
+	payload *ConsentRevokeRequest) *serviceerror.ServiceError {
 	u, svcErr := c.buildServiceEndpoint(consentsEndpoint, consentID, "revoke")
 	if svcErr != nil {
 		return svcErr
@@ -736,7 +736,7 @@ func (c *defaultClient) revokeConsent(ctx context.Context, ouID, consentID strin
 
 // getClientConfig retrieves the client configuration from the system config with validation and defaulting.
 func getClientConfig() clientConfig {
-	consentCfg := config.GetThunderRuntime().Config.Consent
+	consentCfg := config.GetServerRuntime().Config.Consent
 
 	timeoutSecs := consentCfg.Timeout
 	if timeoutSecs <= 0 {
@@ -756,11 +756,11 @@ func getClientConfig() clientConfig {
 
 // buildServiceEndpoint constructs the full URL for a given set of path segments based on the
 // baseURL in clientConfig.
-func (c *defaultClient) buildServiceEndpoint(pathSegments ...string) (string, *serviceerror.I18nServiceError) {
+func (c *defaultClient) buildServiceEndpoint(pathSegments ...string) (string, *serviceerror.ServiceError) {
 	u, err := url.JoinPath(c.clientConfig.baseURL, pathSegments...)
 	if err != nil {
 		c.logger.Error("Failed to construct endpoint URL for consent operation", log.Error(err))
-		return "", &serviceerror.InternalServerErrorWithI18n
+		return "", &serviceerror.InternalServerError
 	}
 
 	return u, nil
@@ -769,7 +769,7 @@ func (c *defaultClient) buildServiceEndpoint(pathSegments ...string) (string, *s
 // buildSearchURL constructs the URL for searching consent elements and purposes with query parameters
 // based on the provided filter.
 func (c *defaultClient) buildSearchURL(nameFilter string, pathSegments ...string) (
-	string, *serviceerror.I18nServiceError) {
+	string, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(pathSegments...)
 	if svcErr != nil {
 		return "", svcErr
@@ -785,7 +785,7 @@ func (c *defaultClient) buildSearchURL(nameFilter string, pathSegments ...string
 // buildConsentSearchURL assembles the URL for searching consents with query parameters
 // based on the provided ConsentSearchFilter.
 func (c *defaultClient) buildConsentSearchURL(filter *ConsentSearchFilter) (
-	string, *serviceerror.I18nServiceError) {
+	string, *serviceerror.ServiceError) {
 	u, svcErr := c.buildServiceEndpoint(consentsEndpoint)
 	if svcErr != nil {
 		return "", svcErr
@@ -887,10 +887,63 @@ func (c *defaultClient) dtoToConsentPurpose(dto *purposeResponseDTO) ConsentPurp
 		Name:        dto.Name,
 		Description: dto.Description,
 		GroupID:     dto.ClientID,
+		Namespace:   NamespaceFromPurposeName(dto.Name),
 		Elements:    elements,
 		CreatedTime: dto.CreatedTime,
 		UpdatedTime: dto.UpdatedTime,
 	}
+}
+
+// Consent-purpose name prefixes. Each server-owned purpose is named `<prefix><appID>`; the prefix
+// doubles as the namespace discriminator on reads since the upstream consent service has no
+// `namespace` field on purposes.
+const (
+	attributesPurposeNamePrefix  = "attributes:"
+	permissionsPurposeNamePrefix = "permissions:"
+)
+
+// AttributesPurposeName returns the canonical name of the attribute consent purpose for an app.
+func AttributesPurposeName(appID string) string {
+	return attributesPurposeNamePrefix + appID
+}
+
+// PermissionsPurposeName returns the canonical name of the permission consent purpose for an app.
+func PermissionsPurposeName(appID string) string {
+	return permissionsPurposeNamePrefix + appID
+}
+
+// NamespaceFromPurposeName derives the purpose namespace from the name prefix. Returns empty
+// for names without a recognized prefix; callers filter such purposes out.
+func NamespaceFromPurposeName(name string) Namespace {
+	switch {
+	case strings.HasPrefix(name, permissionsPurposeNamePrefix):
+		return NamespacePermission
+	case strings.HasPrefix(name, attributesPurposeNamePrefix):
+		return NamespaceAttribute
+	default:
+		return ""
+	}
+}
+
+// FilterAttributePurposes returns only the attribute-namespace consent purposes.
+func FilterAttributePurposes(purposes []ConsentPurpose) []ConsentPurpose {
+	return filterPurposesByNamespace(purposes, NamespaceAttribute)
+}
+
+// FilterPermissionPurposes returns only the permission-namespace consent purposes.
+func FilterPermissionPurposes(purposes []ConsentPurpose) []ConsentPurpose {
+	return filterPurposesByNamespace(purposes, NamespacePermission)
+}
+
+// filterPurposesByNamespace returns the subset of purposes whose Namespace matches ns.
+func filterPurposesByNamespace(purposes []ConsentPurpose, ns Namespace) []ConsentPurpose {
+	out := make([]ConsentPurpose, 0, len(purposes))
+	for _, p := range purposes {
+		if p.Namespace == ns {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // consentAuthorizationRequestToDTO converts a ConsentAuthorizationRequest to authorizationRequestDTO for API requests.
@@ -1006,7 +1059,7 @@ func (c *defaultClient) setCommonHeaders(req *http.Request, ouID, groupID string
 // and executes it with retry logic for transient errors.
 // The caller is responsible for closing resp.Body via closeBody.
 func (c *defaultClient) doRequest(ctx context.Context, method, url, ouID, groupID string, body any) (
-	*http.Response, *serviceerror.I18nServiceError) {
+	*http.Response, *serviceerror.ServiceError) {
 	var encodedBody []byte
 	if body != nil {
 		var merr error
@@ -1026,7 +1079,7 @@ func (c *defaultClient) doRequest(ctx context.Context, method, url, ouID, groupI
 			select {
 			case <-ctx.Done():
 				c.logger.Warn("Consent request cancelled during retry", log.Error(ctx.Err()))
-				return nil, &serviceerror.InternalServerErrorWithI18n
+				return nil, &serviceerror.InternalServerError
 			case <-time.After(backoff):
 			}
 			if backoff < 8*time.Second {
@@ -1044,7 +1097,7 @@ func (c *defaultClient) doRequest(ctx context.Context, method, url, ouID, groupI
 		if err != nil {
 			cancel()
 			c.logger.Error("Failed to create HTTP request", log.Error(err))
-			return nil, &serviceerror.InternalServerErrorWithI18n
+			return nil, &serviceerror.InternalServerError
 		}
 
 		if encodedBody != nil {
@@ -1089,17 +1142,17 @@ func (c *defaultClient) doRequest(ctx context.Context, method, url, ouID, groupI
 	c.logger.Error("All retry attempts exceeded for consent service request",
 		log.String("method", method), log.Error(lastErr))
 
-	return nil, &serviceerror.InternalServerErrorWithI18n
+	return nil, &serviceerror.InternalServerError
 }
 
 // checkStatus returns nil for 2xx responses. For all other status codes it decodes
-// the structured error body and returns the appropriate *serviceerror.I18nServiceError:
+// the structured error body and returns the appropriate *serviceerror.ServiceError:
 //   - 5xx → InternalServerError
 //   - 4xx → ErrorInvalidConsentRequest
 //
 // Expected per-method status codes (404, 409) must be checked by the caller BEFORE calling
 // this method, as their meaning differs per operation and cannot be resolved here.
-func (c *defaultClient) checkStatus(resp *http.Response) *serviceerror.I18nServiceError {
+func (c *defaultClient) checkStatus(resp *http.Response) *serviceerror.ServiceError {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
@@ -1130,7 +1183,7 @@ func (c *defaultClient) checkStatus(resp *http.Response) *serviceerror.I18nServi
 				log.String("description", apiErr.Description))
 		}
 
-		return &serviceerror.InternalServerErrorWithI18n
+		return &serviceerror.InternalServerError
 	}
 
 	switch resp.StatusCode {
@@ -1162,7 +1215,7 @@ func (c *defaultClient) closeBody(resp *http.Response) {
 
 // handleClientError decodes the error response from the consent service and returns the provided service error.
 func (c *defaultClient) handleClientError(resp *http.Response,
-	svcErr *serviceerror.I18nServiceError) *serviceerror.I18nServiceError {
+	svcErr *serviceerror.ServiceError) *serviceerror.ServiceError {
 	apiErr, err := sysutils.DecodeJSONResponse[consentBackendErrorDTO](resp)
 	if err != nil {
 		c.logger.Debug("Consent service rejected request", log.Int("statusCode", resp.StatusCode))

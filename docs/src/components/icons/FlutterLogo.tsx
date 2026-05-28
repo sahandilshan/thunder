@@ -16,7 +16,6 @@
  * under the License.
  */
 
-import React from 'react';
 
 export default function FlutterLogo({size = 64}: {size?: number}) {
   return (

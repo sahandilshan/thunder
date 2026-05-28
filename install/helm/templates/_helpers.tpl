@@ -20,7 +20,7 @@ under the License.
 Expand the name of the chart.
 */}}
 
-{{- define "thunder.name" -}}
+{{- define "thunderid.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
@@ -29,7 +29,7 @@ Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
 */}}
-{{- define "thunder.fullname" -}}
+{{- define "thunderid.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -45,16 +45,16 @@ If release name contains chart name it will be used as a full name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "thunder.chart" -}}
+{{- define "thunderid.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "thunder.labels" -}}
-helm.sh/chart: {{ include "thunder.chart" . }}
-{{ include "thunder.selectorLabels" . }}
+{{- define "thunderid.labels" -}}
+helm.sh/chart: {{ include "thunderid.chart" . }}
+{{ include "thunderid.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -64,17 +64,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "thunder.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "thunder.name" . }}
+{{- define "thunderid.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "thunderid.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "thunder.serviceAccountName" -}}
+{{- define "thunderid.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "thunder.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "thunderid.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
@@ -85,51 +85,67 @@ Check if auto-generated database credentials Secret should be included in checks
 Returns true if any database password is set without a passwordRef.key.
 This is used to trigger pod restarts when auto-generated Secrets change.
 */}}
-{{- define "thunder.shouldIncludeSecretChecksum" -}}
+{{- define "thunderid.shouldIncludeSecretChecksum" -}}
 {{- $configuration := default dict .Values.configuration -}}
 {{- $database := default dict $configuration.database -}}
 {{- $config := default dict $database.config -}}
 {{- $runtime := default dict $database.runtime -}}
 {{- $user := default dict $database.user -}}
+{{- $configPostgres := default dict $config.postgres -}}
+{{- $runtimePostgres := default dict $runtime.postgres -}}
+{{- $runtimeRedis := default dict $runtime.redis -}}
+{{- $userPostgres := default dict $user.postgres -}}
 {{- $consent := default dict $configuration.consent -}}
 {{- $consentDb := default dict $consent.database -}}
 {{- $cache := default dict $configuration.cache -}}
 {{- $redis := default dict $cache.redis -}}
-{{- if or (and $config.password (not (default dict $config.passwordRef).key)) (and $runtime.password (not (default dict $runtime.passwordRef).key)) (and $user.password (not (default dict $user.passwordRef).key)) (and $consent.enabled $consentDb.password (not (default dict $consentDb.passwordRef).key)) (and $redis.password (eq $cache.type "redis") (not (default dict $redis.passwordRef).key)) }}true{{- end }}
+{{- if or (and $configPostgres.password (not (default dict $configPostgres.passwordRef).key)) (and $runtimePostgres.password (not (default dict $runtimePostgres.passwordRef).key)) (and $runtimeRedis.password (not (default dict $runtimeRedis.passwordRef).key)) (and $userPostgres.password (not (default dict $userPostgres.passwordRef).key)) (and $consent.enabled $consentDb.password (not (default dict $consentDb.passwordRef).key)) (and $redis.password (eq $cache.type "redis") (not (default dict $redis.passwordRef).key)) }}true{{- end }}
 {{- end }}
 
 {{/*
 Generate database password environment variable definitions for both deployment and setup job.
 Injects DB_CONFIG_PASSWORD, DB_RUNTIME_PASSWORD, and DB_USER_PASSWORD from either auto-generated or external Secrets.
 */}}
-{{- define "thunder.databasePasswordEnvVars" -}}
-{{- $defaultDbSecretName := printf "%s-db-credentials" (include "thunder.fullname" .) -}}
+{{- define "thunderid.databasePasswordEnvVars" -}}
+{{- $defaultDbSecretName := printf "%s-db-credentials" (include "thunderid.fullname" .) -}}
 {{- $configuration := default dict .Values.configuration -}}
 {{- $database := default dict $configuration.database -}}
 {{- $config := default dict $database.config -}}
 {{- $runtime := default dict $database.runtime -}}
 {{- $user := default dict $database.user -}}
+{{- $configPostgres := default dict $config.postgres -}}
+{{- $runtimePostgres := default dict $runtime.postgres -}}
+{{- $runtimeRedis := default dict $runtime.redis -}}
+{{- $userPostgres := default dict $user.postgres -}}
 {{- $consent := default dict $configuration.consent -}}
 {{- $consentDb := default dict $consent.database -}}
-{{- $configPasswordRef := default dict $config.passwordRef -}}
-{{- $runtimePasswordRef := default dict $runtime.passwordRef -}}
-{{- $userPasswordRef := default dict $user.passwordRef -}}
+{{- $configPasswordRef := default dict $configPostgres.passwordRef -}}
+{{- $runtimePasswordRef := default dict $runtimePostgres.passwordRef -}}
+{{- $runtimeRedisPasswordRef := default dict $runtimeRedis.passwordRef -}}
+{{- $userPasswordRef := default dict $userPostgres.passwordRef -}}
 {{- $consentPasswordRef := default dict $consentDb.passwordRef -}}
-{{- if or $config.password $configPasswordRef.key }}
+{{- if or $configPostgres.password $configPasswordRef.key }}
 - name: DB_CONFIG_PASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ if $configPasswordRef.key }}{{ $configPasswordRef.name | default $defaultDbSecretName }}{{ else }}{{ $defaultDbSecretName }}{{ end }}
       key: {{ $configPasswordRef.key | default "config-db-password" }}
 {{- end }}
-{{- if or $runtime.password $runtimePasswordRef.key }}
+{{- if or $runtimePostgres.password $runtimePasswordRef.key }}
 - name: DB_RUNTIME_PASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ if $runtimePasswordRef.key }}{{ $runtimePasswordRef.name | default $defaultDbSecretName }}{{ else }}{{ $defaultDbSecretName }}{{ end }}
       key: {{ $runtimePasswordRef.key | default "runtime-db-password" }}
 {{- end }}
-{{- if or $user.password $userPasswordRef.key }}
+{{- if or $runtimeRedis.password $runtimeRedisPasswordRef.key }}
+- name: DB_RUNTIME_REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ if $runtimeRedisPasswordRef.key }}{{ $runtimeRedisPasswordRef.name | default $defaultDbSecretName }}{{ else }}{{ $defaultDbSecretName }}{{ end }}
+      key: {{ $runtimeRedisPasswordRef.key | default "runtime-redis-password" }}
+{{- end }}
+{{- if or $userPostgres.password $userPasswordRef.key }}
 - name: DB_USER_PASSWORD
   valueFrom:
     secretKeyRef:
@@ -149,17 +165,18 @@ Injects DB_CONFIG_PASSWORD, DB_RUNTIME_PASSWORD, and DB_USER_PASSWORD from eithe
 Generate Redis password environment variable definitions for both deployment and setup job.
 Injects CACHE_REDIS_PASSWORD from auto-generated database credentials Secret when Redis cache is enabled.
 */}}
-{{- define "thunder.cacheRedisPasswordEnvVars" -}}
-{{- $defaultDbSecretName := printf "%s-db-credentials" (include "thunder.fullname" .) -}}
+{{- define "thunderid.cacheRedisPasswordEnvVars" -}}
+{{- $defaultDbSecretName := printf "%s-db-credentials" (include "thunderid.fullname" .) -}}
 {{- $configuration := default dict .Values.configuration -}}
 {{- $cache := default dict $configuration.cache -}}
 {{- $redis := default dict $cache.redis -}}
-{{- if and (eq $cache.type "redis") $redis.password }}
+{{- $redisPasswordRef := default dict $redis.passwordRef -}}
+{{- if and (eq $cache.type "redis") (or $redis.password $redisPasswordRef.key) }}
 - name: CACHE_REDIS_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ $defaultDbSecretName }}
-      key: cache-redis-password
+      name: {{ if $redisPasswordRef.key }}{{ $redisPasswordRef.name | default $defaultDbSecretName }}{{ else }}{{ $defaultDbSecretName }}{{ end }}
+      key: {{ $redisPasswordRef.key | default "cache-redis-password" }}
 {{- end }}
 {{- end }}
 
@@ -168,7 +185,7 @@ Generate generic secret-backed environment variable definitions.
 Expected input:
   - secretEnv: list of objects with fields {name, secretName, secretKey, optional}
 */}}
-{{- define "thunder.secretEnvVars" -}}
+{{- define "thunderid.secretEnvVars" -}}
 {{- $secretEnv := default (list) .secretEnv -}}
 {{- range $index, $item := $secretEnv }}
 {{- if not $item.name }}
@@ -197,7 +214,7 @@ Supports both formats:
   - string item: "path/to/file.yaml" (used as key and path)
   - object item: { key: "source-key", path: "target/path.yaml" }
 */}}
-{{- define "thunder.declarativeResourceItems" -}}
+{{- define "thunderid.declarativeResourceItems" -}}
 {{- $items := default (list) .items -}}
 {{- $field := default "declarativeResources.*.items" .field -}}
 {{- range $index, $item := $items }}
@@ -222,7 +239,7 @@ When items are provided, mounting file-by-file with subPath preserves existing
 files already present in repository/resources.
 Each item may optionally specify a mountPath to override the global base path.
 */}}
-{{- define "thunder.declarativeResourceVolumeMounts" -}}
+{{- define "thunderid.declarativeResourceVolumeMounts" -}}
 {{- $items := default (list) .items -}}
 {{- $field := default "declarativeResources.*.items" .field -}}
 {{- $globalMountPath := .mountPath -}}

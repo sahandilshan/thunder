@@ -1,11 +1,11 @@
-# Thunder API-Based Authentication Sample Application
+# ThunderID API-Based Authentication Sample Application
 
-This sample application demonstrates how to integrate Thunder authentication into a React application using direct API calls instead of SDK-based OAuth redirects. It showcases API-based user registration (sign-up) and authentication (sign-in) flows.
+This sample application demonstrates how to integrate authentication into a React application using direct API calls instead of SDK-based OAuth redirects. It showcases API-based user registration (sign-up) and authentication (sign-in) flows.
 
 ## Features
 
-- User registration via Thunder's User Management API
-- User authentication via Thunder's Credentials Authentication API
+- User registration via User Management API
+- User authentication via Credentials Authentication API
 - JWT assertion token handling and display
 - Dashboard with user list view
 - User profile modal with decoded token information
@@ -14,16 +14,16 @@ This sample application demonstrates how to integrate Thunder authentication int
 ## Prerequisites
 
 - Node.js 20+
-- A running Thunder server instance (default: `https://localhost:8090`)
-- Thunder server configured with appropriate CORS settings
+- A running server instance (default: `https://localhost:8090`)
+- Server configured with appropriate CORS settings
 - SSL certificates (`server.key` and `server.cert`) in the project root
-- The "Customer" user schema and "customers" organization unit created (via `02-sample-resources.sh` bootstrap script)
+- The "Customer" user type created in ThunderID
 
 ## Quick Start
 
 ### 1. Configure the Application
 
-Edit `public/config.json` with your Thunder server settings:
+Edit `public/config.json` with your server settings:
 
 ```json
 {
@@ -33,14 +33,14 @@ Edit `public/config.json` with your Thunder server settings:
 
 | Property | Description |
 |----------|-------------|
-| `baseUrl` | The base URL of your Thunder server |
+| `baseUrl` | The base URL of your server |
 
 ### 2. Set Up SSL Certificates
 
-The application runs on HTTPS. Copy the SSL certificates from your Thunder distribution:
+The application runs on HTTPS. Copy the SSL certificates from your distribution:
 
 ```bash
-# From Thunder distribution
+# From distribution
 cp /path/to/thunder/repository/resources/security/server.key .
 cp /path/to/thunder/repository/resources/security/server.cert .
 
@@ -51,12 +51,11 @@ cp ../../target/out/.cert/server.cert .
 
 ### 3. Set Up Sample Resources
 
-Run the bootstrap script to create the required "Customer" user schema and "customers" organization unit:
+The sample ships with a `thunderid-config/` directory containing the `Customer` user type definition required for sign-up and sign-in.
 
-```bash
-# From the project root
-./backend/cmd/server/bootstrap/02-sample-resources.sh
-```
+Import `thunderid-config/thunderid-config.yaml` via the ThunderID Console ([https://localhost:8090/console](https://localhost:8090/console)):
+- **First-time login**: a welcome screen appears with an **Open** button to upload the YAML file directly.
+- **Later**: access the same welcome screen from the user profile menu in the top-right corner of the console.
 
 ### 4. Install Dependencies
 
@@ -81,12 +80,12 @@ The application will be available at [https://localhost:3000](https://localhost:
 | `npm run preview` | Preview the production build locally |
 | `npm run lint` | Run ESLint to check code quality |
 
-## Important: Sign-Up Requirements
+## Important: Sign Up Requirements
 
-To use the sign-up functionality, you need to temporarily disable Thunder security by setting the following environment variable before starting the Thunder server:
+To use the sign-up functionality, you need to temporarily disable security by setting the following environment variable before starting the server:
 
 ```bash
-export THUNDER_SKIP_SECURITY=true
+export SKIP_SECURITY=true
 ```
 
 This is required because the sign-up API creates users without authentication. In a production environment, you would typically use a different approach such as:
@@ -109,7 +108,7 @@ src/
 │   ├── SignUpPage.tsx       # User registration form
 │   └── DashboardPage.tsx    # Authenticated user dashboard
 ├── utils/
-│   ├── api.ts               # Thunder API utilities
+│   ├── api.ts               # API utilities
 │   └── jwt.ts               # JWT decoding utilities
 ├── config.ts                # Runtime configuration loader
 ├── router.tsx               # Application routes
@@ -118,7 +117,7 @@ src/
 
 ## API Endpoints Used
 
-This sample interacts with the following Thunder APIs:
+This sample interacts with the following APIs:
 
 ### Authentication
 - `POST /auth/credentials/authenticate` - Authenticate user with username/password
@@ -132,17 +131,17 @@ This sample interacts with the following Thunder APIs:
 
 ## How It Works
 
-### Sign-Up Flow
+### Sign Up Flow
 1. User fills in the registration form (username, name, email, password)
-2. Application fetches the "customers" organization unit ID
+2. Application fetches the default organization unit ID
 3. Sends a POST request to `/users` with user attributes and type "Customer"
 4. On success, displays confirmation message
 
-### Sign-In Flow
+### Sign in Flow
 1. User enters username and password
 2. Application sends credentials to `/auth/credentials/authenticate`
 3. On success, receives an assertion token (JWT)
-4. Token is stored in sessionStorage
+4. Token is stored in `sessionStorage`
 5. User is redirected to the dashboard
 
 ### Dashboard
@@ -155,20 +154,17 @@ This sample interacts with the following Thunder APIs:
 ### Common Issues
 
 **Issue**: "Failed to fetch" errors
-- Ensure Thunder server is running and accessible at the configured base URL
-- Check CORS configuration in Thunder's `deployment.yaml`
+- Ensure server is running and accessible at the configured base URL
+- Check CORS configuration in `deployment.yaml`
 
-**Issue**: "User schema not found" error during sign-up
-- Run the `02-sample-resources.sh` bootstrap script to create the "Customer" user schema
-
-**Issue**: "Organization unit not found" error during sign-up
-- Run the `02-sample-resources.sh` bootstrap script to create the "customers" organization unit
+**Issue**: "User type not found" error during sign-up
+- Import `thunderid-config/thunderid-config.yaml` via the ThunderID Console (see "Set Up Sample Resources" above) to create the "Customer" user type
 
 **Issue**: Sign-up fails with authentication/authorization errors
-- Ensure `THUNDER_SKIP_SECURITY=true` is set when starting the Thunder server
+- Ensure `SKIP_SECURITY=true` is set when starting the server
 
 **Issue**: CORS errors
-- Add your application URL to "Allowed Origins" in Thunder's configuration:
+- Add your application URL to "Allowed Origins" in configuration:
   ```yaml
   cors:
     allowed_origins:

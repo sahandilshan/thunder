@@ -24,10 +24,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/healthcheck/model"
-	"github.com/asgardeo/thunder/tests/mocks/healthcheck/providermock"
-	"github.com/asgardeo/thunder/tests/mocks/healthcheck/servicemock"
+	"github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/healthcheck/model"
+	"github.com/thunder-id/thunderid/tests/mocks/healthcheck/servicemock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -35,24 +34,17 @@ import (
 
 type HealthCheckHandlerTestSuite struct {
 	suite.Suite
-	handler      *HealthCheckHandler
-	mockService  *servicemock.HealthCheckServiceInterfaceMock
-	mockProvider *providermock.HealthCheckProviderInterfaceMock
+	handler     *HealthCheckHandler
+	mockService *servicemock.HealthCheckServiceInterfaceMock
 }
 
 func TestHealthCheckHandlerSuite(t *testing.T) {
 	suite.Run(t, new(HealthCheckHandlerTestSuite))
 }
 
-func (suite *HealthCheckHandlerTestSuite) SetupTest() {
-	suite.handler = NewHealthCheckHandler()
-}
-
 func (suite *HealthCheckHandlerTestSuite) BeforeTest(suiteName, testName string) {
 	suite.mockService = &servicemock.HealthCheckServiceInterfaceMock{}
-	suite.mockProvider = &providermock.HealthCheckProviderInterfaceMock{}
-	suite.mockProvider.On("GetHealthCheckService").Return(suite.mockService)
-	suite.handler.Provider = suite.mockProvider
+	suite.handler = NewHealthCheckHandler(suite.mockService)
 }
 
 func (suite *HealthCheckHandlerTestSuite) TestHandleLivenessRequest() {

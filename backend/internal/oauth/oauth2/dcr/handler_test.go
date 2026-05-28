@@ -30,10 +30,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	oauth2const "github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/security"
+	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/security"
 )
 
 // DCRHandlerTestSuite is the test suite for DCR handler
@@ -49,14 +50,14 @@ func TestDCRHandlerTestSuite(t *testing.T) {
 
 func (s *DCRHandlerTestSuite) SetupTest() {
 	s.mockService = NewDCRServiceInterfaceMock(s.T())
-	_ = config.InitializeThunderRuntime("test", &config.Config{
+	_ = config.InitializeServerRuntime("test", &config.Config{
 		OAuth: config.OAuthConfig{DCR: config.DCRConfig{Insecure: true}},
 	})
 	s.handler = newDCRHandler(s.mockService)
 }
 
 func (s *DCRHandlerTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 // TestHandleDCRRegistration_InvalidRequestFormat tests handling of invalid JSON in request body
@@ -107,8 +108,8 @@ func (s *DCRHandlerTestSuite) TestHandleDCRRegistration_ClientError() {
 	serviceErr := &serviceerror.ServiceError{
 		Type:             serviceerror.ClientErrorType,
 		Code:             "invalid_client_metadata",
-		Error:            "Invalid client metadata",
-		ErrorDescription: "Invalid grant type",
+		Error:            i18ncore.I18nMessage{DefaultValue: "Invalid client metadata"},
+		ErrorDescription: i18ncore.I18nMessage{DefaultValue: "Invalid grant type"},
 	}
 	s.mockService.On("RegisterClient", mock.Anything, request).Return(nil, serviceErr)
 
@@ -162,8 +163,8 @@ func (s *DCRHandlerTestSuite) TestHandleDCRRegistration_UnknownErrorType() {
 	serviceErr := &serviceerror.ServiceError{
 		Type:             "UnknownErrorType",
 		Code:             "unknown_error",
-		Error:            "Unknown error",
-		ErrorDescription: "An unknown error occurred",
+		Error:            i18ncore.I18nMessage{DefaultValue: "Unknown error"},
+		ErrorDescription: i18ncore.I18nMessage{DefaultValue: "An unknown error occurred"},
 	}
 	s.mockService.On("RegisterClient", mock.Anything, request).Return(nil, serviceErr)
 
@@ -253,8 +254,8 @@ func TestWriteServiceErrorResponse_DirectCall(t *testing.T) {
 			serviceError: &serviceerror.ServiceError{
 				Type:             serviceerror.ClientErrorType,
 				Code:             "test_code",
-				Error:            "Test error",
-				ErrorDescription: "Test description",
+				Error:            i18ncore.I18nMessage{DefaultValue: "Test error"},
+				ErrorDescription: i18ncore.I18nMessage{DefaultValue: "Test description"},
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -263,8 +264,8 @@ func TestWriteServiceErrorResponse_DirectCall(t *testing.T) {
 			serviceError: &serviceerror.ServiceError{
 				Type:             serviceerror.ServerErrorType,
 				Code:             "test_code",
-				Error:            "Test error",
-				ErrorDescription: "Test description",
+				Error:            i18ncore.I18nMessage{DefaultValue: "Test error"},
+				ErrorDescription: i18ncore.I18nMessage{DefaultValue: "Test description"},
 			},
 			expectedStatus: http.StatusInternalServerError,
 		},
@@ -273,8 +274,8 @@ func TestWriteServiceErrorResponse_DirectCall(t *testing.T) {
 			serviceError: &serviceerror.ServiceError{
 				Type:             "UnknownType",
 				Code:             "test_code",
-				Error:            "Test error",
-				ErrorDescription: "Test description",
+				Error:            i18ncore.I18nMessage{DefaultValue: "Test error"},
+				ErrorDescription: i18ncore.I18nMessage{DefaultValue: "Test description"},
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -297,8 +298,8 @@ func TestWriteServiceErrorResponse_DirectCall(t *testing.T) {
 // TestHandleDCRRegistration_ClosedDCR_NoToken tests that a missing token is rejected when insecure=false.
 // Uses the default config where Insecure defaults to false (secure by default).
 func TestHandleDCRRegistration_ClosedDCR_NoToken(t *testing.T) {
-	_ = config.InitializeThunderRuntime("test", &config.Config{})
-	defer config.ResetThunderRuntime()
+	_ = config.InitializeServerRuntime("test", &config.Config{})
+	defer config.ResetServerRuntime()
 
 	mockService := NewDCRServiceInterfaceMock(t)
 	handler := newDCRHandler(mockService)
@@ -320,8 +321,8 @@ func TestHandleDCRRegistration_ClosedDCR_NoToken(t *testing.T) {
 // permission is rejected when insecure=false.
 // Uses the default config where Insecure defaults to false (secure by default).
 func TestHandleDCRRegistration_ClosedDCR_InsufficientPermissions(t *testing.T) {
-	_ = config.InitializeThunderRuntime("test", &config.Config{})
-	defer config.ResetThunderRuntime()
+	_ = config.InitializeServerRuntime("test", &config.Config{})
+	defer config.ResetServerRuntime()
 
 	mockService := NewDCRServiceInterfaceMock(t)
 	handler := newDCRHandler(mockService)
@@ -347,8 +348,10 @@ func TestHandleDCRRegistration_ClosedDCR_InsufficientPermissions(t *testing.T) {
 // permission is accepted when insecure=false.
 // Uses the default config where Insecure defaults to false (secure by default).
 func TestHandleDCRRegistration_ClosedDCR_WithSystemPermission(t *testing.T) {
-	_ = config.InitializeThunderRuntime("test", &config.Config{})
-	defer config.ResetThunderRuntime()
+	_ = config.InitializeServerRuntime("test", &config.Config{})
+	defer config.ResetServerRuntime()
+	security.InitSystemPermissions("")
+	defer security.InitSystemPermissions("")
 
 	mockService := NewDCRServiceInterfaceMock(t)
 	handler := newDCRHandler(mockService)

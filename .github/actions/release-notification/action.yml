@@ -4,6 +4,9 @@ inputs:
   webhook:
     description: 'Google Chat webhook URL'
     required: true
+  product-name:
+    description: 'Product name to display in the notification'
+    required: true
   release-name:
     description: 'Name of the release'
     required: true
@@ -35,7 +38,7 @@ runs:
         {
           "cards": [{
             "header": {
-              "title": "Thunder $RELEASE_TAG Released ⚡",
+              "title": "${{ inputs.product-name }} $RELEASE_TAG Released ⚡",
               "imageUrl": "https://cdn-icons-png.freepik.com/256/11063/11063287.png",
               "imageStyle": "AVATAR"
             },
@@ -69,7 +72,7 @@ runs:
                       "text": "VIEW CONTAINER",
                       "onClick": {
                         "openLink": {
-                          "url": "https://github.com/asgardeo/thunder/pkgs/container/thunder"
+                          "url": "https://github.com/thunder-id/thunderid/pkgs/container/thunderid"
                         }
                       }
                     }

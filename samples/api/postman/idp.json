@@ -37,7 +37,7 @@
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Github\",\n  \"description\": \"Login with Github\",\n  \"properties\": [\n    {\n      \"name\": \"client_id\",\n      \"value\": \"client1\",\n      \"is_secret\": false\n    },\n    {\n      \"name\": \"client_secret\",\n      \"value\": \"secret1\",\n      \"is_secret\": true\n    },\n    {\n      \"name\": \"redirect_uri\",\n      \"value\": \"https://localhost:8090/flow/authn\",\n      \"is_secret\": false\n    },\n    {\n      \"name\": \"scopes\",\n      \"value\": \"user:email,read:user\",\n      \"is_secret\": false\n    }\n  ]\n}",
+          "raw": "{\n  \"name\": \"Github\",\n  \"description\": \"Login with Github\",\n  \"properties\": [\n    {\n      \"name\": \"client_id\",\n      \"value\": \"client1\",\n      \"isSecret\": false\n    },\n    {\n      \"name\": \"client_secret\",\n      \"value\": \"secret1\",\n      \"isSecret\": true\n    },\n    {\n      \"name\": \"redirect_uri\",\n      \"value\": \"https://localhost:8090/flow/authn\",\n      \"isSecret\": false\n    },\n    {\n      \"name\": \"scopes\",\n      \"value\": \"user:email,read:user\",\n      \"isSecret\": false\n    }\n  ]\n}",
           "options": {
             "raw": {
               "headerFamily": "json",
@@ -94,7 +94,7 @@
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Github\",\n  \"description\": \"Login with Github\",\n  \"properties\": [\n    {\n      \"name\": \"client_id\",\n      \"value\": \"client2\",\n      \"is_secret\": false\n    },\n    {\n      \"name\": \"client_secret\",\n      \"value\": \"secret2\",\n      \"is_secret\": true\n    },\n    {\n      \"name\": \"redirect_uri\",\n      \"value\": \"https://localhost:8090/flow/authn\",\n      \"is_secret\": false\n    },\n    {\n      \"name\": \"scopes\",\n      \"value\": \"user:email,read:user\",\n      \"is_secret\": false\n    }\n  ]\n}",
+          "raw": "{\n  \"name\": \"Github\",\n  \"description\": \"Login with Github\",\n  \"properties\": [\n    {\n      \"name\": \"client_id\",\n      \"value\": \"client2\",\n      \"isSecret\": false\n    },\n    {\n      \"name\": \"client_secret\",\n      \"value\": \"secret2\",\n      \"isSecret\": true\n    },\n    {\n      \"name\": \"redirect_uri\",\n      \"value\": \"https://localhost:8090/flow/authn\",\n      \"isSecret\": false\n    },\n    {\n      \"name\": \"scopes\",\n      \"value\": \"user:email,read:user\",\n      \"isSecret\": false\n    }\n  ]\n}",
           "options": {
             "raw": {
               "headerFamily": "json",
@@ -144,3 +144,4 @@
     }
   ]
 }
+

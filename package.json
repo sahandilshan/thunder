@@ -1,0 +1,48 @@
+{
+  "private": true,
+  "name": "@thunderid/root",
+  "version": "0.0.0",
+  "description": "Root workspace for ⚡️ ThunderID",
+  "author": "WSO2",
+  "license": "Apache-2.0",
+  "type": "module",
+  "homepage": "https://github.com/thunder-id/thunderid/tree/main",
+  "bugs": {
+    "url": "https://github.com/thunder-id/thunderid/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thunder-id/thunderid"
+  },
+  "keywords": [
+    "thunderid",
+    "workspace",
+    "wso2"
+  ],
+  "packageManager": "pnpm@11.3.0",
+  "scripts": {
+    "build": "nx run-many --target=build --all",
+    "build:docs": "nx run @thunderid/docs:build",
+    "build:frontend": "nx run-many --target=build --projects=frontend/**",
+    "build:sdks": "nx run-many --target=build --projects=sdks/**",
+    "build:tools": "nx run-many --target=build --projects=tools/**",
+    "clean": "nx run-many --target=clean --all && rimraf node_modules",
+    "dev:docs": "pnpm --dir docs run dev",
+    "dev:frontend": "pnpm --dir frontend run dev",
+    "format:check": "prettier --check --cache --config frontend/prettier.config.js --ignore-path frontend/.prettierignore frontend",
+    "format:fix": "prettier --write --cache --config frontend/prettier.config.js --ignore-path frontend/.prettierignore frontend",
+    "lint": "nx run-many --target=lint --all --parallel --exclude=sdks/**",
+    "lint:fix": "nx run-many --target=fix:lint --all --parallel",
+    "test": "nx run-many --target=test --all --parallel --exclude=sdks/**,tools/**",
+    "typecheck": "nx run-many --target=typecheck --all --parallel"
+  },
+  "devDependencies": {
+    "nx": "catalog:",
+    "playwright": "catalog:",
+    "prettier": "catalog:",
+    "rimraf": "catalog:",
+    "eslint": "catalog:",
+    "tslib": "catalog:",
+    "typescript": "catalog:"
+  }
+}

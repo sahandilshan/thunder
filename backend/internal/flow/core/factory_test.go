@@ -23,8 +23,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 type FlowFactoryTestSuite struct {
@@ -442,6 +442,10 @@ func (f *fakeExecutorBackedNode) SetCondition(condition *NodeCondition) {}
 
 func (f *fakeExecutorBackedNode) ShouldExecute(ctx *NodeContext) bool {
 	return true
+}
+
+func (f *fakeExecutorBackedNode) GetExecutionPolicy() *ExecutionPolicy {
+	return nil
 }
 
 func (f *fakeExecutorBackedNode) GetExecutorName() string {

@@ -22,18 +22,17 @@ package role
 import (
 	"context"
 	"errors"
-	"fmt"
 
-	"github.com/asgardeo/thunder/internal/group"
-	oupkg "github.com/asgardeo/thunder/internal/ou"
-	resourcepkg "github.com/asgardeo/thunder/internal/resource"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
-	"github.com/asgardeo/thunder/internal/system/utils"
-	"github.com/asgardeo/thunder/internal/user"
-	"github.com/asgardeo/thunder/internal/userschema"
+	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/group"
+	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	resourcepkg "github.com/thunder-id/thunderid/internal/resource"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/security"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const loggerComponentName = "RoleMgtService"
@@ -47,45 +46,42 @@ type RoleServiceInterface interface {
 	UpdateRoleWithPermissions(ctx context.Context, id string, role RoleUpdateDetail) (
 		*RoleWithPermissions, *serviceerror.ServiceError)
 	DeleteRole(ctx context.Context, id string) *serviceerror.ServiceError
-	GetRoleAssignments(ctx context.Context, id string, limit, offset int,
-		includeDisplay bool) (*AssignmentList, *serviceerror.ServiceError)
-	AddAssignments(ctx context.Context, id string, assignments []RoleAssignment) *serviceerror.ServiceError
-	RemoveAssignments(ctx context.Context, id string, assignments []RoleAssignment) *serviceerror.ServiceError
 	IsRoleDeclarative(ctx context.Context, id string) (bool, *serviceerror.ServiceError)
 	GetAuthorizedPermissions(
-		ctx context.Context, userID string, groups []string, requestedPermissions []string,
+		ctx context.Context, entityID string, groups []string, requestedPermissions []string,
 	) ([]string, *serviceerror.ServiceError)
+	GetUserRoles(ctx context.Context, entityID string, groupIDs []string) ([]string, *serviceerror.ServiceError)
+	ResolveRoleOUHandle(
+		ctx context.Context, role *RoleWithPermissionsAndAssignments,
+	) *serviceerror.ServiceError
 }
 
 // roleService is the default implementation of the RoleServiceInterface.
 type roleService struct {
-	roleStore         roleStoreInterface
-	userService       user.UserServiceInterface
-	groupService      group.GroupServiceInterface
-	ouService         oupkg.OrganizationUnitServiceInterface
-	resourceService   resourcepkg.ResourceServiceInterface
-	userSchemaService userschema.UserSchemaServiceInterface
-	transactioner     transaction.Transactioner
+	roleStore       roleStoreInterface
+	entityService   entity.EntityServiceInterface
+	groupService    group.GroupServiceInterface
+	ouService       oupkg.OrganizationUnitServiceInterface
+	resourceService resourcepkg.ResourceServiceInterface
+	transactioner   transaction.Transactioner
 }
 
 // newRoleService creates a new instance of RoleService with injected dependencies.
 func newRoleService(
 	roleStore roleStoreInterface,
-	userService user.UserServiceInterface,
+	entityService entity.EntityServiceInterface,
 	groupService group.GroupServiceInterface,
 	ouService oupkg.OrganizationUnitServiceInterface,
 	resourceService resourcepkg.ResourceServiceInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
 	transactioner transaction.Transactioner,
 ) RoleServiceInterface {
 	return &roleService{
-		roleStore:         roleStore,
-		userService:       userService,
-		groupService:      groupService,
-		ouService:         ouService,
-		resourceService:   resourceService,
-		userSchemaService: userSchemaService,
-		transactioner:     transactioner,
+		roleStore:       roleStore,
+		entityService:   entityService,
+		groupService:    groupService,
+		ouService:       ouService,
+		resourceService: resourceService,
+		transactioner:   transactioner,
 	}
 }
 
@@ -103,7 +99,7 @@ func (rs *roleService) GetRoleList(ctx context.Context, limit, offset int) (*Rol
 			return nil, &ResultLimitExceededInCompositeMode
 		}
 		logger.Error("Failed to get role count", log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 
 	roles, err := rs.roleStore.GetRoleList(ctx, limit, offset)
@@ -112,7 +108,28 @@ func (rs *roleService) GetRoleList(ctx context.Context, limit, offset int) (*Rol
 			return nil, &ResultLimitExceededInCompositeMode
 		}
 		logger.Error("Failed to list roles", log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
+	}
+
+	if len(roles) > 0 {
+		seen := make(map[string]struct{}, len(roles))
+		ouIDs := make([]string, 0, len(roles))
+		for _, r := range roles {
+			if r.OUID != "" {
+				if _, exists := seen[r.OUID]; !exists {
+					ouIDs = append(ouIDs, r.OUID)
+					seen[r.OUID] = struct{}{}
+				}
+			}
+		}
+		ouHandles, svcErr := rs.ouService.GetOrganizationUnitHandlesByIDs(ctx, ouIDs)
+		if svcErr != nil {
+			logger.Warn("Failed to resolve OU handles for roles, skipping", log.Any("error", svcErr))
+		} else {
+			for i := range roles {
+				roles[i].OUHandle = ouHandles[roles[i].OUID]
+			}
+		}
 	}
 
 	response := &RoleList{
@@ -143,34 +160,38 @@ func (rs *roleService) CreateRole(
 		return nil, err
 	}
 
+	responseAssignments := role.Assignments
+
+	// Validate organization unit exists using OU service
+	ou, svcErr := rs.ouService.GetOrganizationUnit(ctx, role.OUID)
+	if svcErr != nil {
+		if svcErr.Code == oupkg.ErrorOrganizationUnitNotFound.Code {
+			logger.Debug("Organization unit not found", log.String("ouID", role.OUID))
+			return nil, &ErrorOrganizationUnitNotFound
+		}
+		logger.Error("Failed to validate organization unit", log.String("error", svcErr.Error.DefaultValue))
+		return nil, &serviceerror.InternalServerError
+	}
+
 	// Validate permissions exist in resource management system
 	if err := rs.validatePermissions(ctx, role.Permissions); err != nil {
 		return nil, err
 	}
 
-	// Validate assignment IDs early to avoid unnecessary database operations
+	// Validate assignment IDs (existence + category check) before normalization.
 	if len(role.Assignments) > 0 {
 		if err := rs.validateAssignmentIDs(ctx, role.Assignments); err != nil {
 			return nil, err
 		}
 	}
 
-	// Validate organization unit exists using OU service
-	_, svcErr := rs.ouService.GetOrganizationUnit(ctx, role.OUID)
-	if svcErr != nil {
-		if svcErr.Code == oupkg.ErrorOrganizationUnitNotFound.Code {
-			logger.Debug("Organization unit not found", log.String("ouID", role.OUID))
-			return nil, &ErrorOrganizationUnitNotFound
-		}
-		logger.Error("Failed to validate organization unit", log.String("error", svcErr.Error))
-		return nil, &ErrorInternalServerError
-	}
+	role.Assignments = normalizeAssignments(role.Assignments)
 
 	// Check if role name already exists in the organization unit
 	nameExists, err := rs.roleStore.CheckRoleNameExists(ctx, role.OUID, role.Name)
 	if err != nil {
 		logger.Error("Failed to check role name existence", log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 	if nameExists {
 		logger.Debug("Role name already exists in organization unit",
@@ -178,10 +199,23 @@ func (rs *roleService) CreateRole(
 		return nil, &ErrorRoleNameConflict
 	}
 
-	id, err := utils.GenerateUUIDv7()
-	if err != nil {
-		logger.Error("Failed to generate UUID", log.Error(err))
-		return nil, &serviceerror.InternalServerError
+	id := role.ID
+	if id == "" {
+		id, err = utils.GenerateUUIDv7()
+		if err != nil {
+			logger.Error("Failed to generate UUID", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
+	} else {
+		_, err = rs.roleStore.GetRole(ctx, id)
+		if err != nil && !errors.Is(err, ErrRoleNotFound) {
+			logger.Error("Failed to check role ID existence", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
+		if err == nil {
+			logger.Debug("Role ID already exists", log.String("id", id))
+			return nil, &ErrorRoleIDConflict
+		}
 	}
 
 	serviceRole := &RoleWithPermissionsAndAssignments{
@@ -189,8 +223,9 @@ func (rs *roleService) CreateRole(
 		Name:        role.Name,
 		Description: role.Description,
 		OUID:        role.OUID,
+		OUHandle:    ou.Handle,
 		Permissions: role.Permissions,
-		Assignments: role.Assignments,
+		Assignments: responseAssignments,
 	}
 
 	err = rs.transactioner.Transact(ctx, func(txCtx context.Context) error {
@@ -202,7 +237,7 @@ func (rs *roleService) CreateRole(
 
 	if err != nil {
 		logger.Error("Failed to create role", log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 
 	logger.Debug("Successfully created role", log.String("id", id), log.String("name", role.Name))
@@ -226,7 +261,15 @@ func (rs *roleService) GetRoleWithPermissions(ctx context.Context, id string) (
 			return nil, &ErrorRoleNotFound
 		}
 		logger.Error("Failed to retrieve role", log.String("id", id), log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
+	}
+
+	ou, svcErr := rs.ouService.GetOrganizationUnit(ctx, role.OUID)
+	if svcErr != nil {
+		logger.Warn("Failed to resolve OU handle for role, skipping",
+			log.String("id", id), log.Any("error", svcErr))
+	} else {
+		role.OUHandle = ou.Handle
 	}
 
 	logger.Debug("Successfully retrieved role", log.String("id", role.ID), log.String("name", role.Name))
@@ -255,7 +298,7 @@ func (rs *roleService) UpdateRoleWithPermissions(
 	exists, err := rs.roleStore.IsRoleExist(ctx, id)
 	if err != nil {
 		logger.Error("Failed to check role existence", log.String("id", id), log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 	if !exists {
 		logger.Debug("Role not found", log.String("id", id))
@@ -269,21 +312,21 @@ func (rs *roleService) UpdateRoleWithPermissions(
 	}
 
 	// Validate organization unit exists using OU service
-	_, svcErr := rs.ouService.GetOrganizationUnit(ctx, role.OUID)
+	ou, svcErr := rs.ouService.GetOrganizationUnit(ctx, role.OUID)
 	if svcErr != nil {
 		if svcErr.Code == oupkg.ErrorOrganizationUnitNotFound.Code {
 			logger.Debug("Organization unit not found", log.String("ouID", role.OUID))
 			return nil, &ErrorOrganizationUnitNotFound
 		}
-		logger.Error("Failed to validate organization unit", log.String("error", svcErr.Error))
-		return nil, &ErrorInternalServerError
+		logger.Error("Failed to validate organization unit", log.String("error", svcErr.Error.DefaultValue))
+		return nil, &serviceerror.InternalServerError
 	}
 
 	// Check if role name already exists in the organization unit (excluding the current role)
 	nameExists, err := rs.roleStore.CheckRoleNameExistsExcludingID(ctx, role.OUID, role.Name, id)
 	if err != nil {
 		logger.Error("Failed to check role name existence", log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 	if nameExists {
 		logger.Debug("Role name already exists in organization unit",
@@ -297,7 +340,7 @@ func (rs *roleService) UpdateRoleWithPermissions(
 
 	if err != nil {
 		logger.Error("Failed to update role", log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 
 	logger.Debug("Successfully updated role", log.String("id", id), log.String("name", role.Name))
@@ -306,6 +349,7 @@ func (rs *roleService) UpdateRoleWithPermissions(
 		Name:        role.Name,
 		Description: role.Description,
 		OUID:        role.OUID,
+		OUHandle:    ou.Handle,
 		Permissions: role.Permissions,
 	}, nil
 }
@@ -322,7 +366,7 @@ func (rs *roleService) DeleteRole(ctx context.Context, id string) *serviceerror.
 	exists, err := rs.roleStore.IsRoleExist(ctx, id)
 	if err != nil {
 		logger.Error("Failed to check role existence", log.String("id", id), log.Error(err))
-		return &ErrorInternalServerError
+		return &serviceerror.InternalServerError
 	}
 	if !exists {
 		logger.Debug("Role not found", log.String("id", id))
@@ -335,203 +379,40 @@ func (rs *roleService) DeleteRole(ctx context.Context, id string) *serviceerror.
 		return &ErrorImmutableRole
 	}
 
-	// Check if role has any assignments before deleting
-	assignmentCount, err := rs.roleStore.GetRoleAssignmentsCount(ctx, id)
-	if err != nil {
-		if errors.Is(err, errResultLimitExceededInCompositeMode) {
-			return &ResultLimitExceededInCompositeMode
+	// Delete all assignments for the role before deleting the role itself (cascade delete).
+	// The ROLE_ASSIGNMENT table does not have a FK constraint on ROLE_ID to allow assignments
+	// for roles that live in the file-based store, so cascade delete is handled here in code.
+	err = rs.transactioner.Transact(ctx, func(txCtx context.Context) error {
+		if err := rs.roleStore.DeleteAssignmentsByRoleID(txCtx, id); err != nil {
+			return err
 		}
-		logger.Error("Failed to get role assignments count", log.String("id", id), log.Error(err))
-		return &ErrorInternalServerError
-	}
-
-	if assignmentCount > 0 {
-		logger.Debug("Cannot delete role with active assignments",
-			log.String("id", id), log.Int("assignmentCount", assignmentCount))
-		return &ErrorCannotDeleteRole
-	}
-
-	if err := rs.roleStore.DeleteRole(ctx, id); err != nil {
+		return rs.roleStore.DeleteRole(txCtx, id)
+	})
+	if err != nil {
 		logger.Error("Failed to delete role", log.String("id", id), log.Error(err))
-		return &ErrorInternalServerError
+		return &serviceerror.InternalServerError
 	}
 
 	logger.Debug("Successfully deleted role", log.String("id", id))
 	return nil
 }
 
-// GetRoleAssignments retrieves assignments for a role with pagination.
-func (rs *roleService) GetRoleAssignments(ctx context.Context, id string, limit, offset int,
-	includeDisplay bool) (*AssignmentList, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
-
-	if err := validatePaginationParams(limit, offset); err != nil {
-		return nil, err
-	}
-
-	if id == "" {
-		return nil, &ErrorMissingRoleID
-	}
-
-	exists, err := rs.roleStore.IsRoleExist(ctx, id)
-	if err != nil {
-		logger.Error("Failed to check role existence", log.String("id", id), log.Error(err))
-		return nil, &ErrorInternalServerError
-	}
-	if !exists {
-		logger.Debug("Role not found", log.String("id", id))
-		return nil, &ErrorRoleNotFound
-	}
-
-	totalCount, err := rs.roleStore.GetRoleAssignmentsCount(ctx, id)
-	if err != nil {
-		if errors.Is(err, errResultLimitExceededInCompositeMode) {
-			return nil, &ResultLimitExceededInCompositeMode
-		}
-		logger.Error("Failed to get role assignments count", log.String("id", id), log.Error(err))
-		return nil, &ErrorInternalServerError
-	}
-
-	assignments, err := rs.roleStore.GetRoleAssignments(ctx, id, limit, offset)
-	if err != nil {
-		if errors.Is(err, errResultLimitExceededInCompositeMode) {
-			return nil, &ResultLimitExceededInCompositeMode
-		}
-		logger.Error("Failed to get role assignments", log.String("id", id), log.Error(err))
-		return nil, &ErrorInternalServerError
-	}
-
-	// Convert to service layer assignments
-	serviceAssignments := make([]RoleAssignmentWithDisplay, len(assignments))
-
-	if includeDisplay {
-		rs.populateDisplayNames(ctx, assignments, serviceAssignments)
-	} else {
-		for i := range assignments {
-			serviceAssignments[i].ID = assignments[i].ID
-			serviceAssignments[i].Type = assignments[i].Type
-		}
-	}
-	baseURL := fmt.Sprintf("/roles/%s/assignments", id)
-	links := utils.BuildPaginationLinks(baseURL, limit, offset, totalCount, utils.DisplayQueryParam(includeDisplay))
-
-	response := &AssignmentList{
-		TotalResults: totalCount,
-		Assignments:  serviceAssignments,
-		StartIndex:   offset + 1,
-		Count:        len(serviceAssignments),
-		Links:        links,
-	}
-
-	return response, nil
-}
-
-// AddAssignments adds assignments to a role.
-func (rs *roleService) AddAssignments(
-	ctx context.Context, id string, assignments []RoleAssignment) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
-	logger.Debug("Adding assignments to role", log.String("id", id))
-
-	if id == "" {
-		return &ErrorMissingRoleID
-	}
-
-	if err := rs.validateAssignmentsRequest(assignments); err != nil {
-		return err
-	}
-
-	exists, err := rs.roleStore.IsRoleExist(ctx, id)
-	if err != nil {
-		logger.Error("Failed to check role existence", log.String("id", id), log.Error(err))
-		return &ErrorInternalServerError
-	}
-	if !exists {
-		logger.Debug("Role not found", log.String("id", id))
-		return &ErrorRoleNotFound
-	}
-
-	// Check if role is declarative - cannot modify assignments for declarative roles
-	if rs.isRoleDeclarative(ctx, id) {
-		logger.Debug("Cannot modify assignments for declarative role", log.String("id", id))
-		return &ErrorImmutableAssignment
-	}
-
-	// Validate assignment IDs
-	if err := rs.validateAssignmentIDs(ctx, assignments); err != nil {
-		return err
-	}
-
-	err = rs.transactioner.Transact(ctx, func(txCtx context.Context) error {
-		return rs.roleStore.AddAssignments(txCtx, id, assignments)
-	})
-
-	if err != nil {
-		logger.Error("Failed to add assignments to role", log.String("id", id), log.Error(err))
-		return &ErrorInternalServerError
-	}
-
-	logger.Debug("Successfully added assignments to role", log.String("id", id))
-	return nil
-}
-
-// RemoveAssignments removes assignments from a role.
-func (rs *roleService) RemoveAssignments(
-	ctx context.Context, id string, assignments []RoleAssignment) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
-	logger.Debug("Removing assignments from role", log.String("id", id))
-
-	if id == "" {
-		return &ErrorMissingRoleID
-	}
-
-	if err := rs.validateAssignmentsRequest(assignments); err != nil {
-		return err
-	}
-
-	exists, err := rs.roleStore.IsRoleExist(ctx, id)
-	if err != nil {
-		logger.Error("Failed to check role existence", log.String("id", id), log.Error(err))
-		return &ErrorInternalServerError
-	}
-	if !exists {
-		logger.Debug("Role not found", log.String("id", id))
-		return &ErrorRoleNotFound
-	}
-
-	// Check if role is declarative - cannot modify assignments for declarative roles
-	if rs.isRoleDeclarative(ctx, id) {
-		logger.Debug("Cannot modify assignments for declarative role", log.String("id", id))
-		return &ErrorImmutableAssignment
-	}
-
-	err = rs.transactioner.Transact(ctx, func(txCtx context.Context) error {
-		return rs.roleStore.RemoveAssignments(txCtx, id, assignments)
-	})
-
-	if err != nil {
-		logger.Error("Failed to remove assignments from role", log.String("id", id), log.Error(err))
-		return &ErrorInternalServerError
-	}
-
-	logger.Debug("Successfully removed assignments from role", log.String("id", id))
-	return nil
-}
-
-// GetAuthorizedPermissions checks which of the requested permissions are authorized for the user based on their roles.
+// GetAuthorizedPermissions checks which requested permissions are authorized for the entity based on roles.
 func (rs *roleService) GetAuthorizedPermissions(
-	ctx context.Context, userID string, groups []string, requestedPermissions []string,
+	ctx context.Context, entityID string, groups []string, requestedPermissions []string,
 ) ([]string, *serviceerror.ServiceError) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
-	logger.Debug("Authorizing permissions", log.String("userID", userID), log.Int("groupCount", len(groups)))
+	logger.Debug("Authorizing permissions",
+		log.MaskedString(log.LoggerKeyUserID, entityID), log.Int("groupCount", len(groups)))
 
 	// Handle nil groups slice
 	if groups == nil {
 		groups = []string{}
 	}
 
-	// Validate that at least userID or groups is provided
-	if userID == "" && len(groups) == 0 {
-		return nil, &ErrorMissingUserOrGroups
+	// Validate that at least entityID or groups is provided
+	if entityID == "" && len(groups) == 0 {
+		return nil, &ErrorMissingEntityOrGroups
 	}
 
 	// Return empty list if no permissions requested
@@ -540,17 +421,17 @@ func (rs *roleService) GetAuthorizedPermissions(
 	}
 
 	// Get authorized permissions from store
-	authorizedPermissions, err := rs.roleStore.GetAuthorizedPermissions(ctx, userID, groups, requestedPermissions)
+	authorizedPermissions, err := rs.roleStore.GetAuthorizedPermissions(ctx, entityID, groups, requestedPermissions)
 	if err != nil {
 		logger.Error("Failed to get authorized permissions",
-			log.String("userID", userID),
+			log.MaskedString(log.LoggerKeyUserID, entityID),
 			log.Int("groupCount", len(groups)),
 			log.Error(err))
-		return nil, &ErrorInternalServerError
+		return nil, &serviceerror.InternalServerError
 	}
 
 	logger.Debug("Retrieved authorized permissions",
-		log.String("userID", userID),
+		log.MaskedString(log.LoggerKeyUserID, entityID),
 		log.Int("groupCount", len(groups)),
 		log.Int("requestedCount", len(requestedPermissions)),
 		log.Int("authorizedCount", len(authorizedPermissions)))
@@ -558,14 +439,65 @@ func (rs *roleService) GetAuthorizedPermissions(
 	return authorizedPermissions, nil
 }
 
+// GetUserRoles retrieves the names of roles assigned to an entity directly and/or through group membership.
+func (rs *roleService) GetUserRoles(
+	ctx context.Context, entityID string, groupIDs []string,
+) ([]string, *serviceerror.ServiceError) {
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
+	logger.Debug("Getting entity roles", log.MaskedString("entityID", entityID), log.Int("groupCount", len(groupIDs)))
+
+	if groupIDs == nil {
+		groupIDs = []string{}
+	}
+
+	if entityID == "" && len(groupIDs) == 0 {
+		return []string{}, nil
+	}
+
+	roles, err := rs.roleStore.GetUserRoles(ctx, entityID, groupIDs)
+	if err != nil {
+		logger.Error("Failed to get entity roles",
+			log.MaskedString("entityID", entityID), log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	return roles, nil
+}
+
 // IsRoleDeclarative returns true if the role is declarative.
 func (rs *roleService) IsRoleDeclarative(ctx context.Context, id string) (bool, *serviceerror.ServiceError) {
 	isDeclarative, err := rs.roleStore.IsRoleDeclarative(ctx, id)
 	if err != nil {
-		return false, &ErrorInternalServerError
+		return false, &serviceerror.InternalServerError
 	}
 
 	return isDeclarative, nil
+}
+
+// ResolveRoleOUHandle resolves ou_handle to an OU ID on the given role in-place.
+// Called by the declarative loader validator so that file-based roles support ou_handle.
+// If both ou_id and ou_handle are provided, ou_id wins and a warning is logged.
+func (rs *roleService) ResolveRoleOUHandle(
+	ctx context.Context, role *RoleWithPermissionsAndAssignments,
+) *serviceerror.ServiceError {
+	if role.OUID != "" && role.OUHandle != "" {
+		logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
+		logger.Warn("Both ou_id and ou_handle provided for role; ou_handle ignored",
+			log.String("roleID", role.ID), log.String("name", role.Name))
+		return nil
+	}
+	if role.OUID == "" && role.OUHandle != "" {
+		if rs.ouService == nil {
+			return &serviceerror.InternalServerError
+		}
+		ou, svcErr := rs.ouService.GetOrganizationUnitByPath(
+			security.WithRuntimeContext(ctx), role.OUHandle)
+		if svcErr != nil {
+			return &ErrorInvalidRequestFormat
+		}
+		role.OUID = ou.ID
+	}
+	return nil
 }
 
 // validateCreateRoleRequest validates the create role request.
@@ -601,14 +533,15 @@ func (rs *roleService) validateUpdateRoleRequest(request RoleUpdateDetail) *serv
 }
 
 // validateAssignmentsRequest validates the assignments request.
+// Accepts public types 'user', 'app', 'group'.
 func (rs *roleService) validateAssignmentsRequest(assignments []RoleAssignment) *serviceerror.ServiceError {
 	if len(assignments) == 0 {
 		return &ErrorEmptyAssignments
 	}
 
 	for _, assignment := range assignments {
-		if assignment.Type != AssigneeTypeUser && assignment.Type != AssigneeTypeGroup {
-			return &ErrorInvalidRequestFormat
+		if !assignment.Type.IsEntityType() && assignment.Type != AssigneeTypeGroup {
+			return &ErrorInvalidAssigneeType
 		}
 		if assignment.ID == "" {
 			return &ErrorInvalidRequestFormat
@@ -618,56 +551,12 @@ func (rs *roleService) validateAssignmentsRequest(assignments []RoleAssignment) 
 	return nil
 }
 
-// validateAssignmentIDs validates that all provided assignment IDs exist.
+// validateAssignmentIDs validates assignment IDs before normalization.
+// For user/app assignments it checks existence and verifies the claimed type matches the actual
+// entity category. For group assignments it checks existence via the group service.
 func (rs *roleService) validateAssignmentIDs(
 	ctx context.Context, assignments []RoleAssignment) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
-
-	var userIDs []string
-	var groupIDs []string
-
-	// Collect user and group IDs
-	for _, assignment := range assignments {
-		switch assignment.Type {
-		case AssigneeTypeUser:
-			userIDs = append(userIDs, assignment.ID)
-		case AssigneeTypeGroup:
-			groupIDs = append(groupIDs, assignment.ID)
-		}
-	}
-
-	// Deduplicate IDs
-	userIDs = utils.UniqueStrings(userIDs)
-	groupIDs = utils.UniqueStrings(groupIDs)
-
-	// Validate user IDs using user service
-	if len(userIDs) > 0 {
-		invalidUserIDs, svcErr := rs.userService.ValidateUserIDs(ctx, userIDs)
-		if svcErr != nil {
-			logger.Error("Failed to validate user IDs", log.String("error", svcErr.Error),
-				log.String("code", svcErr.Code))
-			return &ErrorInternalServerError
-		}
-
-		if len(invalidUserIDs) > 0 {
-			logger.Debug("Invalid user IDs found", log.Any("invalidUserIDs", invalidUserIDs))
-			return &ErrorInvalidAssignmentID
-		}
-	}
-
-	// Validate group IDs using group service
-	if len(groupIDs) > 0 {
-		if err := rs.groupService.ValidateGroupIDs(ctx, groupIDs); err != nil {
-			if err.Code == group.ErrorInvalidGroupMemberID.Code {
-				logger.Debug("Invalid group member IDs found")
-				return &ErrorInvalidAssignmentID
-			}
-			logger.Error("Failed to validate group IDs", log.String("error", err.Error))
-			return &ErrorInternalServerError
-		}
-	}
-
-	return nil
+	return validateAssignmentIDs(ctx, assignments, rs.entityService, rs.groupService, loggerComponentName)
 }
 
 // validatePaginationParams validates pagination parameters.
@@ -679,78 +568,6 @@ func validatePaginationParams(limit, offset int) *serviceerror.ServiceError {
 		return &ErrorInvalidOffset
 	}
 	return nil
-}
-
-// populateDisplayNames batch-fetches display names for all assignments using GetUsersByIDs/GetGroupsByIDs.
-func (rs *roleService) populateDisplayNames(
-	ctx context.Context, assignments []RoleAssignment,
-	serviceAssignments []RoleAssignmentWithDisplay,
-) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
-	// Collect IDs by type
-	var userIDs, groupIDs []string
-	for _, a := range assignments {
-		switch a.Type {
-		case AssigneeTypeUser:
-			userIDs = append(userIDs, a.ID)
-		case AssigneeTypeGroup:
-			groupIDs = append(groupIDs, a.ID)
-		}
-	}
-
-	// Batch fetch users and groups
-	var usersMap map[string]*user.User
-	var groupsMap map[string]*group.Group
-
-	if len(userIDs) > 0 {
-		var svcErr *serviceerror.ServiceError
-		usersMap, svcErr = rs.userService.GetUsersByIDs(ctx, userIDs)
-		if svcErr != nil {
-			logger.Warn("Failed to batch fetch users for display names", log.Any("error", svcErr))
-		}
-	}
-
-	if len(groupIDs) > 0 {
-		var svcErr *serviceerror.ServiceError
-		groupsMap, svcErr = rs.groupService.GetGroupsByIDs(ctx, groupIDs)
-		if svcErr != nil {
-			logger.Warn("Failed to batch fetch groups for display names", log.Any("error", svcErr))
-		}
-	}
-
-	// Resolve display attribute paths for user types
-	userTypes := make([]string, 0, len(usersMap))
-	for _, u := range usersMap {
-		userTypes = append(userTypes, u.Type)
-	}
-	displayAttrPaths := user.ResolveDisplayAttributePaths(ctx, userTypes, rs.userSchemaService, logger)
-
-	for i := range assignments {
-		serviceAssignments[i].ID = assignments[i].ID
-		serviceAssignments[i].Type = assignments[i].Type
-
-		switch assignments[i].Type {
-		case AssigneeTypeUser:
-			if usersMap != nil {
-				if u, ok := usersMap[assignments[i].ID]; ok {
-					serviceAssignments[i].Display = utils.ResolveDisplay(
-						u.ID, u.Type, u.Attributes, displayAttrPaths)
-					continue
-				}
-			}
-			serviceAssignments[i].Display = assignments[i].ID
-		case AssigneeTypeGroup:
-			if groupsMap != nil {
-				if g, ok := groupsMap[assignments[i].ID]; ok {
-					serviceAssignments[i].Display = g.Name
-					continue
-				}
-			}
-			serviceAssignments[i].Display = assignments[i].ID
-		default:
-			serviceAssignments[i].Display = assignments[i].ID
-		}
-	}
 }
 
 // validatePermissions validates that all permissions exist in the resource management system.
@@ -784,8 +601,8 @@ func (rs *roleService) validatePermissions(
 		if svcErr != nil {
 			logger.Error("Failed to validate permissions",
 				log.String("resourceServerId", resPerm.ResourceServerID),
-				log.String("error", svcErr.Error))
-			return &ErrorInternalServerError
+				log.String("error", svcErr.Error.DefaultValue))
+			return &serviceerror.InternalServerError
 		}
 
 		// If any permissions are invalid, return error

@@ -1,0 +1,932 @@
+openapi: 3.0.3
+
+info:
+  title: OAuth2 / OIDC API
+  description: OAuth 2.0 and OpenID Connect protocol endpoints. Covers authorization, token issuance, token introspection, pushed authorization requests, dynamic client registration, JWKS, and the OIDC UserInfo endpoint.
+  version: "1.0"
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://{host}:{port}
+    variables:
+      host:
+        default: "localhost"
+      port:
+        default: "8090"
+
+tags:
+  - name: Authorization
+    description: OAuth 2.0 authorization endpoint and flow-engine callback.
+  - name: Token
+    description: OAuth 2.0 token endpoint for issuing access tokens, refresh tokens, and ID tokens.
+  - name: Introspection
+    description: Token introspection per RFC 7662.
+  - name: PAR
+    description: Pushed Authorization Requests per RFC 9126.
+  - name: JWKS
+    description: JSON Web Key Set endpoint for token verification.
+  - name: UserInfo
+    description: OIDC UserInfo endpoint for retrieving claims about the authenticated user.
+  - name: DCR
+    description: Dynamic Client Registration per RFC 7591.
+
+security: []
+
+paths:
+  /oauth2/authorize:
+    get:
+      summary: Authorization endpoint
+      description: |
+        Initiates an OAuth 2.0 / OIDC authorization flow. On success, redirects the user-agent
+        to the login page. On error, redirects to the client's registered redirect_uri or the
+        server error page. When `request_uri` is provided (PAR), the stored parameters are used
+        instead of the inline query parameters.
+      tags:
+        - Authorization
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code]
+          description: Must be `code` for the authorization code flow.
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The client identifier.
+        - name: redirect_uri
+          in: query
+          required: false
+          schema:
+            type: string
+          description: The URI to redirect to after authorization.
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Space-separated list of requested scopes.
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque value to maintain state between the request and callback.
+        - name: nonce
+          in: query
+          required: false
+          schema:
+            type: string
+          description: String value used to associate a client session with an ID token.
+        - name: code_challenge
+          in: query
+          required: false
+          schema:
+            type: string
+          description: PKCE code challenge (RFC 7636).
+        - name: code_challenge_method
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [S256, plain]
+          description: PKCE code challenge method.
+        - name: request_uri
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Reference URI to a pushed authorization request (RFC 9126).
+        - name: resource
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          description: Resource indicators per RFC 8707. May be repeated.
+        - name: acr_values
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Requested Authentication Context Class Reference values.
+        - name: claims
+          in: query
+          required: false
+          schema:
+            type: string
+          description: JSON-encoded claims request (OIDC Core §5.5).
+      responses:
+        "302":
+          description: Redirect to the login page or the client redirect_uri on error.
+          headers:
+            Location:
+              schema:
+                type: string
+        "400":
+          description: Bad Request — malformed or duplicate query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth2/auth/callback:
+    post:
+      summary: Authorization callback
+      description: |
+        Internal endpoint invoked by the flow engine after a successful authentication ceremony.
+        The flow engine submits a signed assertion JWT; this endpoint validates it, issues an
+        authorization code, and returns the redirect URI for the client.
+      tags:
+        - Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthCallbackRequest'
+            example:
+              authId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              assertion: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        "200":
+          description: Authorization code issued. The redirect_uri includes the code and state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthCallbackResponse'
+              example:
+                redirect_uri: "https://client.example.com/callback?code=SplxlOBeZQQYbYS6WxSbIA&state=xyz&iss=https%3A%2F%2Fserver.example.com"
+        "400":
+          description: Bad Request — missing or invalid authId / assertion.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth2/token:
+    post:
+      summary: Token endpoint
+      description: |
+        Issues access tokens, refresh tokens, and ID tokens. Supports the following grant types:
+        `authorization_code`, `client_credentials`, `refresh_token`, `password`,
+        `urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693).
+        Requires client authentication via HTTP Basic auth or `client_id`/`client_secret` form parameters.
+      tags:
+        - Token
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        "200":
+          description: Token issued successfully.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Always `no-store`.
+            Pragma:
+              schema:
+                type: string
+              description: Always `no-cache`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+                token_type: "Bearer"
+                expires_in: 3600
+                refresh_token: "8xLOxBtZp8"
+                scope: "openid profile email"
+                id_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        "400":
+          description: Bad Request — invalid grant, missing parameters, or unsupported grant type.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+              example:
+                error: "invalid_grant"
+                error_description: "The provided authorization grant is invalid"
+        "401":
+          description: Unauthorized — client authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth2/par:
+    post:
+      summary: Pushed Authorization Request endpoint
+      description: |
+        Accepts authorization request parameters and stores them server-side, returning a
+        `request_uri` that can be passed to the authorization endpoint. Implements RFC 9126.
+        Requires client authentication.
+      tags:
+        - PAR
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PARRequest'
+      responses:
+        "201":
+          description: Authorization request accepted and stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PARResponse'
+              example:
+                request_uri: "urn:ietf:params:oauth:request_uri:bwc4JDEclOl15qiPviJQ2w"
+                expires_in: 60
+        "400":
+          description: Bad Request — invalid parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        "401":
+          description: Unauthorized — client authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth2/introspect:
+    post:
+      summary: Token introspection endpoint
+      description: |
+        Returns metadata about a token. If the token is invalid, expired, or revoked, the
+        response will contain `"active": false` with no other fields. Implements RFC 7662.
+        Requires client authentication.
+      tags:
+        - Introspection
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IntrospectRequest'
+            example:
+              token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        "200":
+          description: Introspection result (active or inactive token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntrospectResponse'
+              examples:
+                active:
+                  summary: Active token
+                  value:
+                    active: true
+                    scope: "openid profile"
+                    client_id: "my-client"
+                    username: "alice"
+                    token_type: "Bearer"
+                    exp: 1735689600
+                    iat: 1735686000
+                    sub: "user-123"
+                    iss: "https://server.example.com"
+                inactive:
+                  summary: Inactive or expired token
+                  value:
+                    active: false
+        "400":
+          description: Bad Request — token parameter is missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        "401":
+          description: Unauthorized — client authentication failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth2/jwks:
+    get:
+      summary: JSON Web Key Set
+      description: Returns the server's public keys in JWKS format for verifying signed tokens.
+      tags:
+        - JWKS
+      responses:
+        "200":
+          description: JWKS retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKSResponse'
+              example:
+                keys:
+                  - kty: "RSA"
+                    use: "sig"
+                    alg: "RS256"
+                    kid: "key-1"
+                    n: "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx..."
+                    e: "AQAB"
+        "500":
+          description: Internal server error — JWKS could not be retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+  /oauth2/userinfo:
+    get:
+      summary: UserInfo endpoint (GET)
+      description: |
+        Returns claims about the authenticated end-user. The access token must be sent in the
+        `Authorization: Bearer <token>` header. The response is a JSON object or a signed/encrypted
+        JWT depending on the client's registration settings. Implements OIDC Core §5.3.
+      tags:
+        - UserInfo
+      responses:
+        "200":
+          description: UserInfo claims returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+              example:
+                sub: "user-123"
+                name: "Alice Smith"
+                email: "alice@example.com"
+                email_verified: true
+            application/jwt:
+              schema:
+                type: string
+                description: Signed (JWS) or encrypted (JWE) UserInfo response.
+        "401":
+          description: Unauthorized — missing or invalid Bearer token.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+              example: 'Bearer'
+        "403":
+          description: Forbidden — token scope is insufficient.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+              example: 'Bearer error="insufficient_scope", error_description="Required scope is missing"'
+    post:
+      summary: UserInfo endpoint (POST)
+      description: |
+        Identical to the GET variant but accepts the access token via HTTP POST body or
+        `Authorization` header per OIDC Core §5.3.2.
+      tags:
+        - UserInfo
+      responses:
+        "200":
+          description: UserInfo claims returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+            application/jwt:
+              schema:
+                type: string
+        "401":
+          description: Unauthorized — missing or invalid Bearer token.
+        "403":
+          description: Forbidden — token scope is insufficient.
+
+  /oauth2/dcr/register:
+    post:
+      summary: Dynamic Client Registration
+      description: |
+        Registers a new OAuth 2.0 / OIDC client. When DCR is not configured as insecure, a
+        valid access token with system-level permissions is required. Implements RFC 7591.
+      tags:
+        - DCR
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DCRRegistrationRequest'
+            example:
+              client_name: "My App"
+              redirect_uris:
+                - "https://myapp.example.com/callback"
+              grant_types:
+                - authorization_code
+                - refresh_token
+              response_types:
+                - code
+              token_endpoint_auth_method: client_secret_basic
+              scope: "openid profile email"
+      responses:
+        "201":
+          description: Client registered successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DCRRegistrationResponse'
+              example:
+                client_id: "s6BhdRkqt3"
+                client_secret: "ZJYCqe3GGRvdrudKyZS0XhGv_Z45DuKhCUk0gBR1vZk"
+                client_secret_expires_at: 0
+                client_name: "My App"
+                redirect_uris:
+                  - "https://myapp.example.com/callback"
+                grant_types:
+                  - authorization_code
+                  - refresh_token
+                response_types:
+                  - code
+                token_endpoint_auth_method: client_secret_basic
+        "400":
+          description: Bad Request — invalid registration parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        "401":
+          description: Unauthorized — missing or insufficient access token (when DCR is not insecure).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+
+components:
+  schemas:
+    AuthCallbackRequest:
+      type: object
+      required:
+        - authId
+        - assertion
+      properties:
+        authId:
+          type: string
+          description: The authorization session identifier returned by the flow engine.
+        assertion:
+          type: string
+          description: Signed JWT assertion from the flow engine containing authentication result.
+
+    AuthCallbackResponse:
+      type: object
+      required:
+        - redirect_uri
+      properties:
+        redirect_uri:
+          type: string
+          description: The full redirect URI for the client, including the authorization code and state.
+
+    TokenRequest:
+      type: object
+      required:
+        - grant_type
+      properties:
+        grant_type:
+          type: string
+          enum:
+            - authorization_code
+            - client_credentials
+            - refresh_token
+            - password
+            - urn:ietf:params:oauth:grant-type:token-exchange
+          description: The OAuth 2.0 grant type.
+        client_id:
+          type: string
+          description: The client identifier (required when not using HTTP Basic auth).
+        client_secret:
+          type: string
+          description: The client secret (required for confidential clients not using HTTP Basic auth).
+        code:
+          type: string
+          description: The authorization code (required for authorization_code grant).
+        redirect_uri:
+          type: string
+          description: Must match the redirect_uri used in the authorization request.
+        code_verifier:
+          type: string
+          description: PKCE code verifier (RFC 7636).
+        scope:
+          type: string
+          description: Space-separated list of requested scopes.
+        refresh_token:
+          type: string
+          description: The refresh token (required for refresh_token grant).
+        username:
+          type: string
+          description: The resource owner username (required for password grant).
+        password:
+          type: string
+          description: The resource owner password (required for password grant).
+        subject_token:
+          type: string
+          description: The subject token for token exchange (RFC 8693).
+        subject_token_type:
+          type: string
+          description: The type URI of the subject token.
+        actor_token:
+          type: string
+          description: The actor token for token exchange (RFC 8693).
+        actor_token_type:
+          type: string
+          description: The type URI of the actor token.
+        requested_token_type:
+          type: string
+          description: The desired type of the issued token.
+        audience:
+          type: string
+          description: Target audience for the issued token. May be repeated.
+        resource:
+          type: string
+          description: Resource indicator (RFC 8707). May be repeated.
+
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: The issued access token.
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          format: int64
+          description: Lifetime of the access token in seconds.
+        refresh_token:
+          type: string
+          description: The refresh token, if issued.
+        scope:
+          type: string
+          description: The scopes granted (may differ from those requested).
+        id_token:
+          type: string
+          description: The ID token, issued for openid scope.
+        issued_token_type:
+          type: string
+          description: The type of the issued token (token exchange only).
+
+    PARRequest:
+      type: object
+      required:
+        - response_type
+        - client_id
+      properties:
+        response_type:
+          type: string
+          enum: [code]
+        client_id:
+          type: string
+        redirect_uri:
+          type: string
+        scope:
+          type: string
+        state:
+          type: string
+        nonce:
+          type: string
+        code_challenge:
+          type: string
+        code_challenge_method:
+          type: string
+          enum: [S256, plain]
+        resource:
+          type: string
+          description: Resource indicator (RFC 8707). May be repeated.
+        acr_values:
+          type: string
+        claims:
+          type: string
+
+    PARResponse:
+      type: object
+      required:
+        - request_uri
+        - expires_in
+      properties:
+        request_uri:
+          type: string
+          description: The request URI referencing the stored authorization parameters.
+          example: "urn:ietf:params:oauth:request_uri:bwc4JDEclOl15qiPviJQ2w"
+        expires_in:
+          type: integer
+          format: int64
+          description: Lifetime of the request_uri in seconds.
+
+    IntrospectRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: The token to introspect.
+        token_type_hint:
+          type: string
+          description: Hint about the type of the submitted token.
+
+    IntrospectResponse:
+      type: object
+      required:
+        - active
+      properties:
+        active:
+          type: boolean
+          description: Indicates whether the token is currently active.
+        scope:
+          type: string
+        client_id:
+          type: string
+        username:
+          type: string
+        token_type:
+          type: string
+        exp:
+          type: integer
+          format: int64
+        iat:
+          type: integer
+          format: int64
+        nbf:
+          type: integer
+          format: int64
+        sub:
+          type: string
+        aud:
+          description: Audience — may be a string or an array of strings.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        iss:
+          type: string
+        jti:
+          type: string
+
+    JWKSResponse:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JWK'
+
+    JWK:
+      type: object
+      required:
+        - kty
+      properties:
+        kid:
+          type: string
+          description: Key ID.
+        kty:
+          type: string
+          description: Key type (e.g. RSA, EC).
+        use:
+          type: string
+          description: Intended use (sig or enc).
+        alg:
+          type: string
+          description: Algorithm.
+        n:
+          type: string
+          description: RSA modulus (Base64urlUInt).
+        e:
+          type: string
+          description: RSA public exponent (Base64urlUInt).
+        crv:
+          type: string
+          description: EC curve name.
+        x:
+          type: string
+          description: EC x coordinate.
+        y:
+          type: string
+          description: EC y coordinate.
+        x5c:
+          type: array
+          items:
+            type: string
+          description: X.509 certificate chain.
+        x5t:
+          type: string
+          description: X.509 certificate SHA-1 thumbprint.
+        x5t#S256:
+          type: string
+          description: X.509 certificate SHA-256 thumbprint.
+
+    UserInfoResponse:
+      type: object
+      required:
+        - sub
+      properties:
+        sub:
+          type: string
+          description: Subject identifier.
+        name:
+          type: string
+        given_name:
+          type: string
+        family_name:
+          type: string
+        middle_name:
+          type: string
+        nickname:
+          type: string
+        preferred_username:
+          type: string
+        profile:
+          type: string
+        picture:
+          type: string
+        website:
+          type: string
+        email:
+          type: string
+        email_verified:
+          type: boolean
+        gender:
+          type: string
+        birthdate:
+          type: string
+        zoneinfo:
+          type: string
+        locale:
+          type: string
+        phone_number:
+          type: string
+        phone_number_verified:
+          type: boolean
+        updated_at:
+          type: integer
+          format: int64
+      additionalProperties: true
+
+    DCRRegistrationRequest:
+      type: object
+      required:
+        - redirect_uris
+      properties:
+        ou_id:
+          type: string
+          description: Organization Unit ID to associate the client with.
+        redirect_uris:
+          type: array
+          items:
+            type: string
+          description: Registered redirect URIs.
+        grant_types:
+          type: array
+          items:
+            type: string
+            enum:
+              - authorization_code
+              - implicit
+              - client_credentials
+              - refresh_token
+              - urn:ietf:params:oauth:grant-type:token-exchange
+        response_types:
+          type: array
+          items:
+            type: string
+            enum: [code]
+        client_name:
+          type: string
+        client_uri:
+          type: string
+        logo_uri:
+          type: string
+        token_endpoint_auth_method:
+          type: string
+          enum:
+            - client_secret_basic
+            - client_secret_post
+            - private_key_jwt
+            - none
+        jwks_uri:
+          type: string
+        jwks:
+          type: object
+          additionalProperties: true
+        scope:
+          type: string
+        contacts:
+          type: array
+          items:
+            type: string
+        tos_uri:
+          type: string
+        policy_uri:
+          type: string
+        require_pushed_authorization_requests:
+          type: boolean
+        userinfo_signed_response_alg:
+          type: string
+        userinfo_encrypted_response_alg:
+          type: string
+        userinfo_encrypted_response_enc:
+          type: string
+        id_token_encrypted_response_alg:
+          type: string
+        id_token_encrypted_response_enc:
+          type: string
+      description: Language-tagged fields (e.g. `client_name#fr`) are also accepted as top-level properties.
+
+    DCRRegistrationResponse:
+      type: object
+      required:
+        - client_id
+        - client_secret_expires_at
+      properties:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        client_secret_expires_at:
+          type: integer
+          format: int64
+          description: Unix timestamp when the secret expires, or 0 if it never expires.
+        app_id:
+          type: string
+          description: Internal application ID.
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        grant_types:
+          type: array
+          items:
+            type: string
+        response_types:
+          type: array
+          items:
+            type: string
+        client_name:
+          type: string
+        client_uri:
+          type: string
+        logo_uri:
+          type: string
+        token_endpoint_auth_method:
+          type: string
+        jwks_uri:
+          type: string
+        jwks:
+          type: object
+          additionalProperties: true
+        scope:
+          type: string
+        contacts:
+          type: array
+          items:
+            type: string
+        tos_uri:
+          type: string
+        policy_uri:
+          type: string
+        require_pushed_authorization_requests:
+          type: boolean
+        userinfo_signed_response_alg:
+          type: string
+        userinfo_encrypted_response_alg:
+          type: string
+        userinfo_encrypted_response_enc:
+          type: string
+        id_token_encrypted_response_alg:
+          type: string
+        id_token_encrypted_response_enc:
+          type: string
+      description: Language-tagged variants (e.g. `client_name#fr`) are included as top-level properties in the response.
+
+    OAuthError:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: OAuth 2.0 error code.
+          example: invalid_request
+        error_description:
+          type: string
+          description: Human-readable error description.

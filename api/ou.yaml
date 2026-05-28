@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: OrganizationUnit Management API
   version: "1.0"
-  description: This API is used to manage organization units.
+  description: Create and manage the organizational hierarchy. Organization units can be nested and are used to scope applications, users, groups, and policies.
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
@@ -16,10 +16,10 @@ servers:
         default: "8090"
 
 tags:
-  - name: organization-units
-    description: Operations related to organization unit management
+  - name: Organization Units
+    description: Create and manage organization units including member, group, and role assignments.
   - name: organization-units-by-path
-    description: Operations related to organization units using hierarchical handle paths
+    description: Create, retrieve, update, delete, and list organization units using their hierarchical handle path.
 
 security:
   - OAuth2: [system]
@@ -28,11 +28,12 @@ paths:
   /organization-units:
     get:
       tags:
-        - organization-units
+        - Organization Units
       summary: List root organization units
       parameters:
         - $ref: '#/components/parameters/limitQueryParam'
         - $ref: '#/components/parameters/offsetQueryParam'
+        - $ref: '#/components/parameters/filterParam'
       responses:
         "200":
           description: List of root organization units
@@ -49,10 +50,12 @@ paths:
                     handle: "engineering"
                     name: "Engineering"
                     description: "Engineering Unit"
+                    logoUrl: "https://example.com/logos/engineering.png"
                   - id: "b7c40de6-95cd-4c45-8725-9c7cb5b9cafd"
                     handle: "sales"
                     name: "Sales"
                     description: "Sales Unit"
+                    logoUrl: "https://example.com/logos/sales.png"
                 links:
                   - href: "organization-units?offset=2&limit=2"
                     rel: "next"
@@ -66,21 +69,39 @@ paths:
                 invalid-limit:
                   summary: Invalid limit parameter
                   value:
-                    code: "OU-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be a positive integer"
+                    code: "OU-1010"
+                    message:
+                      key: "error.ouservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.ouservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
-                    code: "OU-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    code: "OU-1011"
+                    message:
+                      key: "error.ouservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.ouservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
+                invalid-filter:
+                  summary: Invalid filter parameter
+                  value:
+                    code: "OU-1014"
+                    message:
+                      key: "error.ouservice.invalid_filter"
+                      defaultValue: "Invalid filter parameter"
+                    description:
+                      key: "error.ouservice.invalid_filter_description"
+                      defaultValue: "The filter parameter is invalid. Use format: attribute (eq|gt|lt) \"value\""
         "500":
           description: Internal server error
 
     post:
       tags:
-        - organization-units
+        - Organization Units
       summary: Create a new organization unit
       requestBody:
         required: true
@@ -138,37 +159,66 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "OU-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed, contains invalid data, or required fields are missing/empty"
+                    message:
+                      key: "error.ouservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.ouservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed, contains invalid data, or required fields are missing/empty"
                 parent-not-found:
                   summary: Parent organization unit not found
                   value:
                     code: "OU-1005"
-                    message: "Parent organization unit not found"
-                    description: "Parent organization unit not found"
+                    message:
+                      key: "error.ouservice.parent_organization_unit_not_found"
+                      defaultValue: "Parent organization unit not found"
+                    description:
+                      key: "error.ouservice.parent_organization_unit_not_found_description"
+                      defaultValue: "Parent organization unit not found"
                 circular-dependency:
                   summary: Circular dependency detected
                   value:
                     code: "OU-1007"
-                    message: "Circular dependency detected"
-                    description: "Setting this parent would create a circular dependency"
+                    message:
+                      key: "error.ouservice.circular_dependency_detected"
+                      defaultValue: "Circular dependency detected"
+                    description:
+                      key: "error.ouservice.circular_dependency_detected_description"
+                      defaultValue: "Setting this parent would create a circular dependency"
         "409":
-          description: Organization unit name conflict
+          description: 'Conflict: Organization unit already exists'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                code: "OU-1004"
-                message: "Organization unit name conflict"
-                description: "An organization unit with the same name exists under the same parent"
+              examples:
+                name-conflict:
+                  summary: Organization unit name conflict
+                  value:
+                    code: "OU-1004"
+                    message:
+                      key: "error.ouservice.organization_unit_name_conflict"
+                      defaultValue: "Organization unit name conflict"
+                    description:
+                      key: "error.ouservice.organization_unit_name_conflict_description"
+                      defaultValue: "An organization unit with the same name exists under the same parent"
+                handle-conflict:
+                  summary: Organization unit handle conflict
+                  value:
+                    code: "OU-1008"
+                    message:
+                      key: "error.ouservice.organization_unit_handle_conflict"
+                      defaultValue: "Organization unit handle conflict"
+                    description:
+                      key: "error.ouservice.organization_unit_handle_conflict_description"
+                      defaultValue: "An organization unit with the same handle already exists under the same parent"
         "500":
           description: Internal server error
 
   /organization-units/{id}:
     get:
       tags:
-        - organization-units
+        - Organization Units
       summary: Get an organization unit by id
       parameters:
         - in: path
@@ -198,14 +248,18 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "OU-1003"
-                message: "Organization unit not found"
-                description: "The organization unit with the specified id does not exist"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
     put:
       tags:
-        - organization-units
+        - Organization Units
       summary: Update an organization unit by id
       parameters:
         - in: path
@@ -249,20 +303,32 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "OU-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed, contains invalid data, or required fields are missing/empty"
+                    message:
+                      key: "error.ouservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.ouservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed, contains invalid data, or required fields are missing/empty"
                 parent-not-found:
                   summary: Parent organization unit not found
                   value:
                     code: "OU-1005"
-                    message: "Parent organization unit not found"
-                    description: "Parent organization unit not found"
+                    message:
+                      key: "error.ouservice.parent_organization_unit_not_found"
+                      defaultValue: "Parent organization unit not found"
+                    description:
+                      key: "error.ouservice.parent_organization_unit_not_found_description"
+                      defaultValue: "Parent organization unit not found"
                 circular-dependency:
                   summary: Circular dependency detected
                   value:
                     code: "OU-1007"
-                    message: "Circular dependency detected"
-                    description: "Setting this parent would create a circular dependency"
+                    message:
+                      key: "error.ouservice.circular_dependency_detected"
+                      defaultValue: "Circular dependency detected"
+                    description:
+                      key: "error.ouservice.circular_dependency_detected_description"
+                      defaultValue: "Setting this parent would create a circular dependency"
         "404":
           description: Organization unit not found
           content:
@@ -271,24 +337,45 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "OU-1003"
-                message: "Organization unit not found"
-                description: "The organization unit with the specified id does not exist"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "409":
-          description: Organization unit name conflict
+          description: 'Conflict: Organization unit already exists'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                code: "OU-1004"
-                message: "Organization unit name conflict"
-                description: "An organization unit with the same name exists under the same parent"
+              examples:
+                name-conflict:
+                  summary: Organization unit name conflict
+                  value:
+                    code: "OU-1004"
+                    message:
+                      key: "error.ouservice.organization_unit_name_conflict"
+                      defaultValue: "Organization unit name conflict"
+                    description:
+                      key: "error.ouservice.organization_unit_name_conflict_description"
+                      defaultValue: "An organization unit with the same name exists under the same parent"
+                handle-conflict:
+                  summary: Organization unit handle conflict
+                  value:
+                    code: "OU-1008"
+                    message:
+                      key: "error.ouservice.organization_unit_handle_conflict"
+                      defaultValue: "Organization unit handle conflict"
+                    description:
+                      key: "error.ouservice.organization_unit_handle_conflict_description"
+                      defaultValue: "An organization unit with the same handle already exists under the same parent"
         "500":
           description: Internal server error
 
     delete:
       tags:
-        - organization-units
+        - Organization Units
       summary: Delete an organization unit by id
       parameters:
         - in: path
@@ -311,15 +398,33 @@ paths:
                   summary: Organization unit has children
                   value:
                     code: "OU-1006"
-                    message: "Organization unit has sub resources"
-                    description: "Cannot delete organization unit with children or users or groups"
+                    message:
+                      key: "error.ouservice.organization_unit_has_children"
+                      defaultValue: "Organization unit has children"
+                    description:
+                      key: "error.ouservice.organization_unit_has_children_description"
+                      defaultValue: "Cannot delete organization unit with children or users/groups"
+        "404":
+          description: Organization unit not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "OU-1003"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
   /organization-units/{id}/ous:
     get:
       tags:
-        - organization-units
+        - Organization Units
       summary: List child organization units
       parameters:
         - in: path
@@ -330,6 +435,7 @@ paths:
             format: uuid
         - $ref: '#/components/parameters/limitQueryParam'
         - $ref: '#/components/parameters/offsetQueryParam'
+        - $ref: '#/components/parameters/filterParam'
       responses:
         "200":
           description: List of child organization units
@@ -346,10 +452,12 @@ paths:
                     name: "Frontend Team"
                     handle: "frontend"
                     description: "Handles UI/UX work"
+                    logoUrl: "https://example.com/logos/frontend.png"
                   - id: "2a8f9e1c-4d7b-4c8a-9f3e-1b2c3d4e5f6g"
                     name: "Backend Team"
                     handle: "backend"
                     description: "Handles server-side development"
+                    logoUrl: null
                 links:
                   - href: "organization-units/afc77cfd-620b-4cf0-a31c-7377b0ea8902/ous?offset=2&limit=2"
                     rel: "next"
@@ -363,15 +471,33 @@ paths:
                 invalid-limit:
                   summary: Invalid limit parameter
                   value:
-                    code: "OU-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be a positive integer"
+                    code: "OU-1010"
+                    message:
+                      key: "error.ouservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.ouservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
-                    code: "OU-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    code: "OU-1011"
+                    message:
+                      key: "error.ouservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.ouservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
+                invalid-filter:
+                  summary: Invalid filter parameter
+                  value:
+                    code: "OU-1014"
+                    message:
+                      key: "error.ouservice.invalid_filter"
+                      defaultValue: "Invalid filter parameter"
+                    description:
+                      key: "error.ouservice.invalid_filter_description"
+                      defaultValue: "The filter parameter is invalid. Use format: attribute (eq|gt|lt) \"value\""
         "404":
           description: Organization unit not found
           content:
@@ -380,15 +506,19 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "OU-1003"
-                message: "Organization unit not found"
-                description: "The organization unit with the specified id does not exist"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
   /organization-units/{id}/users:
     get:
       tags:
-        - organization-units
+        - Organization Units
       summary: List users in organization unit
       parameters:
         - in: path
@@ -429,15 +559,23 @@ paths:
                 invalid-limit:
                   summary: Invalid limit parameter
                   value:
-                    code: "OU-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be a positive integer"
+                    code: "OU-1010"
+                    message:
+                      key: "error.ouservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.ouservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
-                    code: "OU-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    code: "OU-1011"
+                    message:
+                      key: "error.ouservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.ouservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
         "404":
           description: Organization unit not found
           content:
@@ -446,15 +584,19 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "OU-1003"
-                message: "Organization unit not found"
-                description: "The organization unit with the specified id does not exist"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
   /organization-units/{id}/groups:
     get:
       tags:
-        - organization-units
+        - Organization Units
       summary: List groups in organization unit
       parameters:
         - in: path
@@ -494,15 +636,23 @@ paths:
                 invalid-limit:
                   summary: Invalid limit parameter
                   value:
-                    code: "OU-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be a positive integer"
+                    code: "OU-1010"
+                    message:
+                      key: "error.ouservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.ouservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
-                    code: "OU-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    code: "OU-1011"
+                    message:
+                      key: "error.ouservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.ouservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
         "404":
           description: Organization unit not found
           content:
@@ -511,8 +661,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "OU-1003"
-                message: "Organization unit not found"
-                description: "The organization unit with the specified id does not exist"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
@@ -566,19 +720,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                path-not-found:
-                  summary: Handle path not found
-                  value:
-                    code: "OU-1003"
-                    message: "Organization unit not found"
-                    description: "The organization unit with the specified handle path does not exist"
-                invalid-path:
-                  summary: Invalid path structure
-                  value:
-                    code: "OU-1008"
-                    message: "Invalid handle path"
-                    description: "The handle path does not represent a valid organizational hierarchy"
+              example:
+                code: "OU-1003"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
@@ -650,48 +799,55 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                invalid-request:
-                  summary: Invalid request format
-                  value:
-                    code: "OU-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed, contains invalid data, or required fields are missing/empty"
-                handle-conflict:
-                  summary: Handle already exists under parent
-                  value:
-                    code: "OU-1010"
-                    message: "Handle conflict"
-                    description: "An organization unit with the same handle already exists under the same parent"
+              example:
+                code: "OU-1001"
+                message:
+                  key: "error.ouservice.invalid_request_format"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.ouservice.invalid_request_format_description"
+                  defaultValue: "The request body is malformed, contains invalid data, or required fields are missing/empty"
         "404":
           description: Organization unit not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                path-not-found:
-                  summary: Handle path not found
-                  value:
-                    code: "OU-1003"
-                    message: "Organization unit not found"
-                    description: "The organization unit with the specified handle path does not exist"
-                invalid-path:
-                  summary: Invalid path structure
-                  value:
-                    code: "OU-1008"
-                    message: "Invalid handle path"
-                    description: "The handle path does not represent a valid organizational hierarchy"
+              example:
+                code: "OU-1003"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "409":
-          description: Organization unit name conflict
+          description: 'Conflict: Organization unit already exists'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                code: "OU-1004"
-                message: "Organization unit name conflict"
-                description: "An organization unit with the same name exists under the same parent"
+              examples:
+                name-conflict:
+                  summary: Organization unit name conflict
+                  value:
+                    code: "OU-1004"
+                    message:
+                      key: "error.ouservice.organization_unit_name_conflict"
+                      defaultValue: "Organization unit name conflict"
+                    description:
+                      key: "error.ouservice.organization_unit_name_conflict_description"
+                      defaultValue: "An organization unit with the same name exists under the same parent"
+                handle-conflict:
+                  summary: Organization unit handle conflict
+                  value:
+                    code: "OU-1008"
+                    message:
+                      key: "error.ouservice.organization_unit_handle_conflict"
+                      defaultValue: "Organization unit handle conflict"
+                    description:
+                      key: "error.ouservice.organization_unit_handle_conflict_description"
+                      defaultValue: "An organization unit with the same handle already exists under the same parent"
         "500":
           description: Internal server error
 
@@ -728,129 +884,30 @@ paths:
                   summary: Organization unit has children
                   value:
                     code: "OU-1006"
-                    message: "Organization unit has sub resources"
-                    description: "Cannot delete organization unit with children or users or groups"
+                    message:
+                      key: "error.ouservice.organization_unit_has_children"
+                      defaultValue: "Organization unit has children"
+                    description:
+                      key: "error.ouservice.organization_unit_has_children_description"
+                      defaultValue: "Cannot delete organization unit with children or users/groups"
         "404":
           description: Organization unit not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                path-not-found:
-                  summary: Handle path not found
-                  value:
-                    code: "OU-1003"
-                    message: "Organization unit not found"
-                    description: "The organization unit with the specified handle path does not exist"
-                invalid-path:
-                  summary: Invalid path structure
-                  value:
-                    code: "OU-1008"
-                    message: "Invalid handle path"
-                    description: "The handle path does not represent a valid organizational hierarchy"
+              example:
+                code: "OU-1003"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
   /organization-units/tree/{path}/ous:
-    post:
-      tags:
-        - organization-units-by-path
-      summary: Create a new organization unit under the specified handle path
-      parameters:
-        - in: path
-          name: path
-          required: true
-          schema:
-            type: string
-          style: simple
-          explode: false
-          description: |
-            Hierarchical path of the parent organization unit handles separated by forward slashes.
-            The new OU will be created as a child of the OU specified by this path.
-            Examples:
-            - `engineering` - Creates a new OU under the "engineering" OU
-            - `engineering/frontend` - Creates a new OU under "engineering/frontend"
-          example: "engineering/frontend"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateOrganizationUnitByHandleRequest'
-            examples:
-              simple-ou:
-                summary: Create OU under single-level path
-                value:
-                  name: "SRE Team"
-                  handle: "sre"
-                  description: "Maintains site reliability"
-              nested-ou:
-                summary: Create OU under multi-level path
-                value:
-                  name: "UI Team"
-                  handle: "ui"
-                  description: "Handles user interface development"
-      responses:
-        "201":
-          description: Organization unit created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OrganizationUnit'
-              examples:
-                simple-ou:
-                  summary: OU created under single-level path
-                  value:
-                    name: "SRE Team"
-                    handle: "sre"
-                    description: "Maintains site reliability"
-                    parent: "6b59f277-fd79-40b1-afca-dce75d3709f7"
-                nested-ou:
-                  summary: OU created under multi-level path
-                  value:
-                    id: "8c3d2e1f-9a8b-4c5d-7e6f-1a2b3c4d5e6f"
-                    name: "UI Team"
-                    handle: "ui"
-                    description: "Handles user interface development"
-        "400":
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                invalid-request:
-                  summary: Invalid request format
-                  value:
-                    code: "OU-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed, contains invalid data, or required fields are missing/empty"
-                invalid-parent-path:
-                  summary: Parent path not found
-                  value:
-                    code: "OU-1009"
-                    message: "Parent handle path not found"
-                    description: "The specified parent handle path does not exist"
-                handle-conflict:
-                  summary: Handle already exists under parent
-                  value:
-                    code: "OU-1010"
-                    message: "Handle conflict"
-                    description: "An organization unit with the same handle already exists under the specified parent path"
-        "404":
-          description: Parent organization unit not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                code: "OU-1009"
-                message: "Parent handle path not found"
-                description: "The specified parent handle path does not exist"
-        "500":
-          description: Internal server error
-
     get:
       tags:
         - organization-units-by-path
@@ -871,6 +928,7 @@ paths:
           example: "engineering/frontend"
         - $ref: '#/components/parameters/limitQueryParam'
         - $ref: '#/components/parameters/offsetQueryParam'
+        - $ref: '#/components/parameters/filterParam'
       responses:
         "200":
           description: List of child organization units
@@ -887,10 +945,12 @@ paths:
                     name: "Frontend Team"
                     handle: "frontend"
                     description: "Handles UI/UX work"
+                    logoUrl: "https://example.com/logos/frontend.png"
                   - id: "2a8f9e1c-4d7b-4c8a-9f3e-1b2c3d4e5f6g"
                     name: "Backend Team"
                     handle: "backend"
                     description: "Handles server-side development"
+                    logoUrl: null
                 links:
                   - href: "organization-units/tree/engineering/ous?offset=2&limit=2"
                     rel: "next"
@@ -904,34 +964,47 @@ paths:
                 invalid-limit:
                   summary: Invalid limit parameter
                   value:
-                    code: "OU-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be a positive integer"
+                    code: "OU-1010"
+                    message:
+                      key: "error.ouservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.ouservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
-                    code: "OU-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    code: "OU-1011"
+                    message:
+                      key: "error.ouservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.ouservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
+                invalid-filter:
+                  summary: Invalid filter parameter
+                  value:
+                    code: "OU-1014"
+                    message:
+                      key: "error.ouservice.invalid_filter"
+                      defaultValue: "Invalid filter parameter"
+                    description:
+                      key: "error.ouservice.invalid_filter_description"
+                      defaultValue: "The filter parameter is invalid. Use format: attribute (eq|gt|lt) \"value\""
         "404":
           description: Organization unit not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                path-not-found:
-                  summary: Handle path not found
-                  value:
-                    code: "OU-1003"
-                    message: "Organization unit not found"
-                    description: "The organization unit with the specified handle path does not exist"
-                invalid-path:
-                  summary: Invalid path structure
-                  value:
-                    code: "OU-1008"
-                    message: "Invalid handle path"
-                    description: "The handle path does not represent a valid organizational hierarchy"
+              example:
+                code: "OU-1003"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
@@ -986,34 +1059,37 @@ paths:
                 invalid-limit:
                   summary: Invalid limit parameter
                   value:
-                    code: "OU-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be a positive integer"
+                    code: "OU-1010"
+                    message:
+                      key: "error.ouservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.ouservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
-                    code: "OU-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    code: "OU-1011"
+                    message:
+                      key: "error.ouservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.ouservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
         "404":
           description: Organization unit not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                path-not-found:
-                  summary: Handle path not found
-                  value:
-                    code: "OU-1003"
-                    message: "Organization unit not found"
-                    description: "The organization unit with the specified handle path does not exist"
-                invalid-path:
-                  summary: Invalid path structure
-                  value:
-                    code: "OU-1008"
-                    message: "Invalid handle path"
-                    description: "The handle path does not represent a valid organizational hierarchy"
+              example:
+                code: "OU-1003"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
@@ -1067,34 +1143,37 @@ paths:
                 invalid-limit:
                   summary: Invalid limit parameter
                   value:
-                    code: "OU-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be a positive integer"
+                    code: "OU-1010"
+                    message:
+                      key: "error.ouservice.invalid_limit_parameter"
+                      defaultValue: "Invalid limit parameter"
+                    description:
+                      key: "error.ouservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be a positive integer"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
-                    code: "OU-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    code: "OU-1011"
+                    message:
+                      key: "error.ouservice.invalid_offset_parameter"
+                      defaultValue: "Invalid offset parameter"
+                    description:
+                      key: "error.ouservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
         "404":
           description: Organization unit not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                path-not-found:
-                  summary: Handle path not found
-                  value:
-                    code: "OU-1003"
-                    message: "Organization unit not found"
-                    description: "The organization unit with the specified handle path does not exist"
-                invalid-path:
-                  summary: Invalid path structure
-                  value:
-                    code: "OU-1008"
-                    message: "Invalid handle path"
-                    description: "The handle path does not represent a valid organizational hierarchy"
+              example:
+                code: "OU-1003"
+                message:
+                  key: "error.ouservice.organization_unit_not_found"
+                  defaultValue: "Organization unit not found"
+                description:
+                  key: "error.ouservice.organization_unit_not_found_description"
+                  defaultValue: "The organization unit with the specified id does not exist"
         "500":
           description: Internal server error
 
@@ -1105,6 +1184,10 @@ components:
       flows:
         authorizationCode:
           authorizationUrl: https://localhost:8090/oauth2/authorize
+          tokenUrl: https://localhost:8090/oauth2/token
+          scopes:
+            system: Access to system management APIs
+        clientCredentials:
           tokenUrl: https://localhost:8090/oauth2/token
           scopes:
             system: Access to system management APIs
@@ -1143,11 +1226,33 @@ components:
         type: string
         enum:
           - display
+    filterParam:
+      in: query
+      name: filter
+      required: false
+      description: |
+        Filter organization units by attribute values.
+        Supported operators: `eq`, `gt`, `lt`.
+        Filterable attributes: `name`, `handle`, `description`, `createdAt`, `updatedAt`.
+        Format: `attribute operator "value"`.
+        Examples:
+        - `name eq "Engineering"`
+        - `handle eq "frontend"`
+        - `createdAt gt "2026-01-01T00:00:00Z"`
+      schema:
+        type: string
+      examples:
+        name-filter:
+          summary: Filter by name
+          value: 'name eq "Engineering"'
+        created-at-filter:
+          summary: Filter by creation timestamp
+          value: 'createdAt gt "2026-01-01T00:00:00Z"'
 
   schemas:
     OrganizationUnitBasic:
       type: object
-      required: [id, handle, name]
+      required: [id, handle, name, isReadOnly, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -1162,15 +1267,72 @@ components:
           type: string
           format: uri
           description: "Logo URL for the organization unit"
+        isReadOnly:
+          type: boolean
+          readOnly: true
+          description: "Whether the organization unit is immutable by clients."
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: "Creation timestamp in UTC."
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: "Last update timestamp in UTC."
 
     OrganizationUnit:
-      allOf:
-        - $ref: '#/components/schemas/OrganizationUnitBasic'
+      type: object
+      required: [id, handle, name, createdAt, updatedAt]
       properties:
+        id:
+          type: string
+          format: uuid
+        handle:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
         parent:
           type: string
           format: uuid
           nullable: true
+        themeId:
+          type: string
+          format: uuid
+          description: "Theme configuration ID for the organization unit"
+        layoutId:
+          type: string
+          format: uuid
+          description: "Layout configuration ID for the organization unit"
+        logoUrl:
+          type: string
+          format: uri
+          description: "Logo URL for the organization unit"
+        tosUri:
+          type: string
+          format: uri
+          description: "Terms of Service URI"
+        policyUri:
+          type: string
+          format: uri
+          description: "Privacy Policy URI"
+        cookiePolicyUri:
+          type: string
+          format: uri
+          description: "Cookie Policy URI"
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: "Creation timestamp in UTC."
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: "Last update timestamp in UTC."
 
     User:
       type: object
@@ -1179,6 +1341,9 @@ components:
         id:
           type: string
           format: uuid
+        type:
+          type: string
+          description: "User type identifier"
         display:
           type: string
           description: >-
@@ -1381,7 +1546,23 @@ components:
       properties:
         code:
           type: string
+          description: "Error code. Codes follow the OU-XXXX convention."
+          example: "OU-1001"
         message:
-          type: string
+          $ref: '#/components/schemas/I18nMessage'
         description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
           type: string
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

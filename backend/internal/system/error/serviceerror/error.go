@@ -20,7 +20,7 @@
 package serviceerror
 
 import (
-	"github.com/asgardeo/thunder/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 // ServiceErrorType defines the type of service error.
@@ -33,34 +33,26 @@ const (
 	ServerErrorType ServiceErrorType = "server_error"
 )
 
-// ServiceError defines a generic error structure that can be used across the service layer.
-//
-// Deprecated: Use I18nServiceError instead for new services or when migrating existing services to i18n.
-type ServiceError struct {
-	Code             string           `json:"code"`
-	Type             ServiceErrorType `json:"type"`
-	Error            string           `json:"error"`
-	ErrorDescription string           `json:"error_description,omitempty"`
-}
-
-// CustomServiceError creates a new service error based on an existing error with custom description.
-func CustomServiceError(svcError ServiceError, errorDesc string) *ServiceError {
+// CustomServiceError creates a new service error based on an existing error with a custom description.
+// The caller must supply a complete core.I18nMessage with both Key and DefaultValue so that the
+// translation system has a unique key to resolve, not the base error's generic key.
+func CustomServiceError(svcError ServiceError, errorDesc core.I18nMessage) *ServiceError {
 	err := &ServiceError{
 		Type:             svcError.Type,
 		Code:             svcError.Code,
 		Error:            svcError.Error,
 		ErrorDescription: svcError.ErrorDescription,
 	}
-	if errorDesc != "" {
+	if !errorDesc.IsEmpty() {
 		err.ErrorDescription = errorDesc
 	}
 	return err
 }
 
-// I18nServiceError defines a service error structure with i18n support.
+// ServiceError defines a service error structure with i18n support.
 // This is the new error type that should be used for services being migrated to i18n.
 // Translatable fields use core.Message instead of plain strings.
-type I18nServiceError struct {
+type ServiceError struct {
 	Code             string           `json:"code"`
 	Type             ServiceErrorType `json:"type"`
 	Error            core.I18nMessage `json:"error"`
@@ -71,28 +63,23 @@ type I18nServiceError struct {
 var (
 	// ErrorUnauthorized is the error returned when the caller is not authorized to perform the operation.
 	ErrorUnauthorized = ServiceError{
-		Type:             ClientErrorType,
-		Code:             "SSE-4030",
-		Error:            "Unauthorized",
-		ErrorDescription: "The caller is not authorized to perform this operation",
+		Type: ClientErrorType,
+		Code: "SSE-4030",
+		Error: core.I18nMessage{
+			Key:          "error.unauthorized",
+			DefaultValue: "Unauthorized",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.unauthorized_description",
+			DefaultValue: "The caller is not authorized to perform this operation",
+		},
 	}
 )
 
 // Server errors
 var (
 	// InternalServerError is the error returned for unexpected server errors.
-	//
-	// Deprecated: Use InternalServerErrorWithI18n instead for new services or when migrating
-	// existing services to i18n.
 	InternalServerError = ServiceError{
-		Type:             ServerErrorType,
-		Code:             "SSE-5000",
-		Error:            "Internal server error",
-		ErrorDescription: "An unexpected error occurred while processing the request",
-	}
-
-	// InternalServerErrorWithI18n is the i18n version of InternalServerError.
-	InternalServerErrorWithI18n = I18nServiceError{
 		Type: ServerErrorType,
 		Code: "SSE-5000",
 		Error: core.I18nMessage{
@@ -105,7 +92,17 @@ var (
 		},
 	}
 
-	// EncodingError is the error returned when encoding the response.
-	ErrorEncodingError = "{Code: \"SSE-5001\",Error: \"Encoding error\"," +
-		"ErrorDescription: \"An error occurred while encoding the response\"}"
+	// ErrorEncodingError is the error returned when encoding the response fails.
+	ErrorEncodingError = ServiceError{
+		Type: ServerErrorType,
+		Code: "SSE-5001",
+		Error: core.I18nMessage{
+			Key:          "error.encoding_error",
+			DefaultValue: "Encoding error",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.encoding_error_description",
+			DefaultValue: "An error occurred while encoding the response",
+		},
+	}
 )

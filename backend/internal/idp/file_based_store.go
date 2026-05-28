@@ -22,9 +22,9 @@ import (
 	"context"
 	"errors"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 type idpFileBasedStore struct {
@@ -92,6 +92,28 @@ func (f *idpFileBasedStore) GetIdentityProviderList(ctx context.Context) ([]Basi
 		}
 	}
 	return idpList, nil
+}
+
+// GetIdentityProvidersByProperty retrieves identity providers matching a property from the file-based store.
+func (f *idpFileBasedStore) GetIdentityProvidersByProperty(ctx context.Context,
+	propertyKey, propertyValue string) ([]IDPDTO, error) {
+	list, err := f.GenericFileBasedStore.List()
+	if err != nil {
+		return nil, err
+	}
+
+	var idps []IDPDTO
+	for _, item := range list {
+		if idpItem, ok := item.Data.(*IDPDTO); ok {
+			if GetPropertyValue(idpItem.Properties, propertyKey) == propertyValue {
+				idps = append(idps, *idpItem)
+			}
+		}
+	}
+	if len(idps) == 0 {
+		return nil, ErrIDPNotFound
+	}
+	return idps, nil
 }
 
 // GetIdentityProviderListCount retrieves the total count of identity providers.

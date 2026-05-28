@@ -25,9 +25,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -36,7 +37,7 @@ import (
 // The bootstrap script (01-default-resources.sh/.ps1) seeds the following
 // hierarchical permission structure under the "system" resource server:
 //
-//	system RS  (identifier: "system")
+//	system RS  (name: "System")
 //	└── Resource  "system"      → permission "system"
 //	    └── Resource  "ou"      → permission "system:ou"
 //	        └── Action "view"   → permission "system:ou:view"
@@ -89,8 +90,8 @@ const (
 	ouViewRoleName = "OU View Admin (authz-test)"
 )
 
-// authzUserSchemaID persists the schema ID across SetupSuite/TearDownSuite.
-var authzUserSchemaID string
+// authzEntityTypeID persists the entity type ID across SetupSuite/TearDownSuite.
+var authzEntityTypeID string
 
 func TestOUAuthzTestSuite(t *testing.T) {
 	suite.Run(t, new(OUAuthzTestSuite))
@@ -127,8 +128,8 @@ func (ts *OUAuthzTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "create OU12 (child of OU1)")
 	ts.ou12ID = ou12
 
-	// ---- 2. Create a minimal user schema in OU1 ----
-	schema := testutils.UserSchema{
+	// ---- 2. Create a minimal user type in OU1 ----
+	schema := testutils.UserType{
 		Name:                  "ou-authz-admin-schema",
 		OUID:                  ts.ou1ID,
 		AllowSelfRegistration: false,
@@ -138,8 +139,8 @@ func (ts *OUAuthzTestSuite) SetupSuite() {
 		},
 	}
 	schemaID, err := testutils.CreateUserType(schema)
-	ts.Require().NoError(err, "create ou-admin user schema")
-	authzUserSchemaID = schemaID
+	ts.Require().NoError(err, "create ou-admin user type")
+	authzEntityTypeID = schemaID
 
 	// ---- 3. Create the OU-admin user in OU1 ----
 	userID, err := testutils.CreateUser(testutils.User{
@@ -155,7 +156,7 @@ func (ts *OUAuthzTestSuite) SetupSuite() {
 
 	// ---- 4. Look up the system resource server that was seeded by bootstrap ----
 	// We use the system RS ID to attach the correct permission to the test role.
-	systemRSID, err := testutils.GetResourceServerByIdentifier("system")
+	systemRSID, err := testutils.GetResourceServerByName("System")
 	ts.Require().NoError(err, "look up system resource server")
 
 	// ---- 5. Create a role with permission system:ou:view ----
@@ -207,9 +208,9 @@ func (ts *OUAuthzTestSuite) TearDownSuite() {
 			ts.T().Logf("teardown: delete ou-admin user: %v", err)
 		}
 	}
-	if authzUserSchemaID != "" {
-		if err := testutils.DeleteUserType(authzUserSchemaID); err != nil {
-			ts.T().Logf("teardown: delete user schema: %v", err)
+	if authzEntityTypeID != "" {
+		if err := testutils.DeleteUserType(authzEntityTypeID); err != nil {
+			ts.T().Logf("teardown: delete user type: %v", err)
 		}
 	}
 	// Delete child OU before parent.
@@ -384,4 +385,61 @@ func (ts *OUAuthzTestSuite) TestDeleteOwnOU() {
 
 	ts.Equal(http.StatusForbidden, resp.StatusCode,
 		"view-only OU-admin must not delete own OU (system:ou required)")
+}
+
+// TestListOUsWithFilterMatch verifies that a filter applied over the restricted
+// OU set returns only the OUs that both the caller is authorized to see AND
+// match the filter expression.
+func (ts *OUAuthzTestSuite) TestListOUsWithFilterMatch() {
+	// "Authz Test OU1" is the name set in SetupSuite for OU1.
+	resp := ts.doWithFilter("/organization-units", `name eq "Authz Test OU1"`)
+	defer closeBody(resp)
+
+	ts.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	var listResp OrganizationUnitListResponse
+	ts.Require().NoError(json.NewDecoder(resp.Body).Decode(&listResp))
+
+	ids := make([]string, 0, len(listResp.OrganizationUnits))
+	for _, ou := range listResp.OrganizationUnits {
+		ids = append(ids, ou.ID)
+	}
+
+	ts.Containsf(ids, ts.ou1ID,
+		"filter matching OU1's name should return OU1; got IDs: %v", ids)
+}
+
+// TestListOUsWithFilterNoMatch verifies that a filter that matches no authorized
+// OU returns an empty list, even though the caller is authorized to see OU1.
+func (ts *OUAuthzTestSuite) TestListOUsWithFilterNoMatch() {
+	resp := ts.doWithFilter("/organization-units", `name eq "__no_match__"`)
+	defer closeBody(resp)
+
+	ts.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	var listResp OrganizationUnitListResponse
+	ts.Require().NoError(json.NewDecoder(resp.Body).Decode(&listResp))
+
+	ts.Equal(0, listResp.TotalResults,
+		"filter that matches no authorized OU should return empty results")
+	ts.Empty(listResp.OrganizationUnits)
+}
+
+// doWithFilter issues a GET request using the scoped OU-admin client with the
+// given filter expression as the "filter" query parameter.
+func (ts *OUAuthzTestSuite) doWithFilter(path, filterExpr string) *http.Response {
+	ts.T().Helper()
+
+	u, err := url.Parse(authzTestServerURL + path)
+	ts.Require().NoError(err)
+	q := u.Query()
+	q.Set("filter", filterExpr)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	ts.Require().NoError(err)
+
+	resp, err := ts.ouViewClient.Do(req)
+	ts.Require().NoError(err)
+	return resp
 }

@@ -22,9 +22,9 @@ package authz
 import (
 	"context"
 
-	"github.com/asgardeo/thunder/internal/authz/engine"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/authz/engine"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const loggerComponentName = "AuthorizationService"
@@ -33,7 +33,7 @@ const loggerComponentName = "AuthorizationService"
 // This is the public interface exposed to external consumers.
 type AuthorizationServiceInterface interface {
 	// GetAuthorizedPermissions returns the subset of requested permissions
-	// that the user (directly or through groups) is authorized for.
+	// that the entity (directly or through groups) is authorized for.
 	GetAuthorizedPermissions(
 		ctx context.Context,
 		request GetAuthorizedPermissionsRequest,
@@ -52,14 +52,14 @@ func newAuthorizationService(engine engine.AuthorizationEngine) AuthorizationSer
 	}
 }
 
-// GetAuthorizedPermissions returns the subset of requested permissions that the user is authorized for.
+// GetAuthorizedPermissions returns the subset of requested permissions that the entity is authorized for.
 func (s *authorizationService) GetAuthorizedPermissions(
 	ctx context.Context,
 	request GetAuthorizedPermissionsRequest,
 ) (*GetAuthorizedPermissionsResponse, *serviceerror.ServiceError) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
 	logger.Debug("Evaluating authorization request",
-		log.String("userID", request.UserID),
+		log.MaskedString(log.LoggerKeyUserID, request.EntityID),
 		log.Int("groupCount", len(request.GroupIDs)),
 		log.Int("requestedPermissionCount", len(request.RequestedPermissions)))
 
@@ -78,20 +78,20 @@ func (s *authorizationService) GetAuthorizedPermissions(
 	// Delegate to engine (engine/underlying service handles validation)
 	authorizedPerms, err := s.engine.GetAuthorizedPermissions(
 		ctx,
-		request.UserID,
+		request.EntityID,
 		request.GroupIDs,
 		request.RequestedPermissions,
 	)
 	if err != nil {
 		logger.Error("Authorization evaluation failed",
-			log.String("userID", request.UserID),
+			log.MaskedString(log.LoggerKeyUserID, request.EntityID),
 			log.Int("groupCount", len(request.GroupIDs)),
 			log.Error(err))
-		return nil, &ErrorAuthorizationFailed
+		return nil, &serviceerror.InternalServerError
 	}
 
 	logger.Debug("Authorization evaluation completed",
-		log.String("userID", request.UserID),
+		log.MaskedString(log.LoggerKeyUserID, request.EntityID),
 		log.Int("groupCount", len(request.GroupIDs)),
 		log.Int("requestedCount", len(request.RequestedPermissions)),
 		log.Int("authorizedCount", len(authorizedPerms)))

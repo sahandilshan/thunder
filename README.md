@@ -1,402 +1,90 @@
-# WSO2 Thunder ⚡
+<img src="https://thunderid.dev/assets/images/readme/repo-banner.png" alt="ThunderID" width="100%" />
 
-### Identity Management Suite
+###
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![GitHub last commit](https://img.shields.io/github/last-commit/asgardeo/thunder.svg)](https://github.com/asgardeo/thunder/commits/main)
-[![GitHub issues](https://img.shields.io/github/issues/asgardeo/thunder.svg)](https://github.com/asgardeo/thunder/issues)
-[![codecov.io](https://codecov.io/github/asgardeo/thunder/coverage.svg?branch=main)](https://codecov.io/github/asgardeo/thunder?branch=main)
+[![GitHub last commit](https://img.shields.io/github/last-commit/thunder-id/thunderid.svg)](https://github.com/thunder-id/thunderid/commits/main)
+[![GitHub issues](https://img.shields.io/github/issues/thunder-id/thunderid.svg)](https://github.com/thunder-id/thunderid/issues)
+[![codecov.io](https://codecov.io/github/thunder-id/thunderid/coverage.svg?branch=main)](https://codecov.io/github/thunder-id/thunderid?branch=main)
+[![GitHub Release](https://img.shields.io/github/v/release/thunder-id/thunderid?color=blue)](https://github.com/thunder-id/thunderid/releases/latest)
 
-Thunder is a modern, open-source identity management service designed for teams building secure, customizable authentication experiences across applications, services, and AI agents. It enables developers to design and orchestrate login, registration, and recovery flows using a flexible identity flow designer.
 
-Designed for extensibility, scalability, and seamless containerized deployment, Thunder integrates naturally with microservices and DevOps environments—serving as the core identity layer for your cloud platform.
+ThunderID is a lightweight, open-source Identity and Access Management (IAM) engine built to secure access for humans, AI agents, and machines.
 
----
+Designed for the agentic era, ThunderID provides a developer-first IAM platform and supporting tools for securing applications, APIs, services, and agent-driven workflows. It works across traditional and decentralized identity ecosystems, with post-quantum-ready security built in from the start.
 
-## 🚀 Features
+Core design goals of ThunderID include:
+- **Agent-native identity:** Manage AI agents as first-class identities with delegated authority, consent-aware access, traceability, and support for issuing verifiable credentials to agents. ThunderID also aims to expose IAM capabilities through interfaces that agents can use safely and programmatically.
+- **Decentralized identity:** Bridge the adoption gap for relying parties by making it practical for service providers to consume, verify, and trust decentralized identity in real-world applications, including DIDs, verifiable credentials, digital wallets, trust registries, and issuer-verifier-holder interaction models.
+- **Cloud-native IAM:** Provide a lightweight, containerized identity product that can run across on-premises and cloud environments, with declarative identity flows, policies, and configuration suitable for automation, versioning, and GitOps practices.
+- **Post-quantum-safe security:** Build on a crypto-agile foundation where algorithms, key types, signing methods, and token protection mechanisms can evolve over time, including support for post-quantum-safe algorithms and hybrid transition approaches across key management, credential issuance, assertions, and secure service-to-service communication.
 
-- **Standards-Based**
-  - OAuth 2/ OpenID Connect (OIDC): Client Credentials, Authorization Code, Refresh Token
-- **Login Options:**
-  - Basic Authentication (Username/Password)
-  - Social Logins: Google, Github
-  - SMS OTP
-- **Registration Options:**
-  - Username/Password
-  - Social Registration: Google, Github
-  - SMS OTP
-- **RESTful APIs:**
-  - App Native Login/Registration
-  - User Management
-  - Application Management
-  - Identity Provider Management
-  - Message Notification Sender Management
 
----
+## Getting Started
 
-## ⚡ Quickstart
+Get started by exploring how ThunderID can be used to secure:
+* Applications - by following [Securing B2C Application Guide](https://thunderid.dev/docs/next/use-cases/b2c/try-it-out)
+* AI Agents - by following [Securing AI Agents Guide](https://thunderid.dev/docs/next/use-cases/ai-agents/try-it-out)
 
-This Quickstart guide will help you get started with WSO2 Thunder quickly. It walks you through downloading and running the product, trying out the sample app, and exploring registering a user, logging in, and using the Client Credentials flow.
+ To learn more about overall requirements, solution patterns of these scenarios, refer to the [Use Cases](https://thunderid.dev/docs/next/use-cases/overview/) section.
 
-### Download and Run WSO2 Thunder
+Visit [Get ThunderID](https://thunderid.dev/docs/next/guides/getting-started/get-thunderid/) to learn more about installation methods.
 
-You can run WSO2 Thunder either by downloading the release artifact or using the official Docker image.
 
-#### Option 1: Run from Release Artifact
+## Architecture
 
-Follow these steps to download the latest release of WSO2 Thunder and run it locally.
+<img src="https://thunderid.dev/assets/images/readme/architecture.png" alt="ThunderID Architecture" width="100%" />
 
-1. **Download the distribution from the latest release**
 
-    Download `thunder-<version>-<os>-<arch>.zip` from the [latest release](https://github.com/asgardeo/thunder/releases/latest) for your operating system and architecture.
+## Features
 
-    For example, if you are using a MacOS machine with a Apple Silicon (ARM64) processor, you would download `thunder-<version>-macos-arm64.zip`.
+* **Identity Management**
+    * Humans, AI agents, and workloads as first-class identity types
+    * Hierarchical organizational units (OUs) and groups
 
-2. **Unzip the product**
+* **Standards**
+    * OAuth 2.1 and OpenID Connect, with PAR and PKCE
+    * WebAuthn / passkeys
+    * IdP federation — Google, Microsoft, GitHub, and any OIDC or SAML provider
 
-    Unzip the downloaded file using the following command:
+* **User Journeys**
+    * Login, registration, and recovery defined as journeys
+    * 20+ built-in executors - password, passkey, OTP, social login, consent, and more
+    * Orchestratable in the server or the application
+    * Themeable end-user UI
 
-    ```bash
-    unzip thunder-<version>-<os>-<arch>.zip
-    ```
+* **Authorization**
+    * Hierarchical resources with derived permissions
+    * Role-based access control across users, agents, and applications
+    * Consent management with user-facing review
 
-    Navigate to the unzipped directory:
+* **Developer Experience**
+    * Console UI, REST APIs, and SDKs
+    * MCP server for managing and querying IAM from AI agents
 
-    ```bash
-    cd thunder-<version>-<os>-<arch>/
-    ```
+* **Declarative and GitOps-Ready**
+    * YAML resource definitions for every entity
+    * Immutable runtime
 
-3. **Setup the product**
-
-    You need to setup the server with the initial configurations and data before starting the server for the first time.
-
-    If you are using a Linux or macOS machine:
-
-    ```bash
-    ./setup.sh
-    ```
-
-    If you are using a Windows machine:
-
-    ```powershell
-    .\setup.ps1
-    ```
-
-    **Note the id of the sample app indicated with the log line `[INFO] Sample App ID: <id>`.** You'll need it for the sample app configuration.
-
-4. **Start the product**
-
-    If you are using a Linux or macOS machine:
-
-    ```bash
-    ./start.sh
-    ```
-
-    If you are using a Windows machine:
-
-    ```powershell
-    .\start.ps1
-    ```
-
-    The product will start on `https://localhost:8090`.
-
-#### Option 2: Run with Docker Compose
-
-Follow these steps to run WSO2 Thunder using Docker Compose.
-
-1. **Download the Docker Compose file**
-
-    Download the `docker-compose.yml` file using the following command:
-
-    ```bash
-    curl -o docker-compose.yml https://raw.githubusercontent.com/asgardeo/thunder/v0.30.0/install/quick-start/docker-compose.yml
-    ```
-
-2. **Start Thunder**
-
-    Run the following command in the directory where you downloaded the `docker-compose.yml` file:
-
-    ```bash
-    docker compose up
-    ```
-
-    This will automatically:
-    - Initialize the database
-    - Run the setup process
-    - Start the Thunder server
-
-    **Note the id of the sample app indicated with the log line `[INFO] Sample App ID: <id>` in the setup logs.** You'll need it for the sample app configuration.
-
-    The product will start on `https://localhost:8090`.
-
-### Try Out the Product
-
-#### Try out the Thunder Console
-
-Follow these steps to access the Thunder Console:
-
-1. Open your browser and navigate to [https://localhost:8090/console](https://localhost:8090/console).
-
-2. Log in using the admin credentials created during the initial data setup (`admin` / `admin`).
-
-#### Try Out with the Sample App
-
-Thunder provides two sample applications to help you get started quickly:
-
-- **React Vanilla Sample** — Sample React application demonstrating direct API integration without external SDKs. Supports Native Flow API or Standard OAuth/OIDC.
-- **React SDK Sample** — Sample React application demonstrating SDK-based integration using `@asgardeo/react` for OAuth 2.0/OIDC authentication.
-
-##### React Vanilla Sample
-
-1. **Download the sample**
-
-    Download `sample-app-react-vanilla-<version>-<os>-<arch>.zip` from the [latest release](https://github.com/asgardeo/thunder/releases/latest).
-
-2. **Unzip and navigate to the sample app directory**
-
-    ```bash
-    unzip sample-app-react-vanilla-<version>-<os>-<arch>.zip
-    cd sample-app-react-vanilla-<version>-<os>-<arch>/
-    ```
-
-3. **Configure the sample**
-
-    Open `app/runtime.json` and set the `applicationID` to the sample app ID generated during "Setup the product":
-
-    ```json
-    {
-        "applicationID": "{your-application-id}"
-    }
-    ```
-
-4. **Start the sample**
-
-    ```bash
-    ./start.sh
-    ```
-
-    Open your browser and navigate to [https://localhost:3000](https://localhost:3000) to access the sample app.
-
-    > 📖 Refer to the `README.md` inside the extracted sample app for detailed configuration options including OAuth redirect-based login.
-
-##### React SDK Sample
-
-1. **Download the sample**
-
-    Download `sample-app-react-sdk-<version>-<os>-<arch>.zip` from the [latest release](https://github.com/asgardeo/thunder/releases/latest).
-
-2. **Unzip and navigate to the sample app directory**
-
-    ```bash
-    unzip sample-app-react-sdk-<version>-<os>-<arch>.zip
-    cd sample-app-react-sdk-<version>-<os>-<arch>/
-    ```
-
-3. **Start the sample**
-
-    ```bash
-    ./start.sh
-    ```
-
-    Open your browser and navigate to [https://localhost:3000](https://localhost:3000) to access the sample app.
-
-    > 📖 Refer to the `README.md` inside the extracted sample app for detailed configuration and troubleshooting.
-
-##### Self Register and Login (React Vanilla Sample)
-
-The React Vanilla sample supports user self-registration and login:
-
-1. Open [https://localhost:3000](https://localhost:3000) and click **"Sign up"** to register a new user.
-
-    <p align="left">
-        <img src="resources/images/sample-app-self-registration-basic.png" alt="Self Registration Username Password" width="400">
-    </p>
-
-2. After registration, use the same credentials to **"Sign In"**.
-
-    <p align="left">
-        <img src="resources/images/sample-app-login.png" alt="Login to Sample App" width="400">
-    </p>
-
-3. Upon successful login, you'll see the home page with your access token.
-
-
-#### Obtain System API Token
-
-To access the system APIs of Thunder, you need a token with system permissions. Follow the steps below to obtain a system API token.
-
-1. Run the following command, replacing `<application_id>` with the sample app ID generated during "Setup the product."
-
-```bash
-curl -k -X POST 'https://localhost:8090/flow/execute' \
-  -d '{"applicationId":"<application_id>","flowType":"AUTHENTICATION"}'
-```
-2. Extract the `flowId` value from the response.
-```json
-{"flowId":"<flow_id>","flowStatus":"INCOMPLETE", ...}
-```
-
-3. Run the following command, replacing `<flow_id>` with the `flowId` value you extracted above.
-```bash
-curl -k -X POST 'https://localhost:8090/flow/execute' \
-  -d '{"flowId":"<flow_id>", "inputs":{"username":"admin","password":"admin", "requested_permissions":"system"},"action": "action_001"}'
-```
-
-4. Obtain the system API token by extracting the `assertion` value from the response.
-```json
-{"flowId":"<flow_id>","flowStatus":"COMPLETE","data":{},"assertion":"<assertion>"}
-```
-
-#### Try Out Client Credentials Flow
-
-The Client Credentials flow is used to obtain an access token for machine-to-machine communication. This flow does not require user interaction and is typically used for server-to-server communication.
-
-To try out the Client Credentials flow, follow these steps:
-
-1. Create a Client Application
-
-   Application creation is secured functionality, so you first need to obtain a system API token as mentioned in the "Obtain System API Token" section above.
-
-   Run the following command, replacing `<assertion>` with the assertion value obtained from the previous step.
-
-    ```bash
-    curl -kL -X POST -H 'Content-Type: application/json' -H 'Accept: application/json' https://localhost:8090/applications \
-    -H 'Authorization: Bearer <assertion>' \
-    -d '{
-        "name": "Test Sample App",
-        "description": "Initial testing App",
-        "inbound_auth_config": [
-            {
-                "type": "oauth2",
-                "config": {
-                    "client_id": "<client_id>",
-                    "client_secret": "<client_secret>",
-                    "redirect_uris": [
-                        "https://localhost:3000"
-                    ],
-                    "grant_types": [
-                        "client_credentials"
-                    ],
-                    "token_endpoint_auth_method": "client_secret_basic",
-                    "pkce_required": false,
-                    "public_client": false,
-                    "scopes": ["api:read", "api:write"]
-                }
-            }
-        ]
-    }'
-    ```
-
-2. Obtain an Access Token
-
-   Use the following cURL command to obtain an access token using the Client Credentials flow. Make sure to replace the `<client_id>` and `<client_secret>` with the values you used when creating the client application.
-
-    ```bash
-    curl -k -X POST https://localhost:8090/oauth2/token \
-      -d 'grant_type=client_credentials' \
-      -u '<client_id>:<client_secret>'
-    ```
-
----
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=asgardeo/thunder&type=date&legend=top-left)](https://www.star-history.com/#asgardeo/thunder&type=date&legend=top-left)
-
----
+<div align="center">
+  <a href="https://www.star-history.com/?repos=thunder-id%2Fthunderid&type=date&legend=top-left">
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=thunder-id/thunderid&type=date&theme=dark&legend=top-left" width="500" />
+     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=thunder-id/thunderid&type=date&legend=top-left" width="500" />
+     <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=thunder-id/thunderid&type=date&legend=top-left" width="500" />
+   </picture>
+  </a>
+</div>
 
 ## Contributing
 
-Please refer to the [Contributing Guide](https://asgardeo.github.io/thunder/docs/next/community/contributing/overview) for the different ways to contribute to this project and the relevant guidelines.
+Please refer to the [Contributing Guide](https://thunderid.dev/docs/next/community/contributing/overview) for the different ways to contribute to this project and the relevant guidelines.
 
-For code contributions, refer to the [Contributing Code](https://asgardeo.github.io/thunder/docs/next/community/contributing/contributing-code/prerequisites) section for details on the prerequisites and instructions for running Thunder in development mode.
+For code contributions, refer to the [Contributing Code](https://thunderid.dev/docs/next/community/contributing/contributing-code/prerequisites) section for details on the prerequisites and instructions for running ThunderID in development mode.
 
-## Documentation
-
-Please refer to the [Documentation](https://asgardeo.github.io/thunder/docs/guides/introduction) for additional guidance on getting started with Thunder and exploring its features, concepts, and usage.
-
-<details>
-<summary><h2>Advanced Setup & Configuration</h2></summary>
-
-<details>
-<summary><h3>Running with PostgreSQL Database</h3></summary>
-
-#### Step 1: Start and Initialize PostgreSQL
-
-1. Navigate to local-development directory
-
-```bash
-cd install/local-development
-```
-
-2. Start PostgreSQL Database in background
-
-```bash
-docker compose up -d 
-```
-
-3. View PostgreSQL Database logs
-
-```bash
-docker compose logs -f
-```
-
-4. Stop PostgreSQL Database
-
-```bash
-docker compose down
-```
-
-- Stop PostgreSQL Database and delete all data 
-
-```bash
-docker compose down -v
-```
-
-#### Step 2: Configure Thunder to Use PostgreSQL
-
-1. Open the `backend/cmd/server/repository/conf/deployment.yaml` file.
-2. Update the `database` section to point to the PostgreSQL database:
-
-    ```yaml
-    database:
-        config:
-            type: "postgres"
-            hostname: "localhost"
-            port: 5432
-            name: "configdb"
-            username: "asgthunder"
-            password: "asgthunder"
-            sslmode: "disable"
-        runtime:
-            type: "postgres"
-            hostname: "localhost"
-            port: 5432
-            name: "runtimedb"
-            username: "asgthunder"
-            password: "asgthunder"
-            sslmode: "disable"
-        user:
-            type: "postgres"
-            hostname: "localhost"
-            port: 5432
-            name: "userdb"
-            username: "asgthunder"
-            password: "asgthunder"
-            sslmode: "disable"
-    ```
-
-#### Step 3: Run the Product
-
-   ```bash
-   make run
-   ```
-
-The product will now use the PostgreSQL database for its operations.
-
-</details>
-
-</details>
 
 ## License
 

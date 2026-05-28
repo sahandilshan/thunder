@@ -22,11 +22,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 const storeLoggerComponentName = "RoleStore"
@@ -41,15 +41,26 @@ type roleStoreInterface interface {
 	GetRole(ctx context.Context, id string) (RoleWithPermissions, error)
 	IsRoleExist(ctx context.Context, id string) (bool, error)
 	GetRoleAssignments(ctx context.Context, id string, limit, offset int) ([]RoleAssignment, error)
+	GetRoleAssignmentsByType(ctx context.Context, id string,
+		limit, offset int, assigneeType string) ([]RoleAssignment, error)
 	GetRoleAssignmentsCount(ctx context.Context, id string) (int, error)
+	GetRoleAssignmentsCountByType(ctx context.Context, id string, assigneeType string) (int, error)
 	UpdateRole(ctx context.Context, id string, role RoleUpdateDetail) error
 	DeleteRole(ctx context.Context, id string) error
+	DeleteAssignmentsByRoleID(ctx context.Context, id string) error
 	AddAssignments(ctx context.Context, id string, assignments []RoleAssignment) error
 	RemoveAssignments(ctx context.Context, id string, assignments []RoleAssignment) error
 	CheckRoleNameExists(ctx context.Context, ouID, name string) (bool, error)
 	CheckRoleNameExistsExcludingID(ctx context.Context, ouID, name, excludeRoleID string) (bool, error)
 	GetAuthorizedPermissions(
-		ctx context.Context, userID string, groupIDs []string, requestedPermissions []string) ([]string, error)
+		ctx context.Context, entityID string, groupIDs []string, requestedPermissions []string) ([]string, error)
+	GetUserRoles(ctx context.Context, entityID string, groupIDs []string) ([]string, error)
+	// GetEntityRoleIDs returns the set of role IDs assigned to the entity directly or via
+	// group membership. Unlike GetUserRoles this does not require the role to exist in the
+	// underlying store; it returns raw assignee->role bindings. Used by the composite store
+	// to resolve permissions for declarative roles whose definitions live in the file store
+	// while their assignments live in the DB.
+	GetEntityRoleIDs(ctx context.Context, entityID string, groupIDs []string) ([]string, error)
 	IsRoleDeclarative(ctx context.Context, roleID string) (bool, error)
 }
 
@@ -72,7 +83,7 @@ func newRoleStore() (roleStoreInterface, transaction.Transactioner, error) {
 	}
 	return &roleStore{
 		dbProvider:   dbProvider,
-		deploymentID: config.GetThunderRuntime().Config.Server.Identifier,
+		deploymentID: config.GetServerRuntime().Config.Server.Identifier,
 	}, transactioner, nil
 }
 
@@ -212,6 +223,29 @@ func (s *roleStore) GetRoleAssignments(ctx context.Context, id string, limit, of
 		return nil, fmt.Errorf("failed to get role assignments: %w", err)
 	}
 
+	return parseAssignmentResults(results)
+}
+
+// GetRoleAssignmentsByType retrieves assignments for a role filtered by assignee type with pagination.
+func (s *roleStore) GetRoleAssignmentsByType(
+	ctx context.Context, id string, limit, offset int, assigneeType string,
+) ([]RoleAssignment, error) {
+	dbClient, err := s.getConfigDBClient()
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := dbClient.QueryContext(
+		ctx, queryGetRoleAssignmentsByType, id, limit, offset, s.deploymentID, assigneeType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get role assignments: %w", err)
+	}
+
+	return parseAssignmentResults(results)
+}
+
+// parseAssignmentResults parses database query results into role assignments.
+func parseAssignmentResults(results []map[string]interface{}) ([]RoleAssignment, error) {
 	assignments := make([]RoleAssignment, 0)
 	for _, row := range results {
 		assigneeID, err := parseStringField(row, "assignee_id")
@@ -239,6 +273,22 @@ func (s *roleStore) GetRoleAssignmentsCount(ctx context.Context, id string) (int
 	}
 
 	countResults, err := dbClient.QueryContext(ctx, queryGetRoleAssignmentsCount, id, s.deploymentID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get role assignments count: %w", err)
+	}
+
+	return parseCountResult(countResults)
+}
+
+// GetRoleAssignmentsCountByType retrieves the total count of assignments for a role filtered by type.
+func (s *roleStore) GetRoleAssignmentsCountByType(ctx context.Context, id string, assigneeType string) (int, error) {
+	dbClient, err := s.getConfigDBClient()
+	if err != nil {
+		return 0, err
+	}
+
+	countResults, err := dbClient.QueryContext(
+		ctx, queryGetRoleAssignmentsCountByType, id, s.deploymentID, assigneeType)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get role assignments count: %w", err)
 	}
@@ -294,6 +344,20 @@ func (s *roleStore) DeleteRole(ctx context.Context, id string) error {
 		logger.Debug("Role not found with id: " + id)
 	}
 
+	return nil
+}
+
+// DeleteAssignmentsByRoleID deletes all assignments for a role. Used for cascade delete.
+func (s *roleStore) DeleteAssignmentsByRoleID(ctx context.Context, id string) error {
+	dbClient, err := s.getConfigDBClient()
+	if err != nil {
+		return err
+	}
+
+	_, err = dbClient.ExecuteContext(ctx, queryDeleteAllRoleAssignments, id, s.deploymentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete assignments for role: %w", err)
+	}
 	return nil
 }
 
@@ -474,11 +538,11 @@ func (s *roleStore) CheckRoleNameExistsExcludingID(
 	return parseBoolFromCount(results)
 }
 
-// GetAuthorizedPermissions retrieves the permissions that a user is authorized for based on their
+// GetAuthorizedPermissions retrieves the permissions that an entity is authorized for based on their
 // direct role assignments and group memberships.
 func (s *roleStore) GetAuthorizedPermissions(
 	ctx context.Context,
-	userID string,
+	entityID string,
 	groupIDs []string,
 	requestedPermissions []string,
 ) ([]string, error) {
@@ -493,7 +557,7 @@ func (s *roleStore) GetAuthorizedPermissions(
 	}
 
 	// Build dynamic query based on provided parameters
-	query, args := buildAuthorizedPermissionsQuery(userID, groupIDs, requestedPermissions, s.deploymentID)
+	query, args := buildAuthorizedPermissionsQuery(entityID, groupIDs, requestedPermissions, s.deploymentID)
 
 	results, err := dbClient.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -508,6 +572,74 @@ func (s *roleStore) GetAuthorizedPermissions(
 	}
 
 	return permissions, nil
+}
+
+// GetUserRoles retrieves the names of roles assigned to an entity directly and/or through group membership.
+func (s *roleStore) GetUserRoles(
+	ctx context.Context, entityID string, groupIDs []string,
+) ([]string, error) {
+	dbClient, err := s.getConfigDBClient()
+	if err != nil {
+		return nil, err
+	}
+
+	if groupIDs == nil {
+		groupIDs = []string{}
+	}
+
+	query, args := buildUserRolesQuery(entityID, groupIDs, s.deploymentID)
+
+	results, err := dbClient.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entity roles: %w", err)
+	}
+
+	roles := make([]string, 0)
+	for _, row := range results {
+		if name, ok := row["name"].(string); ok {
+			roles = append(roles, name)
+		}
+	}
+
+	return roles, nil
+}
+
+// GetEntityRoleIDs retrieves the IDs of roles assigned to an entity directly and/or via
+// group membership, without joining the ROLE table. This surfaces assignments to roles
+// whose definitions live only in the file-based declarative store. Callers (notably the
+// composite store) use this to resolve permissions for declarative roles whose permission
+// rows are absent from the DB.
+func (s *roleStore) GetEntityRoleIDs(
+	ctx context.Context, entityID string, groupIDs []string,
+) ([]string, error) {
+	if groupIDs == nil {
+		groupIDs = []string{}
+	}
+	// Short-circuit before touching the DB when there's nothing to look up.
+	if entityID == "" && len(groupIDs) == 0 {
+		return []string{}, nil
+	}
+
+	dbClient, err := s.getConfigDBClient()
+	if err != nil {
+		return nil, err
+	}
+
+	query, args := buildEntityRoleIDsQuery(entityID, groupIDs, s.deploymentID)
+
+	results, err := dbClient.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entity role IDs: %w", err)
+	}
+
+	roleIDs := make([]string, 0, len(results))
+	for _, row := range results {
+		if id, ok := row["role_id"].(string); ok {
+			roleIDs = append(roleIDs, id)
+		}
+	}
+
+	return roleIDs, nil
 }
 
 // IsRoleDeclarative checks if a role is defined in declarative configuration.

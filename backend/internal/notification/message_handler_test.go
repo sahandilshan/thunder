@@ -29,11 +29,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 type MessageHandlerTestSuite struct {
@@ -52,9 +53,9 @@ func (suite *MessageHandlerTestSuite) SetupSuite() {
 			},
 		},
 	}
-	err := config.InitializeThunderRuntime("", testConfig)
+	err := config.InitializeServerRuntime("", testConfig)
 	if err != nil {
-		suite.T().Fatalf("Failed to initialize ThunderRuntime: %v", err)
+		suite.T().Fatalf("Failed to initialize server runtime: %v", err)
 	}
 }
 
@@ -85,7 +86,7 @@ func (suite *MessageHandlerTestSuite) TestHandleSenderListRequest_ServiceError()
 	m := NewNotificationSenderMgtSvcInterfaceMock(suite.T())
 	handler := newMessageNotificationSenderHandler(m, nil)
 
-	m.On("ListSenders", mock.Anything).Return(nil, &ErrorInternalServerError).Once()
+	m.On("ListSenders", mock.Anything).Return(nil, &serviceerror.InternalServerError).Once()
 
 	req := httptest.NewRequest(http.MethodGet, "/senders", nil)
 	rr := httptest.NewRecorder()
@@ -265,7 +266,7 @@ func (suite *MessageHandlerTestSuite) TestHandleSenderGetRequest_ServiceError() 
 	m := NewNotificationSenderMgtSvcInterfaceMock(suite.T())
 	handler := newMessageNotificationSenderHandler(m, nil)
 
-	m.On("GetSender", mock.Anything, "err").Return(nil, &ErrorInternalServerError).Once()
+	m.On("GetSender", mock.Anything, "err").Return(nil, &serviceerror.InternalServerError).Once()
 	req := httptest.NewRequest(http.MethodGet, "/senders/err", nil)
 	req.SetPathValue("id", "err")
 	rr := httptest.NewRecorder()
@@ -376,22 +377,22 @@ func (suite *MessageHandlerTestSuite) TestHandleError() {
 			svcErr:        &ErrorSenderNotFound,
 			customDesc:    "",
 			expectedCode:  404,
-			expectedError: ErrorSenderNotFound.Error,
+			expectedError: ErrorSenderNotFound.Error.String(),
 		},
 		{
 			name:          "duplicate sender name -> 409",
 			svcErr:        &ErrorDuplicateSenderName,
 			customDesc:    "",
 			expectedCode:  409,
-			expectedError: ErrorDuplicateSenderName.Error,
+			expectedError: ErrorDuplicateSenderName.Error.String(),
 		},
 		{
 			name: "generic client error -> 400",
 			svcErr: &serviceerror.ServiceError{
 				Type:             serviceerror.ClientErrorType,
 				Code:             "MNS-1999",
-				Error:            "Some client error",
-				ErrorDescription: "details",
+				Error:            i18ncore.I18nMessage{DefaultValue: "Some client error"},
+				ErrorDescription: i18ncore.I18nMessage{DefaultValue: "details"},
 			},
 			customDesc:    "custom desc",
 			expectedCode:  400,
@@ -399,10 +400,10 @@ func (suite *MessageHandlerTestSuite) TestHandleError() {
 		},
 		{
 			name:          "server error -> 500",
-			svcErr:        &ErrorInternalServerError,
+			svcErr:        &serviceerror.InternalServerError,
 			customDesc:    "internal happened",
 			expectedCode:  500,
-			expectedError: ErrorInternalServerError.Error,
+			expectedError: serviceerror.InternalServerError.Error.String(),
 		},
 	}
 
@@ -415,11 +416,11 @@ func (suite *MessageHandlerTestSuite) TestHandleError() {
 		var resp apierror.ErrorResponse
 		suite.NoError(json.Unmarshal(rr.Body.Bytes(), &resp), tc.name)
 		suite.Equal(tc.svcErr.Code, resp.Code, tc.name)
-		suite.Equal(tc.expectedError, resp.Message, tc.name)
+		suite.Equal(tc.expectedError, resp.Message.DefaultValue, tc.name)
 		if tc.customDesc != "" {
-			suite.Equal(tc.customDesc, resp.Description, tc.name)
+			suite.Equal(tc.customDesc, resp.Description.DefaultValue, tc.name)
 		} else {
-			suite.Equal(tc.svcErr.ErrorDescription, resp.Description, tc.name)
+			suite.Equal(tc.svcErr.ErrorDescription.String(), resp.Description.DefaultValue, tc.name)
 		}
 	}
 }
@@ -434,7 +435,7 @@ func (e *errWriter) WriteHeader(statusCode int) {}
 func (suite *MessageHandlerTestSuite) TestHandleError_EncodeFailure() {
 	handler := newMessageNotificationSenderHandler(nil, nil)
 	ew := &errWriter{}
-	handler.handleError(ew, &ErrorInternalServerError, "boom")
+	handler.handleError(ew, &serviceerror.InternalServerError, "boom")
 }
 
 func (suite *MessageHandlerTestSuite) TestGetDTOFromSenderRequest() {

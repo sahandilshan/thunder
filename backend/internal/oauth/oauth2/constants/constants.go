@@ -22,7 +22,7 @@ package constants
 import (
 	"errors"
 
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
 )
 
 // OAuth2 request parameters.
@@ -43,6 +43,7 @@ const (
 	RequestParamRefreshToken        string = "refresh_token"
 	RequestParamResponseType        string = "response_type"
 	RequestParamState               string = "state"
+	RequestParamIss                 string = "iss"
 	RequestParamResource            string = "resource"
 	RequestParamError               string = "error"
 	RequestParamErrorDescription    string = "error_description"
@@ -58,6 +59,14 @@ const (
 	RequestParamClaimsLocales       string = "claims_locales"
 	RequestParamNonce               string = "nonce"
 	RequestParamPrompt              string = "prompt"
+	RequestParamRequestURI          string = "request_uri"
+	RequestParamAcrValues           string = "acr_values"
+	RequestParamDPoPJkt             string = "dpop_jkt"
+)
+
+// OAuth2 HTTP headers.
+const (
+	HeaderDPoP string = "DPoP"
 )
 
 // OIDC prompt parameter values.
@@ -86,7 +95,7 @@ const (
 	SessionDataKeyConsent string = "sessionDataKeyConsent"
 	ShowInsecureWarning   string = "showInsecureWarning"
 	AppID                 string = "applicationId"
-	FlowID                string = "flowId"
+	ExecutionID           string = "executionId"
 	Assertion             string = "assertion"
 )
 
@@ -107,6 +116,7 @@ const (
 	OAuth2JWKSEndpoint          string = "/oauth2/jwks"
 	OAuth2LogoutEndpoint        string = "/oauth2/logout"
 	OAuth2DCREndpoint           string = "/oauth2/dcr/register"
+	OAuth2PAREndpoint           string = "/oauth2/par"
 )
 
 // GrantType defines a type for OAuth2 grant types.
@@ -203,6 +213,7 @@ func (tam TokenEndpointAuthMethod) IsValid() bool {
 // OAuth2 token types.
 const (
 	TokenTypeBearer = "Bearer"
+	TokenTypeDPoP   = "DPoP"
 )
 
 // TokenTypeIdentifier defines a type for RFC 8693 token type identifiers.
@@ -253,6 +264,7 @@ const (
 	ErrorLoginRequired            string = "login_required"
 	ErrorConsentRequired          string = "consent_required"
 	ErrorAccountSelectionRequired string = "account_selection_required"
+	ErrorInvalidDPoPProof         string = "invalid_dpop_proof"
 )
 
 // UnSupportedGrantTypeError is returned when an unsupported grant type is requested.
@@ -289,6 +301,11 @@ var StandardOIDCScopes = map[string]model.OIDCScope{
 		Description: "Requests access to address claim",
 		Claims:      []string{"address"},
 	},
+	"roles": {
+		Name:        "roles",
+		Description: "Requests access to user's assigned roles",
+		Claims:      []string{"roles"},
+	},
 }
 
 // Standard JWT claim names.
@@ -303,17 +320,14 @@ const (
 
 // Custom JWT claim names.
 const (
-	ClaimUserType      string = "userType"
-	ClaimOUID          string = "ouId"
-	ClaimOUName        string = "ouName"
-	ClaimOUHandle      string = "ouHandle"
-	ClaimClaimsRequest string = "claims_req"
-	ClaimClaimsLocales string = "claims_locales"
-)
-
-// JWT signing algorithms.
-const (
-	SigningAlgorithmRS256 string = "RS256"
+	ClaimUserType           string = "userType"
+	ClaimOUID               string = "ouId"
+	ClaimOUName             string = "ouName"
+	ClaimOUHandle           string = "ouHandle"
+	ClaimClaimsRequest      string = "claims_req"
+	ClaimClaimsLocales      string = "claims_locales"
+	ClaimCompletedAuthClass string = "completed_auth_class"
+	ClaimDPoPJkt            string = "dpop_jkt"
 )
 
 // OIDC subject types.
@@ -325,6 +339,8 @@ const (
 const (
 	// UserAttributeGroups is the constant for user's groups attribute.
 	UserAttributeGroups = "groups"
+	// UserAttributeRoles is the constant for user's roles attribute.
+	UserAttributeRoles = "roles"
 	// DefaultGroupListLimit is the default limit for group list retrieval.
 	DefaultGroupListLimit = 20
 )
@@ -375,11 +391,6 @@ func GetSupportedTokenEndpointAuthMethods() []string {
 // GetSupportedSubjectTypes returns all supported OIDC subject types.
 func GetSupportedSubjectTypes() []string {
 	return []string{SubjectTypePublic}
-}
-
-// GetSupportedIDTokenSigningAlgorithms returns all supported ID token signing algorithms.
-func GetSupportedIDTokenSigningAlgorithms() []string {
-	return []string{SigningAlgorithmRS256}
 }
 
 // GetStandardClaims returns all standard JWT claims that are always included in tokens.

@@ -2,11 +2,11 @@ openapi: 3.0.3
 
 info:
   title: Identity Provider Management API
-  description: This API is used to manage identity providers.
+  description: Configure external identity providers for federated login. Supports social providers such as Google and GitHub, as well as custom OIDC providers.
   version: "1.0"
   license:
     name: Apache 2.0
-    url: http://www.apache.org/licenses/LICENSE-2.0.html
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
 
 servers:
   - url: https://{host}:{port}
@@ -16,217 +16,390 @@ servers:
       port:
         default: "8090"
 
+tags:
+  - name: Identity Providers
+    description: Configure and manage external identity providers for federated login.
+
 security:
   - OAuth2: [system]
 
 paths:
   /identity-providers:
     get:
-      summary: List identity providers
-      description: Retrieve a list of all identity providers.
       tags:
-      - Identity Providers
+        - Identity Providers
+      summary: List identity providers
       responses:
         "200":
-          description: OK
+          description: List of identity providers
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/IDPListResponse'
-        "500":
-          description: 'Internal Server Error: An unexpected error occurred while processing the request'
+              example:
+                - id: "550e8400-e29b-41d4-a716-446655440000"
+                  name: "Google"
+                  description: "Google OIDC identity provider for employee authentication"
+                  type: "GOOGLE"
+                  isReadOnly: false
+                - id: "660e8400-e29b-41d4-a716-446655440001"
+                  name: "GitHub"
+                  description: "GitHub OAuth identity provider for developer authentication"
+                  type: "GITHUB"
+                  isReadOnly: true
+        "400":
+          description: Bad request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "IDP-1011"
+                message:
+                  key: "error.idpservice.result_limit_exceeded"
+                  defaultValue: "Result limit exceeded in composite mode"
+                description:
+                  key: "error.idpservice.result_limit_exceeded_description"
+                  defaultValue: "The total number of records exceeds the maximum limit in composite mode"
+        "500":
+          description: Internal server error
 
     post:
-      summary: Create an identity provider
-      description: Creates a new identity provider with the provided details.
       tags:
-      - Identity Providers
+        - Identity Providers
+      summary: Create an identity provider
       requestBody:
-        description: Identity provider data
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/IDPRequest'
+            example:
+              name: "Google"
+              description: "Google OIDC identity provider for employee authentication"
+              type: "GOOGLE"
+              properties:
+                - name: "client_id"
+                  value: "your-client-id"
+                  isSecret: false
+                - name: "client_secret"
+                  value: "your-client-secret"
+                  isSecret: true
+                - name: "scope"
+                  value: "openid email profile"
+                  isSecret: false
       responses:
         "201":
-          description: Created
+          description: Identity provider created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/IDPResponse'
+              example:
+                id: "550e8400-e29b-41d4-a716-446655440000"
+                name: "Google"
+                description: "Google OIDC identity provider for employee authentication"
+                type: "GOOGLE"
+                properties:
+                  - name: "client_id"
+                    value: "your-client-id"
+                    isSecret: false
+                  - name: "client_secret"
+                    value: "******"
+                    isSecret: true
+                  - name: "scope"
+                    value: "openid email profile"
+                    isSecret: false
         "400":
-          description: 'Bad Request: The request body is malformed or contains invalid data.'
+          description: Bad request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
-              example:
-                code: "IDP-1007"
-                message: "Invalid request format"
-                description: "The request body is malformed or contains invalid data"
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-request-format:
+                  summary: Invalid request format
+                  value:
+                    code: "IDP-1009"
+                    message:
+                      key: "error.idpservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.idpservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
+                invalid-idp-name:
+                  summary: Invalid identity provider name
+                  value:
+                    code: "IDP-1003"
+                    message:
+                      key: "error.idpservice.invalid_idp_name"
+                      defaultValue: "Invalid identity provider name"
+                    description:
+                      key: "error.idpservice.invalid_idp_name_description"
+                      defaultValue: "The provided identity provider name is invalid or empty"
+                invalid-idp-type:
+                  summary: Invalid identity provider type
+                  value:
+                    code: "IDP-1004"
+                    message:
+                      key: "error.idpservice.invalid_idp_type"
+                      defaultValue: "Invalid identity provider type"
+                    description:
+                      key: "error.idpservice.invalid_idp_type_description"
+                      defaultValue: "The provided identity provider type is invalid or empty"
+                invalid-idp-property:
+                  summary: Invalid identity provider property
+                  value:
+                    code: "IDP-1006"
+                    message:
+                      key: "error.idpservice.invalid_idp_property"
+                      defaultValue: "Invalid identity provider property"
+                    description:
+                      key: "error.idpservice.invalid_idp_property_description"
+                      defaultValue: "One or more identity provider properties are invalid or empty"
         "409":
-          description: 'Conflict: An identity provider with the same name already exists.'
+          description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "IDP-1004"
-                message: "Identity provider already exists"
-                description: "An identity provider with the same name already exists"
+                code: "IDP-1005"
+                message:
+                  key: "error.idpservice.idp_already_exists"
+                  defaultValue: "Identity provider already exists"
+                description:
+                  key: "error.idpservice.idp_already_exists_description"
+                  defaultValue: "An identity provider with the same name already exists"
         "500":
-          description: 'Internal Server Error: An unexpected error occurred while processing the request.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+          description: Internal server error
 
   /identity-providers/{id}:
     get:
-      summary: Get an identity provider by ID
-      description: Retrieve a specific identity provider using its ID.
       tags:
-      - Identity Providers
+        - Identity Providers
+      summary: Get an identity provider by ID
       parameters:
-      - name: id
-        in: path
-        description: Identity provider ID
-        required: true
-        schema:
-          type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
       responses:
         "200":
-          description: OK
+          description: Identity provider details
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/IDPResponse'
+              example:
+                id: "550e8400-e29b-41d4-a716-446655440000"
+                name: "Google"
+                description: "Google OIDC identity provider for employee authentication"
+                type: "GOOGLE"
+                properties:
+                  - name: "client_id"
+                    value: "your-client-id"
+                    isSecret: false
+                  - name: "client_secret"
+                    value: "******"
+                    isSecret: true
+                  - name: "scope"
+                    value: "openid email profile"
+                    isSecret: false
         "400":
-          description: 'Bad Request: The request body is malformed or contains invalid data.'
+          description: Bad request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "IDP-1002"
-                message: "Invalid identity provider ID"
-                description: "The provided identity provider ID is invalid or empty"
+                message:
+                  key: "error.idpservice.invalid_idp_id"
+                  defaultValue: "Invalid identity provider ID"
+                description:
+                  key: "error.idpservice.invalid_idp_id_description"
+                  defaultValue: "The provided identity provider ID is invalid or empty"
         "404":
-          description: 'Not Found: The identity provider with the specified ID does not exist.'
+          description: Identity provider not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "IDP-1001"
-                message: "Identity provider not found"
-                description: "The requested identity provider could not be found"
+                message:
+                  key: "error.idpservice.idp_not_found"
+                  defaultValue: "Identity provider not found"
+                description:
+                  key: "error.idpservice.idp_not_found_description"
+                  defaultValue: "The requested identity provider could not be found"
         "500":
-          description: 'Internal Server Error: An unexpected error occurred while processing the request.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+          description: Internal server error
 
     put:
-      summary: Update an identity provider
-      description: Update the details of an existing identity provider.
       tags:
-      - Identity Providers
+        - Identity Providers
+      summary: Update an identity provider
       parameters:
-      - name: id
-        in: path
-        description: Identity provider ID
-        required: true
-        schema:
-          type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
       requestBody:
-        description: Updated identity provider data
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/IDPRequest'
+            example:
+              name: "Google"
+              description: "Updated Google OIDC identity provider"
+              type: "GOOGLE"
+              properties:
+                - name: "client_id"
+                  value: "new-client-id"
+                  isSecret: false
+                - name: "client_secret"
+                  value: "new-client-secret"
+                  isSecret: true
       responses:
         "200":
-          description: OK
+          description: Identity provider updated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/IDPResponse'
-        "400":
-          description: 'Bad Request: The request body is malformed or contains invalid data.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
               example:
-                code: "IDP-1002"
-                message: "Invalid identity provider ID"
-                description: "The provided identity provider ID is invalid or empty"
-        "404":
-          description: 'Not Found: The identity provider with the specified ID does not exist.'
+                id: "550e8400-e29b-41d4-a716-446655440000"
+                name: "Google"
+                description: "Updated Google OIDC identity provider"
+                type: "GOOGLE"
+                properties:
+                  - name: "client_id"
+                    value: "new-client-id"
+                    isSecret: false
+                  - name: "client_secret"
+                    value: "******"
+                    isSecret: true
+        "400":
+          description: Bad request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-idp-id:
+                  summary: Invalid identity provider ID
+                  value:
+                    code: "IDP-1002"
+                    message:
+                      key: "error.idpservice.invalid_idp_id"
+                      defaultValue: "Invalid identity provider ID"
+                    description:
+                      key: "error.idpservice.invalid_idp_id_description"
+                      defaultValue: "The provided identity provider ID is invalid or empty"
+                invalid-request-format:
+                  summary: Invalid request format
+                  value:
+                    code: "IDP-1009"
+                    message:
+                      key: "error.idpservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.idpservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
+                cannot-modify-declarative-resource:
+                  summary: Cannot modify declarative identity provider
+                  value:
+                    code: "IDP-1010"
+                    message:
+                      key: "error.idpservice.idp_declarative_read_only"
+                      defaultValue: "Identity provider is immutable"
+                    description:
+                      key: "error.idpservice.idp_declarative_read_only_description"
+                      defaultValue: "The requested identity provider is declarative and cannot be modified or deleted"
+        "404":
+          description: Identity provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
               example:
                 code: "IDP-1001"
-                message: "Identity provider not found"
-                description: "The requested identity provider could not be found"
+                message:
+                  key: "error.idpservice.idp_not_found"
+                  defaultValue: "Identity provider not found"
+                description:
+                  key: "error.idpservice.idp_not_found_description"
+                  defaultValue: "The requested identity provider could not be found"
         "409":
-          description: 'Conflict: An identity provider with the same name already exists.'
+          description: Conflict
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "IDP-1004"
-                message: "Identity provider already exists"
-                description: "An identity provider with the same name already exists"
+                code: "IDP-1005"
+                message:
+                  key: "error.idpservice.idp_already_exists"
+                  defaultValue: "Identity provider already exists"
+                description:
+                  key: "error.idpservice.idp_already_exists_description"
+                  defaultValue: "An identity provider with the same name already exists"
         "500":
-          description: 'Internal Server Error: An unexpected error occurred while processing the request.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+          description: Internal server error
 
     delete:
-      summary: Delete an identity provider
-      description: Delete an identity provider using its ID.
       tags:
-      - Identity Providers
+        - Identity Providers
+      summary: Delete an identity provider
       parameters:
-      - name: id
-        in: path
-        description: Identity provider ID
-        required: true
-        schema:
-          type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
       responses:
         "204":
-          description: No Content
+          description: Identity provider deleted
         "400":
-          description: 'Bad Request: The request body is malformed or contains invalid data.'
+          description: Bad request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
-              example:
-                code: "IDP-1002"
-                message: "Invalid identity provider ID"
-                description: "The provided identity provider ID is invalid or empty"
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-idp-id:
+                  summary: Invalid identity provider ID
+                  value:
+                    code: "IDP-1002"
+                    message:
+                      key: "error.idpservice.invalid_idp_id"
+                      defaultValue: "Invalid identity provider ID"
+                    description:
+                      key: "error.idpservice.invalid_idp_id_description"
+                      defaultValue: "The provided identity provider ID is invalid or empty"
+                cannot-modify-declarative-resource:
+                  summary: Cannot delete declarative identity provider
+                  value:
+                    code: "IDP-1010"
+                    message:
+                      key: "error.idpservice.idp_declarative_read_only"
+                      defaultValue: "Identity provider is immutable"
+                    description:
+                      key: "error.idpservice.idp_declarative_read_only_description"
+                      defaultValue: "The requested identity provider is declarative and cannot be modified or deleted"
         "500":
-          description: 'Internal Server Error: An unexpected error occurred while processing the request.'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+          description: Internal server error
 
 components:
   securitySchemes:
@@ -235,6 +408,10 @@ components:
       flows:
         authorizationCode:
           authorizationUrl: https://localhost:8090/oauth2/authorize
+          tokenUrl: https://localhost:8090/oauth2/token
+          scopes:
+            system: Access to system management APIs
+        clientCredentials:
           tokenUrl: https://localhost:8090/oauth2/token
           scopes:
             system: Access to system management APIs
@@ -256,7 +433,7 @@ components:
           example: "Google OIDC identity provider for employee authentication"
         type:
           type: string
-          description: Type of the identity provider (e.g., OAUTH)
+          description: Type of the identity provider
           example: "GOOGLE"
           enum:
             - OAUTH
@@ -268,22 +445,17 @@ components:
           items:
             $ref: '#/components/schemas/IDPProperty'
           description: Properties of the identity provider
-          example:
-            - name: "client_id"
-              value: "your-client-id"
-              isSecret: false
-            - name: "client_secret"
-              value: "your-client-secret"
-              isSecret: true
-            - name: "scope"
-              value: "openid email profile"
-              isSecret: false
 
     IDPResponse:
       type: object
+      required:
+        - id
+        - name
+        - type
       properties:
         id:
           type: string
+          format: uuid
           description: Unique identifier of the identity provider
           example: "550e8400-e29b-41d4-a716-446655440000"
         name:
@@ -296,7 +468,7 @@ components:
           example: "Google OIDC identity provider for employee authentication"
         type:
           type: string
-          description: Type of the identity provider (e.g., OAUTH)
+          description: Type of the identity provider
           example: "GOOGLE"
           enum:
             - OAUTH
@@ -308,22 +480,18 @@ components:
           items:
             $ref: '#/components/schemas/IDPProperty'
           description: Properties of the identity provider
-          example:
-            - name: "client_id"
-              value: "your-client-id"
-              isSecret: false
-            - name: "client_secret"
-              value: "******"
-              isSecret: true
-            - name: "scope"
-              value: "openid email profile"
-              isSecret: false
 
     BasicIDPResponse:
       type: object
+      required:
+        - id
+        - name
+        - type
+        - isReadOnly
       properties:
         id:
           type: string
+          format: uuid
           description: Unique identifier of the identity provider
           example: "550e8400-e29b-41d4-a716-446655440000"
         name:
@@ -336,77 +504,68 @@ components:
           example: "Google OIDC identity provider for employee authentication"
         type:
           type: string
-          description: Type of the identity provider (e.g., OAUTH)
+          description: Type of the identity provider
           example: "GOOGLE"
           enum:
             - OAUTH
             - OIDC
             - GOOGLE
             - GITHUB
-    
+        isReadOnly:
+          type: boolean
+          readOnly: true
+          description: Whether the identity provider is declarative and cannot be modified or deleted.
+
     IDPListResponse:
       type: array
       items:
         $ref: '#/components/schemas/BasicIDPResponse'
-      example:
-        - id: "550e8400-e29b-41d4-a716-446655440000"
-          name: "Google"
-          description: "Google OIDC identity provider for employee authentication"
-          type: "GOOGLE"
-        - id: "660e8400-e29b-41d4-a716-446655440001"
-          name: "GitHub"
-          description: "GitHub OAuth identity provider for developer authentication"
-          type: "GITHUB"
 
     IDPProperty:
       type: object
+      required:
+        - name
+        - value
+        - isSecret
       properties:
         name:
           type: string
           description: Name of the property
-          example: "your-client-id"
+          example: "client_id"
         value:
           type: string
           description: Value of the property
           example: "your-client-id"
         isSecret:
           type: boolean
-          description: Whether the property is secret
+          description: Whether the property is a secret. Secret values are masked in responses.
           example: false
 
-    ErrorResponse:
+    Error:
       type: object
+      required:
+        - code
+        - message
       properties:
         code:
           type: string
-          description: Error code
+          description: "Error code. Codes follow the IDP-XXXX convention."
+          example: "IDP-1001"
         message:
-          type: string
-          description: Error message
+          $ref: '#/components/schemas/I18nMessage'
         description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
           type: string
-          description: Detailed error description
-
-    ClientErrorResponse:
-      allOf:
-        - $ref: '#/components/schemas/ErrorResponse'
-        - type: object
-          properties:
-            code:
-              example: "IDP-1001"
-            message:
-              example: "Identity provider not found"
-            description:
-              example: "The requested identity provider could not be found"
-
-    ServerErrorResponse:
-      allOf:
-        - $ref: '#/components/schemas/ErrorResponse'
-        - type: object
-          properties:
-            code:
-              example: "SSE-5000"
-            message:
-              example: "Internal server error"
-            description:
-              example: "An unexpected error occurred while processing the request"
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

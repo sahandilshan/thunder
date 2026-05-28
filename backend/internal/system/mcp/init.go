@@ -16,7 +16,7 @@
  * under the License.
  */
 
-// Package mcp provides MCP (Model Context Protocol) server functionality for Thunder.
+// Package mcp provides MCP (Model Context Protocol) server functionality.
 package mcp
 
 import (
@@ -26,9 +26,11 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	mcpauth "github.com/asgardeo/thunder/internal/system/mcp/auth"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	mcpauth "github.com/thunder-id/thunderid/internal/system/mcp/auth"
+	"github.com/thunder-id/thunderid/internal/system/security"
 )
 
 // Initialize initializes the MCP server and registers its routes with the provided mux.
@@ -36,7 +38,7 @@ func Initialize(
 	mux *http.ServeMux,
 	jwtService jwt.JWTServiceInterface,
 ) *mcpsdk.Server {
-	cfg := config.GetThunderRuntime().Config
+	cfg := config.GetServerRuntime().Config
 	baseURL := config.GetServerURL(&cfg.Server)
 
 	mcpURL := baseURL + MCPEndpointPath
@@ -44,6 +46,12 @@ func Initialize(
 
 	// Create MCP server and register standalone tools
 	mcpServer := newServer()
+
+	sysPerm := security.GetSystemPermissions()
+	if sysPerm == nil {
+		log.GetLogger().Fatal("System permissions not initialized before MCP initialization")
+	}
+	rootPerm := sysPerm.Root
 
 	tokenVerifier := mcpauth.NewTokenVerifier(jwtService, cfg.JWT.Issuer, mcpURL)
 	httpHandler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
@@ -53,14 +61,14 @@ func Initialize(
 	// Secure MCP handler with bearer token authentication
 	securedHandler := auth.RequireBearerToken(tokenVerifier, &auth.RequireBearerTokenOptions{
 		ResourceMetadataURL: resourceMetadataURL,
-		Scopes:              []string{"system"},
+		Scopes:              []string{rootPerm},
 	})(httpHandler)
 
 	// Register protected resource metadata endpoint
 	metadata := &oauthex.ProtectedResourceMetadata{
 		Resource:             mcpURL,
 		AuthorizationServers: []string{cfg.JWT.Issuer},
-		ScopesSupported:      []string{"system"},
+		ScopesSupported:      []string{rootPerm},
 	}
 	mux.Handle(OAuthProtectedResourceMetadataPath, auth.ProtectedResourceMetadataHandler(metadata))
 

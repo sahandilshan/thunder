@@ -24,10 +24,11 @@ import (
 	"errors"
 	"fmt"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const loggerComponentName = "LayoutMgtService"
@@ -162,7 +163,8 @@ func (ls *layoutMgtService) GetLayout(id string) (*Layout, *serviceerror.Service
 }
 
 // UpdateLayout updates an existing layout configuration.
-func (ls *layoutMgtService) UpdateLayout(id string, layout UpdateLayoutRequest) (*Layout, *serviceerror.ServiceError) {
+func (ls *layoutMgtService) UpdateLayout(
+	id string, layout UpdateLayoutRequest) (*Layout, *serviceerror.ServiceError) {
 	ls.logger.Debug("Updating layout", log.String("id", id))
 
 	if id == "" {
@@ -247,9 +249,10 @@ func (ls *layoutMgtService) DeleteLayout(id string) *serviceerror.ServiceError {
 	}
 
 	if count > 0 {
-		err := ErrorLayoutInUse
-		err.ErrorDescription = fmt.Sprintf("Layout is being used by %d application(s)", count)
-		return &err
+		return serviceerror.CustomServiceError(ErrorLayoutInUse, core.I18nMessage{
+			Key:          "error.layoutservice.layout_in_use_description",
+			DefaultValue: fmt.Sprintf("Layout is being used by %d application(s)", count),
+		})
 	}
 
 	if err := ls.layoutMgtStore.DeleteLayout(id); err != nil {
@@ -294,9 +297,10 @@ func (ls *layoutMgtService) validateLayoutPreferences(layout json.RawMessage) *s
 // validatePaginationParams validates limit and offset parameters.
 func validatePaginationParams(limit, offset int) *serviceerror.ServiceError {
 	if limit < 1 || limit > serverconst.MaxPageSize {
-		err := ErrorInvalidLimitValue
-		err.ErrorDescription = fmt.Sprintf("Limit must be between 1 and %d", serverconst.MaxPageSize)
-		return &err
+		return serviceerror.CustomServiceError(ErrorInvalidLimitValue, core.I18nMessage{
+			Key:          "error.layoutservice.invalid_limit_value_description",
+			DefaultValue: fmt.Sprintf("Limit must be between 1 and %d", serverconst.MaxPageSize),
+		})
 	}
 
 	if offset < 0 {

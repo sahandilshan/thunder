@@ -27,7 +27,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -38,6 +38,7 @@ const (
 // ExportAPITestSuite is a test suite for export API tests.
 type ExportAPITestSuite struct {
 	suite.Suite
+	ouID string
 }
 
 // TestExportAPITestSuite runs the export API test suite.
@@ -47,27 +48,38 @@ func TestExportAPITestSuite(t *testing.T) {
 
 // SetupSuite sets up the test suite.
 func (ts *ExportAPITestSuite) SetupSuite() {
-	// Initialize any setup if needed
+	ouID, err := testutils.CreateOrganizationUnit(testutils.OrganizationUnit{
+		Handle:      "export-test-ou",
+		Name:        "Export Test OU",
+		Description: "Organization unit for export integration tests",
+		Parent:      nil,
+	})
+	if err != nil {
+		ts.T().Fatalf("Failed to create test organization unit: %v", err)
+	}
+	ts.ouID = ouID
 }
 
 // TearDownSuite tears down the test suite.
 func (ts *ExportAPITestSuite) TearDownSuite() {
-	// Clean up any resources if needed
+	if ts.ouID != "" {
+		if err := testutils.DeleteOrganizationUnit(ts.ouID); err != nil {
+			ts.T().Logf("Failed to delete test organization unit: %v", err)
+		}
+	}
 }
 
 // TestApplicationExportYAML tests the application export functionality returning YAML.
 func (ts *ExportAPITestSuite) TestApplicationExportYAML() {
 	// Create a test application first
 	app := Application{
+		OUID:                      ts.ouID,
 		Name:                      "Export Test App",
 		Description:               "Test application for export functionality",
 		URL:                       "https://exporttest.example.com",
 		LogoURL:                   "https://exporttest.example.com/logo.png",
 		IsRegistrationFlowEnabled: true,
-		Certificate: &ApplicationCert{
-			Type:  "NONE",
-			Value: "",
-		},
+		Certificate:               nil,
 		InboundAuthConfig: []InboundAuthConfig{
 			{
 				Type: "oauth2",
@@ -311,14 +323,12 @@ func (ts *ExportAPITestSuite) TestMultipleIdentityProvidersExportYAML() {
 func (ts *ExportAPITestSuite) TestMixedResourcesExportYAML() {
 	// Create a test application
 	app := Application{
+		OUID:                      ts.ouID,
 		Name:                      "Mixed Export App",
 		Description:               "Test application for mixed export",
 		URL:                       "https://mixedexport.example.com",
 		IsRegistrationFlowEnabled: true,
-		Certificate: &ApplicationCert{
-			Type:  "NONE",
-			Value: "",
-		},
+		Certificate:               nil,
 		InboundAuthConfig: []InboundAuthConfig{
 			{
 				Type: "oauth2",
@@ -622,18 +632,14 @@ func (ts *ExportAPITestSuite) exportResourcesYAML(exportRequest ExportRequest) (
 		return "", fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(responseBody))
 	}
 
-	// Verify Content-Type is application/yaml
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "application/yaml") {
-		return "", fmt.Errorf("expected Content-Type to contain 'application/yaml', got '%s'", contentType)
-	}
-
-	yamlContent, err := io.ReadAll(resp.Body)
+	// Parse JSON response
+	var jsonResponse JSONExportResponse
+	err = json.NewDecoder(resp.Body).Decode(&jsonResponse)
 	if err != nil {
-		return "", fmt.Errorf("failed to read YAML response: %w", err)
+		return "", fmt.Errorf("failed to parse JSON export response: %w", err)
 	}
 
-	return string(yamlContent), nil
+	return jsonResponse.Resources, nil
 }
 
 func (ts *ExportAPITestSuite) exportResourcesJSON(exportRequest ExportRequest) (*ExportResponse, error) {
@@ -643,7 +649,7 @@ func (ts *ExportAPITestSuite) exportResourcesJSON(exportRequest ExportRequest) (
 	}
 
 	reqBody := bytes.NewReader(reqJSON)
-	req, err := http.NewRequest("POST", testServerURL+"/export/json", reqBody)
+	req, err := http.NewRequest("POST", testServerURL+"/export", reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create export request: %w", err)
 	}
@@ -662,13 +668,57 @@ func (ts *ExportAPITestSuite) exportResourcesJSON(exportRequest ExportRequest) (
 		return nil, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(responseBody))
 	}
 
-	var exportResponse ExportResponse
-	err = json.NewDecoder(resp.Body).Decode(&exportResponse)
+	// Parse the new JSON response format
+	var jsonResponse JSONExportResponse
+	err = json.NewDecoder(resp.Body).Decode(&jsonResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse export response: %w", err)
 	}
+	exportResponse := parseResourcesIntoExportResponse(jsonResponse.Resources)
+	return exportResponse, nil
+}
 
-	return &exportResponse, nil
+// parseResourcesIntoExportResponse parses the combined YAML resources string into individual ExportFile entries.
+func parseResourcesIntoExportResponse(resources string) *ExportResponse {
+	files := []ExportFile{}
+
+	// Split by YAML document separator
+	parts := strings.Split(resources, "\n---\n")
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Extract filename from the "# File: " comment
+		lines := strings.Split(part, "\n")
+		fileName := ""
+		contentStart := 0
+
+		for i, line := range lines {
+			if strings.HasPrefix(line, "# File:") {
+				fileName = strings.TrimSpace(strings.TrimPrefix(line, "# File:"))
+				contentStart = i + 1
+				break
+			}
+		}
+
+		if fileName == "" {
+			continue
+		}
+
+		// Join remaining lines as content
+		content := strings.Join(lines[contentStart:], "\n")
+		content = strings.TrimSpace(content)
+
+		files = append(files, ExportFile{
+			FileName: fileName,
+			Content:  content,
+		})
+	}
+
+	return &ExportResponse{Files: files}
 }
 
 func (ts *ExportAPITestSuite) createIDP(idp IDP) (string, error) {

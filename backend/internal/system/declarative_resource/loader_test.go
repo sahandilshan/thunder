@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/yaml.v3"
 
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 // Mock Storer implementation for testing
@@ -72,25 +72,25 @@ type testDTO struct {
 // but cannot be run in the same test suite due to the os.Exit(1) call.
 type ResourceLoaderTestSuite struct {
 	suite.Suite
-	thunderHome  string
+	serverHome   string
 	resourcesDir string
 }
 
 // SetupSuite runs once before all tests
 func (suite *ResourceLoaderTestSuite) SetupSuite() {
-	// Create a temporary directory for Thunder home
+	// Create a temporary directory for server home
 	tempThunderHome := suite.T().TempDir()
-	suite.thunderHome = tempThunderHome
+	suite.serverHome = tempThunderHome
 
-	// Initialize ThunderRuntime for testing
+	// Initialize server runtime for testing
 	testConfig := &config.Config{
 		Server: config.ServerConfig{
 			Hostname: "localhost",
 			Port:     8080,
 		},
 	}
-	err := config.InitializeThunderRuntime(tempThunderHome, testConfig)
-	suite.Require().NoError(err, "Failed to initialize ThunderRuntime")
+	err := config.InitializeServerRuntime(tempThunderHome, testConfig)
+	suite.Require().NoError(err, "Failed to initialize server runtime")
 
 	// Create the resources directory structure
 	suite.resourcesDir = filepath.Join(tempThunderHome, "repository", "resources")

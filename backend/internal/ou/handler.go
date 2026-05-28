@@ -23,11 +23,12 @@ import (
 	"net/url"
 	"strconv"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/filter"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const loggerComponentName = "OrganizationUnitHandler"
@@ -59,7 +60,13 @@ func (ouh *organizationUnitHandler) HandleOUListRequest(w http.ResponseWriter, r
 		limit = serverconst.DefaultPageSize
 	}
 
-	ouListResponse, svcErr := ouh.service.GetOrganizationUnitList(ctx, limit, offset)
+	f, err := filter.ParseFilterParam(r.URL.Query())
+	if err != nil {
+		ouh.handleError(w, &ErrorInvalidFilter)
+		return
+	}
+
+	ouListResponse, svcErr := ouh.service.GetOrganizationUnitList(ctx, limit, offset, f)
 	if svcErr != nil {
 		ouh.handleError(w, svcErr)
 		return
@@ -83,7 +90,7 @@ func (ouh *organizationUnitHandler) HandleOUPostRequest(w http.ResponseWriter, r
 		sysutils.WriteErrorResponse(w, http.StatusBadRequest, apierror.ErrorResponse{
 			Code:        ErrorInvalidRequestFormat.Code,
 			Message:     ErrorInvalidRequestFormat.Error,
-			Description: "Failed to parse request body: " + err.Error(),
+			Description: ErrorInvalidRequestFormat.ErrorDescription,
 		})
 		return
 	}
@@ -171,9 +178,14 @@ func (ouh *organizationUnitHandler) HandleOUDeleteRequest(w http.ResponseWriter,
 // HandleOUChildrenListRequest handles the list child organization units request.
 func (ouh *organizationUnitHandler) HandleOUChildrenListRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	f, err := filter.ParseFilterParam(r.URL.Query())
+	if err != nil {
+		ouh.handleError(w, &ErrorInvalidFilter)
+		return
+	}
 	ouh.handleResourceListRequest(w, r, "child organization units",
 		func(id string, limit, offset int) (interface{}, *serviceerror.ServiceError) {
-			return ouh.service.GetOrganizationUnitChildren(ctx, id, limit, offset)
+			return ouh.service.GetOrganizationUnitChildren(ctx, id, limit, offset, f)
 		})
 }
 
@@ -209,7 +221,8 @@ func (ouh *organizationUnitHandler) handleError(w http.ResponseWriter, svcErr *s
 			statusCode = http.StatusConflict
 		} else if svcErr.Code == ErrorInvalidLimit.Code ||
 			svcErr.Code == ErrorInvalidOffset.Code ||
-			svcErr.Code == ErrorInvalidHandlePath.Code {
+			svcErr.Code == ErrorInvalidHandlePath.Code ||
+			svcErr.Code == ErrorInvalidFilter.Code {
 			statusCode = http.StatusBadRequest
 		} else if svcErr.Code == serviceerror.ErrorUnauthorized.Code {
 			statusCode = http.StatusForbidden
@@ -228,8 +241,8 @@ func (ouh *organizationUnitHandler) handleError(w http.ResponseWriter, svcErr *s
 // sanitizeOrganizationUnitRequest sanitizes the create organization unit request input.
 func (ouh *organizationUnitHandler) sanitizeOrganizationUnitRequest(
 	request OrganizationUnitRequest,
-) OrganizationUnitRequest {
-	return OrganizationUnitRequest{
+) OrganizationUnitRequestWithID {
+	return OrganizationUnitRequestWithID{
 		Handle:          sysutils.SanitizeString(request.Handle),
 		Name:            sysutils.SanitizeString(request.Name),
 		Description:     sysutils.SanitizeString(request.Description),
@@ -258,15 +271,15 @@ func extractAndValidateID(w http.ResponseWriter, r *http.Request) (string, bool)
 
 func validateUpdateRequest(
 	w http.ResponseWriter, r *http.Request, ouh *organizationUnitHandler,
-) (OrganizationUnitRequest, bool) {
+) (OrganizationUnitRequestWithID, bool) {
 	updateRequest, err := sysutils.DecodeJSONBody[OrganizationUnitRequest](r)
 	if err != nil {
 		sysutils.WriteErrorResponse(w, http.StatusBadRequest, apierror.ErrorResponse{
 			Code:        ErrorInvalidRequestFormat.Code,
 			Message:     ErrorInvalidRequestFormat.Error,
-			Description: "Failed to parse request body: " + err.Error(),
+			Description: ErrorInvalidRequestFormat.ErrorDescription,
 		})
-		return OrganizationUnitRequest{}, true
+		return OrganizationUnitRequestWithID{}, true
 	}
 
 	sanitizedRequest := ouh.sanitizeOrganizationUnitRequest(*updateRequest)
@@ -468,9 +481,14 @@ func (ouh *organizationUnitHandler) handleResourceListByPathRequest(
 // HandleOUChildrenListByPathRequest handles the list child organization units by path request.
 func (ouh *organizationUnitHandler) HandleOUChildrenListByPathRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	f, err := filter.ParseFilterParam(r.URL.Query())
+	if err != nil {
+		ouh.handleError(w, &ErrorInvalidFilter)
+		return
+	}
 	ouh.handleResourceListByPathRequest(w, r, "child organization units",
 		func(path string, limit, offset int) (interface{}, *serviceerror.ServiceError) {
-			return ouh.service.GetOrganizationUnitChildrenByPath(ctx, path, limit, offset)
+			return ouh.service.GetOrganizationUnitChildrenByPath(ctx, path, limit, offset, f)
 		})
 }
 

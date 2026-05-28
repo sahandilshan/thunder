@@ -19,14 +19,14 @@
 package mgt
 
 import (
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 // Client errors for i18n operations.
 var (
 	// ErrorInvalidLanguage is the error returned when language tag format is invalid.
-	ErrorInvalidLanguage = serviceerror.I18nServiceError{
+	ErrorInvalidLanguage = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1001",
 		Error: core.I18nMessage{
@@ -39,7 +39,7 @@ var (
 		},
 	}
 	// ErrorInvalidNamespace is the error returned when namespace format is invalid.
-	ErrorInvalidNamespace = serviceerror.I18nServiceError{
+	ErrorInvalidNamespace = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1002",
 		Error: core.I18nMessage{
@@ -52,7 +52,7 @@ var (
 		},
 	}
 	// ErrorInvalidKey is the error returned when key format is invalid.
-	ErrorInvalidKey = serviceerror.I18nServiceError{
+	ErrorInvalidKey = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1003",
 		Error: core.I18nMessage{
@@ -65,7 +65,7 @@ var (
 		},
 	}
 	// ErrorMissingLanguage is the error returned when language code is missing.
-	ErrorMissingLanguage = serviceerror.I18nServiceError{
+	ErrorMissingLanguage = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1004",
 		Error: core.I18nMessage{
@@ -78,7 +78,7 @@ var (
 		},
 	}
 	// ErrorMissingValue is the error returned when translation value is missing.
-	ErrorMissingValue = serviceerror.I18nServiceError{
+	ErrorMissingValue = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1005",
 		Error: core.I18nMessage{
@@ -91,7 +91,7 @@ var (
 		},
 	}
 	// ErrorTranslationNotFound is the error returned when translation is not found.
-	ErrorTranslationNotFound = serviceerror.I18nServiceError{
+	ErrorTranslationNotFound = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1006",
 		Error: core.I18nMessage{
@@ -104,7 +104,7 @@ var (
 		},
 	}
 	// ErrorInvalidRequestFormat is the error returned when the request format is invalid.
-	ErrorInvalidRequestFormat = serviceerror.I18nServiceError{
+	ErrorInvalidRequestFormat = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1007",
 		Error: core.I18nMessage{
@@ -117,7 +117,7 @@ var (
 		},
 	}
 	// ErrorEmptyTranslations is the error returned when translations map is empty.
-	ErrorEmptyTranslations = serviceerror.I18nServiceError{
+	ErrorEmptyTranslations = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "I18N-1008",
 		Error: core.I18nMessage{
@@ -127,23 +127,6 @@ var (
 		ErrorDescription: core.I18nMessage{
 			Key:          "error.i18nservice.empty_translations_description",
 			DefaultValue: "At least one translation must be provided",
-		},
-	}
-)
-
-// Server errors for i18n operations.
-var (
-	// ErrorInternalServerError is the error returned when an internal server error occurs.
-	ErrorInternalServerError = serviceerror.I18nServiceError{
-		Type: serviceerror.ServerErrorType,
-		Code: "I18N-5000",
-		Error: core.I18nMessage{
-			Key:          "error.i18nservice.internal_server_error",
-			DefaultValue: "Internal server error",
-		},
-		ErrorDescription: core.I18nMessage{
-			Key:          "error.i18nservice.internal_server_error_description",
-			DefaultValue: "An unexpected error occurred while processing the request",
 		},
 	}
 )

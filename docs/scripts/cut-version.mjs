@@ -18,8 +18,6 @@
  * under the License.
  */
 
-/* eslint-disable @thunder/copyright-header, import/no-extraneous-dependencies, no-underscore-dangle */
-
 /**
  * Cuts a new Docusaurus documentation version and snapshots the API spec for it.
  *
@@ -40,8 +38,8 @@
 import {execFileSync} from 'child_process';
 import {existsSync} from 'fs';
 import {join, dirname} from 'path';
-import {createLogger} from '@thunder/logger';
 import {fileURLToPath} from 'url';
+import {createLogger} from '@thunderid/logger';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -82,7 +80,9 @@ try {
   logger.info(`   → Docs snapshot: versioned_docs/version-${version}/`);
   logger.info('');
   logger.info('Next steps:');
-  logger.info(`  1. git add docs/static/api/${version}/ docs/versioned_docs/version-${version}/ docs/versioned_sidebars/ docs/versions.json`);
+  logger.info(
+    `  1. git add docs/static/api/${version}/ docs/versioned_docs/version-${version}/ docs/versioned_sidebars/ docs/versions.json`,
+  );
   logger.info('  2. Update docs/docusaurus.config.ts → add the new version to the versions map if needed');
   logger.info('  3. git commit -m "chore: cut docs version ' + version + '"');
 } catch (error) {

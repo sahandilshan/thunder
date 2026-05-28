@@ -16,14 +16,14 @@ servers:
         default: "8090"
 
 tags:
-  - name: flow-meta
-    description: Operations for retrieving flow metadata
+  - name: Flow Meta
+    description: "Retrieve aggregated runtime metadata for a flow context: application details, OU, active theme and layout, and i18n translations."
 
 paths:
   /flow/meta:
     get:
       tags:
-        - flow-meta
+        - Flow Meta
       security: []
       summary: Get flow metadata
       description: |
@@ -31,8 +31,8 @@ paths:
         - Application or OU details based on type
         - Resolved design configuration (theme and layout)
         - i18n translations based on language and namespace filters
-        - Registration flow enablement status
-        
+        - Registration and recovery flow enablement status
+
         **Note:** When `type=APP`, the OU metadata is only included in the response
         when the deployment has exactly one organization unit (i.e., `totalResults == 1`).
         For deployments with multiple OUs, the OU metadata will be omitted from APP-type responses.
@@ -82,6 +82,7 @@ paths:
                   summary: Application metadata with i18n
                   value:
                     isRegistrationFlowEnabled: true
+                    isRecoveryFlowEnabled: true
                     application:
                       id: "60a9b38b-6eba-9f9e-55f9-267067de4680"
                       name: "My Web Application"
@@ -126,6 +127,7 @@ paths:
                   summary: Organization unit metadata
                   value:
                     isRegistrationFlowEnabled: false
+                    isRecoveryFlowEnabled: false
                     ou:
                       id: "fe447a2f-29c5-4e33-ac8f-d77be15fdb32"
                       handle: "default"
@@ -153,12 +155,17 @@ components:
       type: object
       required:
         - isRegistrationFlowEnabled
+        - isRecoveryFlowEnabled
         - design
         - i18n
       properties:
         isRegistrationFlowEnabled:
           type: boolean
           description: Indicates if registration flow is enabled for the entity
+          example: true
+        isRecoveryFlowEnabled:
+          type: boolean
+          description: Indicates if recovery flow is enabled for the entity
           example: true
         application:
           $ref: '#/components/schemas/ApplicationMetadata'
@@ -302,7 +309,7 @@ components:
               login.button: Login
               login.title: Welcome
 
-    ErrorResponse:
+    Error:
       type: object
       required:
         - code
@@ -310,16 +317,26 @@ components:
       properties:
         code:
           type: string
-          description: Error code
+          description: "Error code. Codes follow the FLM-XXXX convention."
           example: "FLM-1001"
         message:
-          type: string
-          description: Error message
-          example: "Invalid request"
+          $ref: '#/components/schemas/I18nMessage'
         description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
           type: string
-          description: Detailed error description
-          example: "The 'type' parameter must be either 'APP' or 'OU'"
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).
 
   responses:
     BadRequest:
@@ -327,63 +344,91 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/Error'
           examples:
             invalid-type:
               summary: Invalid type parameter
               value:
                 code: "FLM-1001"
-                message: "Invalid request"
-                description: "The 'type' parameter must be either 'APP' or 'OU'"
+                message:
+                  key: "error.flowmetaservice.invalid_request"
+                  defaultValue: "Invalid request"
+                description:
+                  key: "error.flowmetaservice.invalid_type_description"
+                  defaultValue: "The 'type' parameter must be either 'APP' or 'OU'"
             missing-type:
               summary: Missing type parameter
               value:
                 code: "FLM-1004"
-                message: "Missing required parameter"
-                description: "The 'type' query parameter is required"
+                message:
+                  key: "error.flowmetaservice.missing_required_parameter"
+                  defaultValue: "Missing required parameter"
+                description:
+                  key: "error.flowmetaservice.missing_type_description"
+                  defaultValue: "The 'type' query parameter is required"
             missing-id:
               summary: Missing id parameter
               value:
                 code: "FLM-1005"
-                message: "Missing required parameter"
-                description: "The 'id' query parameter is required"
+                message:
+                  key: "error.flowmetaservice.missing_id_parameter"
+                  defaultValue: "Missing required parameter"
+                description:
+                  key: "error.flowmetaservice.missing_id_description"
+                  defaultValue: "The 'id' query parameter is required"
 
     NotFound:
       description: Resource not found
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/Error'
           examples:
             application-not-found:
               summary: Application not found
               value:
                 code: "FLM-1002"
-                message: "Resource not found"
-                description: "The specified application does not exist"
+                message:
+                  key: "error.flowmetaservice.resource_not_found"
+                  defaultValue: "Resource not found"
+                description:
+                  key: "error.flowmetaservice.application_not_found_description"
+                  defaultValue: "The specified application does not exist"
             ou-not-found:
               summary: Organization unit not found
               value:
                 code: "FLM-1003"
-                message: "Resource not found"
-                description: "The specified organization unit does not exist"
+                message:
+                  key: "error.flowmetaservice.ou_not_found"
+                  defaultValue: "Resource not found"
+                description:
+                  key: "error.flowmetaservice.ou_not_found_description"
+                  defaultValue: "The specified organization unit does not exist"
 
     InternalServerError:
       description: Internal server error
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorResponse'
+            $ref: '#/components/schemas/Error'
           examples:
             application-fetch-failed:
               summary: Application fetch failed
               value:
                 code: "FLM-5001"
-                message: "Internal server error"
-                description: "Failed to retrieve application information"
+                message:
+                  key: "error.flowmetaservice.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.flowmetaservice.application_fetch_failed_description"
+                  defaultValue: "Failed to retrieve application information"
             ou-fetch-failed:
               summary: Organization unit fetch failed
               value:
                 code: "FLM-5002"
-                message: "Internal server error"
-                description: "Failed to retrieve organization unit information"
+                message:
+                  key: "error.flowmetaservice.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.flowmetaservice.ou_fetch_failed_description"
+                  defaultValue: "Failed to retrieve organization unit information"

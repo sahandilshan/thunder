@@ -1,8 +1,15 @@
 {
   "extends": "./tsconfig.json",
   "include": [
-    "**/*.config.js",
-    "**/*.config.cjs",
-    "**/*.config.ts"
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.js",
+    "**/*.jsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "build",
+    "dist",
+    ".docusaurus"
   ]
 }

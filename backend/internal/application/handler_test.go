@@ -29,12 +29,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/cert"
-	oauth2const "github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/application/model"
+	"github.com/thunder-id/thunderid/internal/cert"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 type HandlerTestSuite struct {
@@ -100,10 +101,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_SuccessWithOAuth
 	appRequest := model.ApplicationRequest{
 		Name:        "TestApp",
 		Description: "Test Description",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigComplete{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "test-client-id",
 					ClientSecret:            "test-secret",
 					RedirectURIs:            []string{"https://example.com/callback"},
@@ -119,10 +120,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_SuccessWithOAuth
 		ID:          "test-app-id",
 		Name:        "TestApp",
 		Description: "Test Description",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "test-client-id",
 					ClientSecret:            "test-secret",
 					RedirectURIs:            []string{"https://example.com/callback"},
@@ -250,9 +251,9 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_ServiceError() {
 		},
 		{
 			name:           "InternalServerError",
-			svcErr:         &ErrorInternalServerError,
+			svcErr:         &serviceerror.InternalServerError,
 			expectedStatus: http.StatusInternalServerError,
-			expectedCode:   ErrorInternalServerError.Code,
+			expectedCode:   serviceerror.InternalServerError.Code,
 		},
 	}
 
@@ -294,10 +295,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_ProcessInboundAu
 
 	appRequest := model.ApplicationRequest{
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           model.OAuthInboundAuthType,
-				OAuthAppConfig: nil, // This will cause processInboundAuthConfig to return empty
+				Type:        inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: nil, // This will cause processInboundAuthConfig to return empty
 			},
 		},
 	}
@@ -306,10 +307,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_ProcessInboundAu
 	expectedApp := &model.ApplicationDTO{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           "unsupported",
-				OAuthAppConfig: nil,
+				Type:        "unsupported",
+				OAuthConfig: nil,
 			},
 		},
 	}
@@ -416,7 +417,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationListRequest_ServiceError() {
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	svcErr := &ErrorInternalServerError
+	svcErr := &serviceerror.InternalServerError
 
 	mockService.On("GetApplicationList", mock.Anything).Return(nil, svcErr)
 
@@ -431,7 +432,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationListRequest_ServiceError() {
 	var errResp apierror.ErrorResponse
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, errResp.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, errResp.Code)
 
 	mockService.AssertExpectations(suite.T())
 }
@@ -476,10 +477,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_SuccessWithOAuth(
 		ID:          "test-app-id",
 		Name:        "TestApp",
 		Description: "Test Description",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigComplete{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "test-client-id",
 					RedirectURIs:            []string{"https://example.com/callback"},
 					GrantTypes:              []oauth2const.GrantType{oauth2const.GrantTypeAuthorizationCode},
@@ -519,9 +520,11 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_WithTemplate() {
 		ID:          "test-app-id",
 		Name:        "TestApp",
 		Description: "Test Description",
-		ThemeID:     "theme-123",
-		LayoutID:    "layout-456",
-		Template:    "spa",
+		InboundAuthProfile: inboundmodel.InboundAuthProfile{
+			ThemeID:  "theme-123",
+			LayoutID: "layout-456",
+		},
+		Template: "spa",
 	}
 
 	mockService.On("GetApplication", mock.Anything, "test-app-id").Return(expectedApp, nil)
@@ -625,7 +628,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_ServiceError() {
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	svcErr := &ErrorInternalServerError
+	svcErr := &serviceerror.InternalServerError
 
 	mockService.On("GetApplication", mock.Anything, "test-app-id").Return(nil, svcErr)
 
@@ -641,7 +644,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_ServiceError() {
 	var errResp apierror.ErrorResponse
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, errResp.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, errResp.Code)
 
 	mockService.AssertExpectations(suite.T())
 }
@@ -653,10 +656,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_UnsupportedInboun
 	expectedApp := &model.Application{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           "unsupported",
-				OAuthAppConfig: nil,
+				Type:        "unsupported",
+				OAuthConfig: nil,
 			},
 		},
 	}
@@ -681,10 +684,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_NilOAuthConfig() 
 	expectedApp := &model.Application{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           model.OAuthInboundAuthType,
-				OAuthAppConfig: nil,
+				Type:        inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: nil,
 			},
 		},
 	}
@@ -1007,7 +1010,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationDeleteRequest_ServiceError()
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	svcErr := &ErrorInternalServerError
+	svcErr := &serviceerror.InternalServerError
 
 	mockService.On("DeleteApplication", mock.Anything, "test-app-id").Return(svcErr)
 
@@ -1030,10 +1033,10 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_Success() {
 	appDTO := &model.ApplicationDTO{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "test-client-id",
 					ClientSecret:            "test-secret",
 					RedirectURIs:            []string{"https://example.com/callback"},
@@ -1066,10 +1069,10 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_EmptyRedirectURIs() 
 	appDTO := &model.ApplicationDTO{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "test-client-id",
 					ClientSecret:            "test-secret",
 					RedirectURIs:            nil, // Empty redirect URIs
@@ -1090,7 +1093,7 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_EmptyRedirectURIs() 
 
 	assert.True(suite.T(), success)
 	assert.NotNil(suite.T(), returnApp.InboundAuthConfig)
-	assert.Empty(suite.T(), returnApp.InboundAuthConfig[0].OAuthAppConfig.RedirectURIs)
+	assert.Empty(suite.T(), returnApp.InboundAuthConfig[0].OAuthConfig.RedirectURIs)
 }
 
 func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_EmptyGrantTypes() {
@@ -1101,10 +1104,10 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_EmptyGrantTypes() {
 	appDTO := &model.ApplicationDTO{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "test-client-id",
 					ClientSecret:            "test-secret",
 					RedirectURIs:            []string{"https://example.com/callback"},
@@ -1125,7 +1128,7 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_EmptyGrantTypes() {
 
 	assert.True(suite.T(), success)
 	assert.NotNil(suite.T(), returnApp.InboundAuthConfig)
-	assert.Empty(suite.T(), returnApp.InboundAuthConfig[0].OAuthAppConfig.GrantTypes)
+	assert.Empty(suite.T(), returnApp.InboundAuthConfig[0].OAuthConfig.GrantTypes)
 }
 
 func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_UnsupportedType() {
@@ -1136,10 +1139,10 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_UnsupportedType() {
 	appDTO := &model.ApplicationDTO{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           "unsupported",
-				OAuthAppConfig: nil,
+				Type:        "unsupported",
+				OAuthConfig: nil,
 			},
 		},
 	}
@@ -1162,10 +1165,10 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_NilOAuthConfig() {
 	appDTO := &model.ApplicationDTO{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           model.OAuthInboundAuthType,
-				OAuthAppConfig: nil,
+				Type:        inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: nil,
 			},
 		},
 	}
@@ -1188,7 +1191,7 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfig_EmptyInboundAuthConf
 	appDTO := &model.ApplicationDTO{
 		ID:                "test-app-id",
 		Name:              "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{},
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{},
 	}
 
 	returnApp := &model.ApplicationCompleteResponse{
@@ -1248,7 +1251,7 @@ func (suite *HandlerTestSuite) TestHandleError_ServerError() {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/applications", nil)
 
-	svcErr := &ErrorInternalServerError
+	svcErr := &serviceerror.InternalServerError
 
 	handler.handleError(w, r, svcErr)
 
@@ -1258,17 +1261,17 @@ func (suite *HandlerTestSuite) TestHandleError_ServerError() {
 	var errResp apierror.ErrorResponse
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, errResp.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, errResp.Code)
 }
 
 func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_Success() {
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	configs := []model.InboundAuthConfigComplete{
+	configs := []inboundmodel.InboundAuthConfigWithSecret{
 		{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigComplete{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 				ClientID:                "test-client-id",
 				ClientSecret:            "test-secret",
 				RedirectURIs:            []string{"https://example.com/callback"},
@@ -1283,15 +1286,15 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_Success()
 
 	assert.NotNil(suite.T(), result)
 	assert.Len(suite.T(), result, 1)
-	assert.Equal(suite.T(), model.OAuthInboundAuthType, result[0].Type)
-	assert.Equal(suite.T(), "test-client-id", result[0].OAuthAppConfig.ClientID)
+	assert.Equal(suite.T(), inboundmodel.OAuthInboundAuthType, result[0].Type)
+	assert.Equal(suite.T(), "test-client-id", result[0].OAuthConfig.ClientID)
 }
 
 func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_EmptyConfigs() {
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	configs := []model.InboundAuthConfigComplete{}
+	configs := []inboundmodel.InboundAuthConfigWithSecret{}
 
 	result := handler.processInboundAuthConfigFromRequest(configs)
 
@@ -1311,10 +1314,10 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_Unsupport
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	configs := []model.InboundAuthConfigComplete{
+	configs := []inboundmodel.InboundAuthConfigWithSecret{
 		{
-			Type:           "unsupported",
-			OAuthAppConfig: nil,
+			Type:        "unsupported",
+			OAuthConfig: nil,
 		},
 	}
 
@@ -1328,10 +1331,10 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_NilOAuthC
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	configs := []model.InboundAuthConfigComplete{
+	configs := []inboundmodel.InboundAuthConfigWithSecret{
 		{
-			Type:           model.OAuthInboundAuthType,
-			OAuthAppConfig: nil,
+			Type:        inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: nil,
 		},
 	}
 
@@ -1345,17 +1348,17 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_MultipleC
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	configs := []model.InboundAuthConfigComplete{
+	configs := []inboundmodel.InboundAuthConfigWithSecret{
 		{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigComplete{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 				ClientID:     "client-1",
 				ClientSecret: "secret-1",
 			},
 		},
 		{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigComplete{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 				ClientID:     "client-2",
 				ClientSecret: "secret-2",
 			},
@@ -1366,26 +1369,26 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_MultipleC
 
 	assert.NotNil(suite.T(), result)
 	assert.Len(suite.T(), result, 2)
-	assert.Equal(suite.T(), "client-1", result[0].OAuthAppConfig.ClientID)
-	assert.Equal(suite.T(), "client-2", result[1].OAuthAppConfig.ClientID)
+	assert.Equal(suite.T(), "client-1", result[0].OAuthConfig.ClientID)
+	assert.Equal(suite.T(), "client-2", result[1].OAuthConfig.ClientID)
 }
 
 func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_WithTokenConfig() {
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	configs := []model.InboundAuthConfigComplete{
+	configs := []inboundmodel.InboundAuthConfigWithSecret{
 		{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigComplete{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 				ClientID:     "test-client-id",
 				ClientSecret: "test-secret",
-				Token: &model.OAuthTokenConfig{
-					AccessToken: &model.AccessTokenConfig{
+				Token: &inboundmodel.OAuthTokenConfig{
+					AccessToken: &inboundmodel.AccessTokenConfig{
 						ValidityPeriod: 3600,
 						UserAttributes: []string{"email", "name"},
 					},
-					IDToken: &model.IDTokenConfig{
+					IDToken: &inboundmodel.IDTokenConfig{
 						ValidityPeriod: 3600,
 						UserAttributes: []string{"email"},
 					},
@@ -1398,17 +1401,17 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_WithToken
 
 	assert.NotNil(suite.T(), result)
 	assert.Len(suite.T(), result, 1)
-	assert.NotNil(suite.T(), result[0].OAuthAppConfig.Token)
+	assert.NotNil(suite.T(), result[0].OAuthConfig.Token)
 }
 
 func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_WithScopes() {
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	configs := []model.InboundAuthConfigComplete{
+	configs := []inboundmodel.InboundAuthConfigWithSecret{
 		{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigComplete{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 				ClientID:     "test-client-id",
 				ClientSecret: "test-secret",
 				Scopes:       []string{"openid", "profile", "email"},
@@ -1420,17 +1423,17 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_WithScope
 
 	assert.NotNil(suite.T(), result)
 	assert.Len(suite.T(), result, 1)
-	assert.Equal(suite.T(), []string{"openid", "profile", "email"}, result[0].OAuthAppConfig.Scopes)
+	assert.Equal(suite.T(), []string{"openid", "profile", "email"}, result[0].OAuthConfig.Scopes)
 }
 
 func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_PublicClient() {
 	mockService := NewApplicationServiceInterfaceMock(suite.T())
 	handler := newApplicationHandler(mockService)
 
-	configs := []model.InboundAuthConfigComplete{
+	configs := []inboundmodel.InboundAuthConfigWithSecret{
 		{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigComplete{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 				ClientID:                "test-client-id",
 				PublicClient:            true,
 				PKCERequired:            true,
@@ -1443,8 +1446,8 @@ func (suite *HandlerTestSuite) TestProcessInboundAuthConfigFromRequest_PublicCli
 
 	assert.NotNil(suite.T(), result)
 	assert.Len(suite.T(), result, 1)
-	assert.True(suite.T(), result[0].OAuthAppConfig.PublicClient)
-	assert.True(suite.T(), result[0].OAuthAppConfig.PKCERequired)
+	assert.True(suite.T(), result[0].OAuthConfig.PublicClient)
+	assert.True(suite.T(), result[0].OAuthConfig.PKCERequired)
 }
 
 func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_WithCertificate() {
@@ -1454,9 +1457,11 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_WithCertificate(
 	appRequest := model.ApplicationRequest{
 		Name:        "TestApp",
 		Description: "Test Description",
-		Certificate: &model.ApplicationCertificate{
-			Type:  cert.CertificateTypeJWKS,
-			Value: `{"keys":[{"kty":"RSA","kid":"test"}]}`,
+		InboundAuthProfile: inboundmodel.InboundAuthProfile{
+			Certificate: &inboundmodel.Certificate{
+				Type:  cert.CertificateTypeJWKS,
+				Value: `{"keys":[{"kty":"RSA","kid":"test"}]}`,
+			},
 		},
 	}
 
@@ -1464,9 +1469,11 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_WithCertificate(
 		ID:          "test-app-id",
 		Name:        "TestApp",
 		Description: "Test Description",
-		Certificate: &model.ApplicationCertificate{
-			Type:  cert.CertificateTypeJWKS,
-			Value: `{"keys":[{"kty":"RSA","kid":"test"}]}`,
+		InboundAuthProfile: inboundmodel.InboundAuthProfile{
+			Certificate: &inboundmodel.Certificate{
+				Type:  cert.CertificateTypeJWKS,
+				Value: `{"keys":[{"kty":"RSA","kid":"test"}]}`,
+			},
 		},
 	}
 
@@ -1493,10 +1500,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_WithEmptyArrays()
 		ID:          "test-app-id",
 		Name:        "TestApp",
 		Description: "Test Description",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigComplete{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "test-client-id",
 					RedirectURIs:            []string{}, // Empty array
 					GrantTypes:              []oauth2const.GrantType{},
@@ -1521,9 +1528,9 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_WithEmptyArrays()
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), response.InboundAuthConfig)
-	assert.Empty(suite.T(), response.InboundAuthConfig[0].OAuthAppConfig.RedirectURIs)
-	assert.Empty(suite.T(), response.InboundAuthConfig[0].OAuthAppConfig.GrantTypes)
-	assert.Empty(suite.T(), response.InboundAuthConfig[0].OAuthAppConfig.ResponseTypes)
+	assert.Empty(suite.T(), response.InboundAuthConfig[0].OAuthConfig.RedirectURIs)
+	assert.Empty(suite.T(), response.InboundAuthConfig[0].OAuthConfig.GrantTypes)
+	assert.Empty(suite.T(), response.InboundAuthConfig[0].OAuthConfig.ResponseTypes)
 
 	mockService.AssertExpectations(suite.T())
 }
@@ -1535,10 +1542,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPutRequest_WithOAuth() {
 	appRequest := model.ApplicationRequest{
 		Name:        "UpdatedApp",
 		Description: "Updated Description",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigComplete{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "updated-client-id",
 					ClientSecret:            "updated-secret",
 					RedirectURIs:            []string{"https://example.com/callback"},
@@ -1554,10 +1561,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPutRequest_WithOAuth() {
 		ID:          "test-app-id",
 		Name:        "UpdatedApp",
 		Description: "Updated Description",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "updated-client-id",
 					ClientSecret:            "updated-secret",
 					RedirectURIs:            []string{"https://example.com/callback"},
@@ -1794,10 +1801,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_MultipleInboundA
 	appRequest := model.ApplicationRequest{
 		Name:        "Multi Config App",
 		Description: "App with multiple inbound auth configs",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigComplete{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "client-1",
 					ClientSecret:            "secret-1",
 					RedirectURIs:            []string{"https://example1.com/callback"},
@@ -1807,8 +1814,8 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_MultipleInboundA
 				},
 			},
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigComplete{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "client-2",
 					ClientSecret:            "secret-2",
 					RedirectURIs:            []string{"https://example2.com/callback"},
@@ -1824,10 +1831,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_MultipleInboundA
 		ID:          "multi-config-app-id",
 		Name:        "Multi Config App",
 		Description: "App with multiple inbound auth configs",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "client-1",
 					ClientSecret:            "secret-1",
 					RedirectURIs:            []string{"https://example1.com/callback"},
@@ -1837,8 +1844,8 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_MultipleInboundA
 				},
 			},
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:                "client-2",
 					ClientSecret:            "secret-2",
 					RedirectURIs:            []string{"https://example2.com/callback"},
@@ -1917,10 +1924,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_UnsupportedInbou
 		ID:          "test-app-id",
 		Name:        "TestApp",
 		Description: "Test Description",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
 				Type: "UNSUPPORTED_TYPE", // Not OAuthInboundAuthType
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID: "test-client-id",
 				},
 			},
@@ -1944,7 +1951,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_UnsupportedInbou
 	var errResp apierror.ErrorResponse
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, errResp.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, errResp.Code)
 
 	mockService.AssertExpectations(suite.T())
 }
@@ -1963,10 +1970,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_NilOAuthConfig()
 		ID:          "test-app-id",
 		Name:        "TestApp",
 		Description: "Test Description",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           model.OAuthInboundAuthType,
-				OAuthAppConfig: nil, // Nil OAuth config
+				Type:        inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: nil, // Nil OAuth config
 			},
 		},
 	}
@@ -1988,7 +1995,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_NilOAuthConfig()
 	var errResp apierror.ErrorResponse
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, errResp.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, errResp.Code)
 
 	mockService.AssertExpectations(suite.T())
 }
@@ -2007,10 +2014,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPostRequest_ProcessInboundAu
 		ID:          "test-app-id",
 		Name:        "TestApp",
 		Description: "Test Description",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           "UNSUPPORTED_TYPE",
-				OAuthAppConfig: &model.OAuthAppConfigDTO{ClientID: "test"},
+				Type:        "UNSUPPORTED_TYPE",
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{ClientID: "test"},
 			},
 		},
 	}
@@ -2074,10 +2081,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPutRequest_UnsupportedInboun
 		ID:          "test-app-id",
 		Name:        "Updated App",
 		Description: "Updated Description",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
 				Type: "UNSUPPORTED_TYPE",
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID: "test-client-id",
 				},
 			},
@@ -2103,7 +2110,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationPutRequest_UnsupportedInboun
 	var errResp apierror.ErrorResponse
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, errResp.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, errResp.Code)
 
 	mockService.AssertExpectations(suite.T())
 }
@@ -2122,10 +2129,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPutRequest_NilOAuthConfig() 
 		ID:          "test-app-id",
 		Name:        "Updated App",
 		Description: "Updated Description",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           model.OAuthInboundAuthType,
-				OAuthAppConfig: nil,
+				Type:        inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: nil,
 			},
 		},
 	}
@@ -2149,7 +2156,7 @@ func (suite *HandlerTestSuite) TestHandleApplicationPutRequest_NilOAuthConfig() 
 	var errResp apierror.ErrorResponse
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, errResp.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, errResp.Code)
 
 	mockService.AssertExpectations(suite.T())
 }
@@ -2167,10 +2174,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationPutRequest_ProcessInboundAut
 		ID:          "test-app-id",
 		Name:        "Updated App",
 		Description: "Updated Description",
-		InboundAuthConfig: []model.InboundAuthConfigDTO{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           "UNSUPPORTED_TYPE",
-				OAuthAppConfig: &model.OAuthAppConfigDTO{ClientID: "test"},
+				Type:        "UNSUPPORTED_TYPE",
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{ClientID: "test"},
 			},
 		},
 	}
@@ -2281,10 +2288,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_UnsupportedAuthTy
 	app := &model.Application{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           "UNSUPPORTED_TYPE", // Not OAuthInboundAuthType
-				OAuthAppConfig: &model.OAuthAppConfigComplete{ClientID: "test-client-id"},
+				Type:        "UNSUPPORTED_TYPE", // Not OAuthInboundAuthType
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{ClientID: "test-client-id"},
 			},
 		},
 	}
@@ -2309,10 +2316,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_NilOAuthConfigErr
 	app := &model.Application{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type:           model.OAuthInboundAuthType,
-				OAuthAppConfig: nil, // Nil OAuth config
+				Type:        inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: nil, // Nil OAuth config
 			},
 		},
 	}
@@ -2337,10 +2344,10 @@ func (suite *HandlerTestSuite) TestHandleApplicationGetRequest_EmptyResponseType
 	app := &model.Application{
 		ID:   "test-app-id",
 		Name: "TestApp",
-		InboundAuthConfig: []model.InboundAuthConfigComplete{
+		InboundAuthConfig: []inboundmodel.InboundAuthConfigWithSecret{
 			{
-				Type: model.OAuthInboundAuthType,
-				OAuthAppConfig: &model.OAuthAppConfigComplete{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
 					ClientID:      "test-client-id",
 					GrantTypes:    []oauth2const.GrantType{},    // Empty grant types
 					ResponseTypes: []oauth2const.ResponseType{}, // Empty response types

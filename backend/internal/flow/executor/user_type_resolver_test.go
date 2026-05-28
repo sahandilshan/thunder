@@ -19,6 +19,9 @@
 package executor
 
 import (
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"context"
 	"testing"
 
@@ -26,19 +29,21 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/userschema"
-	"github.com/asgardeo/thunder/tests/mocks/flow/coremock"
-	"github.com/asgardeo/thunder/tests/mocks/userschemamock"
+	appmodel "github.com/thunder-id/thunderid/internal/application/model"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/tests/mocks/entitytypemock"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
+	"github.com/thunder-id/thunderid/tests/mocks/oumock"
 )
 
 type UserTypeResolverTestSuite struct {
 	suite.Suite
-	mockUserSchemaService *userschemamock.UserSchemaServiceInterfaceMock
+	mockEntityTypeService *entitytypemock.EntityTypeServiceInterfaceMock
 	mockFlowFactory       *coremock.FlowFactoryInterfaceMock
+	mockOUService         *oumock.OrganizationUnitServiceInterfaceMock
 	executor              *userTypeResolver
 }
 
@@ -47,7 +52,7 @@ func TestUserTypeResolverSuite(t *testing.T) {
 }
 
 func (suite *UserTypeResolverTestSuite) SetupTest() {
-	suite.mockUserSchemaService = userschemamock.NewUserSchemaServiceInterfaceMock(suite.T())
+	suite.mockEntityTypeService = entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
 	suite.mockFlowFactory = coremock.NewFlowFactoryInterfaceMock(suite.T())
 
 	defaultInputs := []common.Input{
@@ -64,7 +69,8 @@ func (suite *UserTypeResolverTestSuite) SetupTest() {
 		defaultInputs, []common.Input{}).
 		Return(createMockUserTypeResolverExecutor(suite.T()))
 
-	suite.executor = newUserTypeResolver(suite.mockFlowFactory, suite.mockUserSchemaService)
+	suite.mockOUService = oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
+	suite.executor = newUserTypeResolver(suite.mockFlowFactory, suite.mockEntityTypeService, suite.mockOUService)
 }
 
 func createMockUserTypeResolverExecutor(t *testing.T) core.ExecutorInterface {
@@ -97,7 +103,7 @@ func createMockUserTypeResolverExecutor(t *testing.T) core.ExecutorInterface {
 
 func (suite *UserTypeResolverTestSuite) TestNewUserTypeResolver() {
 	mockFlowFactory := coremock.NewFlowFactoryInterfaceMock(suite.T())
-	mockUserSchemaService := userschemamock.NewUserSchemaServiceInterfaceMock(suite.T())
+	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
 
 	defaultInputs := []common.Input{
 		{
@@ -112,7 +118,8 @@ func (suite *UserTypeResolverTestSuite) TestNewUserTypeResolver() {
 		defaultInputs, []common.Input{}).
 		Return(createMockUserTypeResolverExecutor(suite.T()))
 
-	executor := newUserTypeResolver(mockFlowFactory, mockUserSchemaService)
+	mockOUService := oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
+	executor := newUserTypeResolver(mockFlowFactory, mockEntityTypeService, mockOUService)
 
 	assert.NotNil(suite.T(), executor)
 	assert.Equal(suite.T(), ExecutorNameUserTypeResolver, executor.GetName())
@@ -122,10 +129,12 @@ func (suite *UserTypeResolverTestSuite) TestExecute_AuthenticationFlow_WithAllow
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeAuthentication,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeAuthentication,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer"},
+			},
 		},
 		RuntimeData: map[string]string{},
 	}
@@ -136,17 +145,19 @@ func (suite *UserTypeResolverTestSuite) TestExecute_AuthenticationFlow_WithAllow
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecComplete, result.Status)
 	assert.Empty(suite.T(), result.RuntimeData[userTypeKey])
-	suite.mockUserSchemaService.AssertNotCalled(suite.T(), "GetUserSchemaByName")
+	suite.mockEntityTypeService.AssertNotCalled(suite.T(), "GetEntityTypeByName")
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_AuthenticationFlow_NoAllowedUserTypes() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeAuthentication,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeAuthentication,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{},
+			},
 		},
 		RuntimeData: map[string]string{},
 	}
@@ -157,7 +168,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_AuthenticationFlow_NoAllowed
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, result.Status)
 	assert.Equal(suite.T(), "Authentication not available for this application", result.FailureReason)
-	suite.mockUserSchemaService.AssertNotCalled(suite.T(), "GetUserSchemaByName")
+	suite.mockEntityTypeService.AssertNotCalled(suite.T(), "GetEntityTypeByName")
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_UnsupportedFlowType() {
@@ -180,10 +191,12 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UnsupportedFlowType() {
 			suite.SetupTest()
 
 			ctx := &core.NodeContext{
-				FlowID:   "flow-123",
-				FlowType: tc.flowType,
+				ExecutionID: "flow-123",
+				FlowType:    tc.flowType,
 				Application: appmodel.Application{
-					AllowedUserTypes: []string{"employee"},
+					InboundAuthProfile: inboundmodel.InboundAuthProfile{
+						AllowedUserTypes: []string{"employee"},
+					},
 				},
 				RuntimeData: map[string]string{},
 			}
@@ -194,7 +207,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UnsupportedFlowType() {
 			assert.NotNil(suite.T(), result)
 			assert.Equal(suite.T(), common.ExecComplete, result.Status)
 			assert.Empty(suite.T(), result.RuntimeData[userTypeKey])
-			suite.mockUserSchemaService.AssertNotCalled(suite.T(), "GetUserSchemaByName")
+			suite.mockEntityTypeService.AssertNotCalled(suite.T(), "GetEntityTypeByName")
 		})
 	}
 }
@@ -219,10 +232,12 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_Succ
 			suite.SetupTest()
 
 			ctx := &core.NodeContext{
-				FlowID:   "flow-123",
-				FlowType: common.FlowTypeRegistration,
+				ExecutionID: "flow-123",
+				FlowType:    common.FlowTypeRegistration,
 				Application: appmodel.Application{
-					AllowedUserTypes: tc.allowedUserTypes,
+					InboundAuthProfile: inboundmodel.InboundAuthProfile{
+						AllowedUserTypes: tc.allowedUserTypes,
+					},
 				},
 				UserInputs: map[string]string{
 					userTypeKey: tc.providedUserType,
@@ -230,14 +245,14 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_Succ
 				RuntimeData: map[string]string{},
 			}
 
-			userSchema := &userschema.UserSchema{
+			entityType := &entitytype.EntityType{
 				ID:                    "schema-123",
 				Name:                  tc.providedUserType,
 				OUID:                  tc.expectedOUID,
 				AllowSelfRegistration: true,
 			}
-			suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, tc.providedUserType).
-				Return(userSchema, nil)
+			suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, tc.providedUserType).
+				Return(entityType, nil)
 
 			result, err := suite.executor.Execute(ctx)
 
@@ -247,7 +262,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_Succ
 			assert.Equal(suite.T(), tc.providedUserType, result.RuntimeData[userTypeKey])
 			assert.Equal(suite.T(), tc.expectedOUID, result.RuntimeData[defaultOUIDKey])
 
-			suite.mockUserSchemaService.AssertExpectations(suite.T())
+			suite.mockEntityTypeService.AssertExpectations(suite.T())
 		})
 	}
 }
@@ -256,10 +271,12 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_NoOU
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer"},
+			},
 		},
 		UserInputs: map[string]string{
 			userTypeKey: "employee",
@@ -267,31 +284,33 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_NoOU
 		RuntimeData: map[string]string{},
 	}
 
-	userSchema := &userschema.UserSchema{
+	entityType := &entitytype.EntityType{
 		ID:                    "schema-123",
 		Name:                  "employee",
 		OUID:                  "",
 		AllowSelfRegistration: true,
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
-		Return(userSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(entityType, nil)
 
 	result, err := suite.executor.Execute(ctx)
 
 	assert.Error(suite.T(), err)
 	assert.NotNil(suite.T(), result)
 	assert.Contains(suite.T(), err.Error(), "no organization unit found for user type")
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_NotAllowed() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer"},
+			},
 		},
 		UserInputs: map[string]string{
 			userTypeKey: "partner",
@@ -305,17 +324,19 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_NotA
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, result.Status)
 	assert.Equal(suite.T(), "Application does not allow registration for the user type", result.FailureReason)
-	suite.mockUserSchemaService.AssertNotCalled(suite.T(), "GetUserSchemaByName")
+	suite.mockEntityTypeService.AssertNotCalled(suite.T(), "GetEntityTypeByName")
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_OUResolutionFails() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee"},
+			},
 		},
 		UserInputs: map[string]string{
 			userTypeKey: "employee",
@@ -324,30 +345,36 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_OURe
 	}
 
 	svcErr := &serviceerror.ServiceError{
-		Type:             serviceerror.ServerErrorType,
-		Code:             "SCHEMA-500",
-		Error:            "Internal Server Error",
-		ErrorDescription: "Failed to retrieve OU",
+		Type: serviceerror.ServerErrorType,
+		Code: "SCHEMA-500",
+		Error: i18ncore.I18nMessage{
+			Key: "error.test.internal_server_error", DefaultValue: "Internal Server Error",
+		},
+		ErrorDescription: i18ncore.I18nMessage{
+			Key: "error.test.failed_to_retrieve_ou", DefaultValue: "Failed to retrieve OU",
+		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
 		Return(nil, svcErr)
 
 	result, err := suite.executor.Execute(ctx)
 
 	assert.Error(suite.T(), err)
 	assert.NotNil(suite.T(), result)
-	assert.Contains(suite.T(), err.Error(), "failed to resolve user schema")
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	assert.Contains(suite.T(), err.Error(), "failed to resolve user type")
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_NoAllowedUserTypes() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -359,30 +386,32 @@ func (suite *UserTypeResolverTestSuite) TestExecute_NoAllowedUserTypes() {
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, result.Status)
 	assert.Equal(suite.T(), "Self-registration not available for this application", result.FailureReason)
-	suite.mockUserSchemaService.AssertNotCalled(suite.T(), "GetUserSchemaByName")
+	suite.mockEntityTypeService.AssertNotCalled(suite.T(), "GetEntityTypeByName")
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_SingleAllowedUserType_Success() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
-	userSchema := &userschema.UserSchema{
+	entityType := &entitytype.EntityType{
 		ID:                    "schema-123",
 		Name:                  "employee",
 		OUID:                  "ou-123",
 		AllowSelfRegistration: true,
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
-		Return(userSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(entityType, nil)
 
 	result, err := suite.executor.Execute(ctx)
 
@@ -392,77 +421,87 @@ func (suite *UserTypeResolverTestSuite) TestExecute_SingleAllowedUserType_Succes
 	assert.Equal(suite.T(), "employee", result.RuntimeData[userTypeKey])
 	assert.Equal(suite.T(), "ou-123", result.RuntimeData[defaultOUIDKey])
 
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_SingleAllowedUserType_NoOU() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
-	userSchema := &userschema.UserSchema{
+	entityType := &entitytype.EntityType{
 		ID:                    "schema-123",
 		Name:                  "employee",
 		OUID:                  "",
 		AllowSelfRegistration: true,
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
-		Return(userSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(entityType, nil)
 
 	result, err := suite.executor.Execute(ctx)
 
 	assert.Error(suite.T(), err)
 	assert.NotNil(suite.T(), result)
 	assert.Contains(suite.T(), err.Error(), "no organization unit found for user type")
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_SingleAllowedUserType_OUResolutionFails() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
 	svcErr := &serviceerror.ServiceError{
-		Type:             serviceerror.ServerErrorType,
-		Code:             "SCHEMA-500",
-		Error:            "Internal Server Error",
-		ErrorDescription: "Failed to retrieve OU",
+		Type: serviceerror.ServerErrorType,
+		Code: "SCHEMA-500",
+		Error: i18ncore.I18nMessage{
+			Key: "error.test.internal_server_error", DefaultValue: "Internal Server Error",
+		},
+		ErrorDescription: i18ncore.I18nMessage{
+			Key: "error.test.failed_to_retrieve_ou", DefaultValue: "Failed to retrieve OU",
+		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
 		Return(nil, svcErr)
 
 	result, err := suite.executor.Execute(ctx)
 
 	assert.Error(suite.T(), err)
 	assert.NotNil(suite.T(), result)
-	assert.Contains(suite.T(), err.Error(), "failed to resolve user schema")
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	assert.Contains(suite.T(), err.Error(), "failed to resolve user type")
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_MultipleAllowedUserTypes_PromptUser() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer", "partner"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer", "partner"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -470,14 +509,14 @@ func (suite *UserTypeResolverTestSuite) TestExecute_MultipleAllowedUserTypes_Pro
 
 	// Mock all three user types with self registration enabled
 	for _, userType := range []string{"employee", "customer", "partner"} {
-		userSchema := &userschema.UserSchema{
+		entityType := &entitytype.EntityType{
 			ID:                    "schema-" + userType,
 			Name:                  userType,
 			OUID:                  "ou-" + userType,
 			AllowSelfRegistration: true,
 		}
-		suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, userType).
-			Return(userSchema, nil)
+		suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, userType).
+			Return(entityType, nil)
 	}
 
 	result, err := suite.executor.Execute(ctx)
@@ -495,17 +534,19 @@ func (suite *UserTypeResolverTestSuite) TestExecute_MultipleAllowedUserTypes_Pro
 	assert.True(suite.T(), requiredInput.Required)
 	assert.ElementsMatch(suite.T(), []string{"employee", "customer", "partner"}, requiredInput.Options)
 
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_EmptyUserTypeInput() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer"},
+			},
 		},
 		UserInputs: map[string]string{
 			userTypeKey: "",
@@ -515,14 +556,14 @@ func (suite *UserTypeResolverTestSuite) TestExecute_EmptyUserTypeInput() {
 
 	// Mock both user types with self registration enabled
 	for _, userType := range []string{"employee", "customer"} {
-		userSchema := &userschema.UserSchema{
+		entityType := &entitytype.EntityType{
 			ID:                    "schema-" + userType,
 			Name:                  userType,
 			OUID:                  "ou-" + userType,
 			AllowSelfRegistration: true,
 		}
-		suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, userType).
-			Return(userSchema, nil)
+		suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, userType).
+			Return(entityType, nil)
 	}
 
 	result, err := suite.executor.Execute(ctx)
@@ -537,17 +578,19 @@ func (suite *UserTypeResolverTestSuite) TestExecute_EmptyUserTypeInput() {
 	assert.Equal(suite.T(), userTypeKey, requiredInput.Identifier)
 	assert.Equal(suite.T(), "SELECT", requiredInput.Type)
 
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_SelfRegistrationDisabled() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee"},
+			},
 		},
 		UserInputs: map[string]string{
 			userTypeKey: "employee",
@@ -555,14 +598,14 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_Self
 		RuntimeData: map[string]string{},
 	}
 
-	userSchema := &userschema.UserSchema{
+	entityType := &entitytype.EntityType{
 		ID:                    "schema-123",
 		Name:                  "employee",
 		OUID:                  "ou-123",
 		AllowSelfRegistration: false,
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", mock.Anything, "employee").
-		Return(userSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", mock.Anything, mock.Anything, "employee").
+		Return(entityType, nil)
 
 	result, err := suite.executor.Execute(ctx)
 
@@ -570,30 +613,32 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserTypeProvidedInInput_Self
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, result.Status)
 	assert.Equal(suite.T(), "Self-registration not enabled for the user type", result.FailureReason)
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_SingleAllowedUserType_SelfRegistrationDisabled() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
-	userSchema := &userschema.UserSchema{
+	entityType := &entitytype.EntityType{
 		ID:                    "schema-123",
 		Name:                  "employee",
 		OUID:                  "ou-123",
 		AllowSelfRegistration: false,
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", mock.Anything, "employee").
-		Return(userSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", mock.Anything, mock.Anything, "employee").
+		Return(entityType, nil)
 
 	result, err := suite.executor.Execute(ctx)
 
@@ -601,47 +646,49 @@ func (suite *UserTypeResolverTestSuite) TestExecute_SingleAllowedUserType_SelfRe
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, result.Status)
 	assert.Equal(suite.T(), "Self-registration not enabled for the user type", result.FailureReason)
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_MultipleAllowedUserTypes_OnlyOneSelfRegEnabled() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer", "partner"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer", "partner"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
 	// Only customer has self-registration enabled
-	employeeSchema := &userschema.UserSchema{
+	employeeSchema := &entitytype.EntityType{
 		ID:                    "schema-employee",
 		Name:                  "employee",
 		OUID:                  "ou-employee",
 		AllowSelfRegistration: false,
 	}
-	customerSchema := &userschema.UserSchema{
+	customerSchema := &entitytype.EntityType{
 		ID:                    "schema-customer",
 		Name:                  "customer",
 		OUID:                  "ou-customer",
 		AllowSelfRegistration: true,
 	}
-	partnerSchema := &userschema.UserSchema{
+	partnerSchema := &entitytype.EntityType{
 		ID:                    "schema-partner",
 		Name:                  "partner",
 		OUID:                  "ou-partner",
 		AllowSelfRegistration: false,
 	}
 
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
 		Return(employeeSchema, nil)
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "customer").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "customer").
 		Return(customerSchema, nil)
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "partner").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "partner").
 		Return(partnerSchema, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -651,39 +698,41 @@ func (suite *UserTypeResolverTestSuite) TestExecute_MultipleAllowedUserTypes_Onl
 	assert.Equal(suite.T(), common.ExecComplete, result.Status)
 	assert.Equal(suite.T(), "customer", result.RuntimeData[userTypeKey])
 	assert.Equal(suite.T(), "ou-customer", result.RuntimeData[defaultOUIDKey])
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_MultipleAllowedUserTypes_NoSelfRegEnabled() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
 	// None have self-registration enabled
-	employeeSchema := &userschema.UserSchema{
+	employeeSchema := &entitytype.EntityType{
 		ID:                    "schema-employee",
 		Name:                  "employee",
 		OUID:                  "ou-employee",
 		AllowSelfRegistration: false,
 	}
-	customerSchema := &userschema.UserSchema{
+	customerSchema := &entitytype.EntityType{
 		ID:                    "schema-customer",
 		Name:                  "customer",
 		OUID:                  "ou-customer",
 		AllowSelfRegistration: false,
 	}
 
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
 		Return(employeeSchema, nil)
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "customer").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "customer").
 		Return(customerSchema, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -692,57 +741,65 @@ func (suite *UserTypeResolverTestSuite) TestExecute_MultipleAllowedUserTypes_NoS
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), common.ExecFailure, result.Status)
 	assert.Equal(suite.T(), "Self-registration not available for this application", result.FailureReason)
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_MultipleAllowedUserTypes_SchemaResolutionFails() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
 	// First schema succeeds, second fails
-	employeeSchema := &userschema.UserSchema{
+	employeeSchema := &entitytype.EntityType{
 		ID:                    "schema-employee",
 		Name:                  "employee",
 		OUID:                  "ou-employee",
 		AllowSelfRegistration: true,
 	}
 	svcErr := &serviceerror.ServiceError{
-		Type:             serviceerror.ServerErrorType,
-		Code:             "SCHEMA-500",
-		Error:            "Internal Server Error",
-		ErrorDescription: "Failed to retrieve schema",
+		Type: serviceerror.ServerErrorType,
+		Code: "SCHEMA-500",
+		Error: i18ncore.I18nMessage{
+			Key: "error.test.internal_server_error", DefaultValue: "Internal Server Error",
+		},
+		ErrorDescription: i18ncore.I18nMessage{
+			Key: "error.test.failed_to_retrieve_schema", DefaultValue: "Failed to retrieve schema",
+		},
 	}
 
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
 		Return(employeeSchema, nil)
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "customer").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "customer").
 		Return(nil, svcErr)
 
 	result, err := suite.executor.Execute(ctx)
 
 	assert.Error(suite.T(), err)
 	assert.NotNil(suite.T(), result)
-	assert.Contains(suite.T(), err.Error(), "failed to resolve user schema for user type")
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	assert.Contains(suite.T(), err.Error(), "failed to resolve user type")
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_RegistrationFlow_NodeAllowedUserTypes_FiltersAppAllowed() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer", "partner"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer", "partner"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -752,10 +809,12 @@ func (suite *UserTypeResolverTestSuite) TestExecute_RegistrationFlow_NodeAllowed
 	}
 
 	// Mock schemas for the two filtered user types
-	employeeSchema := &userschema.UserSchema{Name: "employee", OUID: "ou-123", AllowSelfRegistration: true}
-	customerSchema := &userschema.UserSchema{Name: "customer", OUID: "ou-456", AllowSelfRegistration: true}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").Return(employeeSchema, nil)
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "customer").Return(customerSchema, nil)
+	employeeSchema := &entitytype.EntityType{Name: "employee", OUID: "ou-123", AllowSelfRegistration: true}
+	customerSchema := &entitytype.EntityType{Name: "customer", OUID: "ou-456", AllowSelfRegistration: true}
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(employeeSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "customer").
+		Return(customerSchema, nil)
 
 	result, err := suite.executor.Execute(ctx)
 
@@ -770,10 +829,12 @@ func (suite *UserTypeResolverTestSuite) TestExecute_RegistrationFlow_NodeAllowed
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer", "partner"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer", "partner"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -782,8 +843,9 @@ func (suite *UserTypeResolverTestSuite) TestExecute_RegistrationFlow_NodeAllowed
 		},
 	}
 
-	mockSchema := &userschema.UserSchema{Name: "employee", OUID: "ou-123", AllowSelfRegistration: true}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").Return(mockSchema, nil)
+	mockSchema := &entitytype.EntityType{Name: "employee", OUID: "ou-123", AllowSelfRegistration: true}
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(mockSchema, nil)
 
 	result, err := suite.executor.Execute(ctx)
 
@@ -798,10 +860,12 @@ func (suite *UserTypeResolverTestSuite) TestExecute_RegistrationFlow_NodeAllowed
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer"},
+			},
 		},
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -822,10 +886,12 @@ func (suite *UserTypeResolverTestSuite) TestExecute_RegistrationFlow_NodeAllowed
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeRegistration,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeRegistration,
 		Application: appmodel.Application{
-			AllowedUserTypes: []string{"employee", "customer", "partner"},
+			InboundAuthProfile: inboundmodel.InboundAuthProfile{
+				AllowedUserTypes: []string{"employee", "customer", "partner"},
+			},
 		},
 		UserInputs:  map[string]string{userTypeKey: "partner"},
 		RuntimeData: map[string]string{},
@@ -844,88 +910,90 @@ func (suite *UserTypeResolverTestSuite) TestExecute_RegistrationFlow_NodeAllowed
 	assert.Equal(suite.T(), "Application does not allow registration for the user type", result.FailureReason)
 }
 
-func (suite *UserTypeResolverTestSuite) TestGetUserSchemaAndOU_Success() {
+func (suite *UserTypeResolverTestSuite) TestGetEntityTypeAndOU_Success() {
 	suite.SetupTest()
 
-	userSchema := &userschema.UserSchema{
+	entityType := &entitytype.EntityType{
 		ID:                    "schema-123",
 		Name:                  "employee",
 		OUID:                  "ou-123",
 		AllowSelfRegistration: true,
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", context.Background(), "employee").
-		Return(userSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", context.Background(), mock.Anything, "employee").
+		Return(entityType, nil)
 
-	schema, ouID, err := suite.executor.getUserSchemaAndOU(context.Background(), "employee")
+	schema, ouID, err := suite.executor.getEntityTypeAndOU(context.Background(), "employee")
 
 	assert.Nil(suite.T(), err)
 	assert.NotNil(suite.T(), schema)
 	assert.Equal(suite.T(), "ou-123", ouID)
 	assert.Equal(suite.T(), "employee", schema.Name)
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
-func (suite *UserTypeResolverTestSuite) TestGetUserSchemaAndOU_NoOUFound() {
+func (suite *UserTypeResolverTestSuite) TestGetEntityTypeAndOU_NoOUFound() {
 	suite.SetupTest()
 
-	userSchema := &userschema.UserSchema{
+	entityType := &entitytype.EntityType{
 		ID:                    "schema-123",
 		Name:                  "employee",
 		OUID:                  "",
 		AllowSelfRegistration: true,
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", context.Background(), "employee").
-		Return(userSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", context.Background(), mock.Anything, "employee").
+		Return(entityType, nil)
 
-	schema, ouID, err := suite.executor.getUserSchemaAndOU(context.Background(), "employee")
+	schema, ouID, err := suite.executor.getEntityTypeAndOU(context.Background(), "employee")
 
 	assert.NotNil(suite.T(), err)
 	assert.Nil(suite.T(), schema)
 	assert.Equal(suite.T(), "", ouID)
 	assert.Contains(suite.T(), err.Error(), "no organization unit found for user type")
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
-func (suite *UserTypeResolverTestSuite) TestGetUserSchemaAndOU_SchemaNotFound() {
+func (suite *UserTypeResolverTestSuite) TestGetEntityTypeAndOU_SchemaNotFound() {
 	suite.SetupTest()
 
 	svcErr := &serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "SCHEMA-404",
-		Error:            "Not Found",
-		ErrorDescription: "User schema not found",
+		Type:  serviceerror.ClientErrorType,
+		Code:  "SCHEMA-404",
+		Error: i18ncore.I18nMessage{Key: "error.test.not_found", DefaultValue: "Not Found"},
+		ErrorDescription: i18ncore.I18nMessage{
+			Key: "error.test.user_type_not_found", DefaultValue: "User type not found",
+		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", context.Background(), "employee").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", context.Background(), mock.Anything, "employee").
 		Return(nil, svcErr)
 
-	schema, ouID, err := suite.executor.getUserSchemaAndOU(context.Background(), "employee")
+	schema, ouID, err := suite.executor.getEntityTypeAndOU(context.Background(), "employee")
 
 	assert.NotNil(suite.T(), err)
 	assert.Nil(suite.T(), schema)
 	assert.Equal(suite.T(), "", ouID)
-	assert.Contains(suite.T(), err.Error(), "failed to resolve user schema for user type")
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	assert.Contains(suite.T(), err.Error(), "failed to resolve user type")
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_UserTypeProvided_Success() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeUserOnboarding, // User Onboarding Flow
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding, // User Onboarding Flow
 		UserInputs: map[string]string{
 			userTypeKey: "employee",
 		},
 		RuntimeData: map[string]string{},
 	}
 
-	userSchema := &userschema.UserSchema{
+	entityType := &entitytype.EntityType{
 		ID:   "schema-123",
 		Name: "employee",
 		OUID: "ou-123",
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
-		Return(userSchema, nil)
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(entityType, nil)
 
 	result, err := suite.executor.Execute(ctx)
 
@@ -935,15 +1003,15 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_UserTypeP
 	assert.Equal(suite.T(), "employee", result.RuntimeData[userTypeKey])
 	assert.Equal(suite.T(), "ou-123", result.RuntimeData[defaultOUIDKey])
 
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_UserTypeProvided_Invalid() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:   "flow-123",
-		FlowType: common.FlowTypeUserOnboarding,
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs: map[string]string{
 			userTypeKey: "invalid_user",
 		},
@@ -952,12 +1020,14 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_UserTypeP
 
 	// Mock schema retrieval failing
 	svcErr := &serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "SCHEMA-404",
-		Error:            "Not Found",
-		ErrorDescription: "User schema not found",
+		Type:  serviceerror.ClientErrorType,
+		Code:  "SCHEMA-404",
+		Error: i18ncore.I18nMessage{Key: "error.test.not_found", DefaultValue: "Not Found"},
+		ErrorDescription: i18ncore.I18nMessage{
+			Key: "error.test.user_type_not_found", DefaultValue: "User type not found",
+		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "invalid_user").
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "invalid_user").
 		Return(nil, svcErr)
 
 	result, err := suite.executor.Execute(ctx)
@@ -967,24 +1037,24 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_UserTypeP
 	assert.Equal(suite.T(), common.ExecFailure, result.Status)
 	assert.Equal(suite.T(), "Invalid user type", result.FailureReason)
 
-	suite.mockUserSchemaService.AssertExpectations(suite.T())
+	suite.mockEntityTypeService.AssertExpectations(suite.T())
 }
 
 func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_NoUserType_SchemaListEmpty() {
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
-	// Mock GetUserSchemaList returning empty list
-	emptyList := &userschema.UserSchemaListResponse{
-		Schemas: []userschema.UserSchemaListItem{},
+	// Mock GetEntityTypeList returning empty list
+	emptyList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaList", ctx.Context, 100, 0).
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
 		Return(emptyList, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -999,7 +1069,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_NoUserTyp
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -1007,9 +1077,9 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_NoUserTyp
 
 	svcErr := &serviceerror.ServiceError{
 		Type:  serviceerror.ServerErrorType,
-		Error: "Simulated Error",
+		Error: i18ncore.I18nMessage{Key: "error.test.simulated_error", DefaultValue: "Simulated Error"},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaList", ctx.Context, 100, 0).
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
 		Return(nil, svcErr)
 
 	result, err := suite.executor.Execute(ctx)
@@ -1024,19 +1094,19 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_NoUserTyp
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
-	// Mock GetUserSchemaList returning a single schema
-	schemaList := &userschema.UserSchemaListResponse{
-		Schemas: []userschema.UserSchemaListItem{
+	// Mock GetEntityTypeList returning a single schema
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
 			{Name: "employee", OUID: "ou-123"},
 		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaList", ctx.Context, 100, 0).
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
 		Return(schemaList, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -1052,20 +1122,20 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_NoUserTyp
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
 	}
 
-	// Mock GetUserSchemaList returning schemas
-	schemaList := &userschema.UserSchemaListResponse{
-		Schemas: []userschema.UserSchemaListItem{
+	// Mock GetEntityTypeList returning schemas
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
 			{Name: "employee"},
 			{Name: "customer"},
 		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaList", ctx.Context, 100, 0).
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
 		Return(schemaList, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -1085,7 +1155,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -1094,15 +1164,15 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 		},
 	}
 
-	// Mock GetUserSchemaList returning multiple schemas
-	schemaList := &userschema.UserSchemaListResponse{
-		Schemas: []userschema.UserSchemaListItem{
+	// Mock GetEntityTypeList returning multiple schemas
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
 			{Name: "employee", OUID: "ou-123"},
 			{Name: "customer", OUID: "ou-456"},
 			{Name: "partner", OUID: "ou-789"},
 		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaList", ctx.Context, 100, 0).
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
 		Return(schemaList, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -1118,7 +1188,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -1127,15 +1197,15 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 		},
 	}
 
-	// Mock GetUserSchemaList returning multiple schemas including non-allowed ones
-	schemaList := &userschema.UserSchemaListResponse{
-		Schemas: []userschema.UserSchemaListItem{
+	// Mock GetEntityTypeList returning multiple schemas including non-allowed ones
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
 			{Name: "employee", OUID: "ou-123"},
 			{Name: "customer", OUID: "ou-456"},
 			{Name: "partner", OUID: "ou-789"},
 		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaList", ctx.Context, 100, 0).
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
 		Return(schemaList, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -1153,7 +1223,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{},
 		RuntimeData: map[string]string{},
@@ -1162,14 +1232,14 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 		},
 	}
 
-	// Mock GetUserSchemaList returning schemas that don't match the allowed list
-	schemaList := &userschema.UserSchemaListResponse{
-		Schemas: []userschema.UserSchemaListItem{
+	// Mock GetEntityTypeList returning schemas that don't match the allowed list
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
 			{Name: "employee", OUID: "ou-123"},
 			{Name: "customer", OUID: "ou-456"},
 		},
 	}
-	suite.mockUserSchemaService.On("GetUserSchemaList", ctx.Context, 100, 0).
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
 		Return(schemaList, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -1184,7 +1254,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{userTypeKey: "partner"},
 		RuntimeData: map[string]string{},
@@ -1205,7 +1275,7 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 	suite.SetupTest()
 
 	ctx := &core.NodeContext{
-		FlowID:      "flow-123",
+		ExecutionID: "flow-123",
 		FlowType:    common.FlowTypeUserOnboarding,
 		UserInputs:  map[string]string{userTypeKey: "employee"},
 		RuntimeData: map[string]string{},
@@ -1214,8 +1284,8 @@ func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboardingFlow_AllowedUs
 		},
 	}
 
-	mockSchema := &userschema.UserSchema{Name: "employee", OUID: "ou-123"}
-	suite.mockUserSchemaService.On("GetUserSchemaByName", ctx.Context, "employee").
+	mockSchema := &entitytype.EntityType{Name: "employee", OUID: "ou-123"}
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
 		Return(mockSchema, nil)
 
 	result, err := suite.executor.Execute(ctx)
@@ -1301,4 +1371,258 @@ func (suite *UserTypeResolverTestSuite) TestPromptUserSelection_PreservesExistin
 	forwardedInputs, ok := execResp.ForwardedData[common.ForwardedDataKeyInputs]
 	assert.True(suite.T(), ok)
 	assert.NotNil(suite.T(), forwardedInputs)
+}
+
+// --- OU-first flow tests (UserOnboarding with ouId in RuntimeData) ---
+
+func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboarding_OUFirst_UserTypeValidForOU() {
+	suite.SetupTest()
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding,
+		UserInputs: map[string]string{
+			userTypeKey: "employee",
+		},
+		RuntimeData: map[string]string{
+			ouIDKey: "child-ou-456",
+		},
+	}
+
+	entityType := &entitytype.EntityType{
+		ID:   "schema-123",
+		Name: "employee",
+		OUID: "parent-ou-123",
+	}
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(entityType, nil)
+	suite.mockOUService.On("IsParent", mock.Anything, "parent-ou-123", "child-ou-456").
+		Return(true, (*serviceerror.ServiceError)(nil))
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), common.ExecComplete, result.Status)
+	assert.Equal(suite.T(), "employee", result.RuntimeData[userTypeKey])
+	assert.Equal(suite.T(), "parent-ou-123", result.RuntimeData[defaultOUIDKey])
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboarding_OUFirst_UserTypeNotValidForOU() {
+	suite.SetupTest()
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding,
+		UserInputs: map[string]string{
+			userTypeKey: "employee",
+		},
+		RuntimeData: map[string]string{
+			ouIDKey: "unrelated-ou-789",
+		},
+	}
+
+	entityType := &entitytype.EntityType{
+		ID:   "schema-123",
+		Name: "employee",
+		OUID: "parent-ou-123",
+	}
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(entityType, nil)
+	suite.mockOUService.On("IsParent", mock.Anything, "parent-ou-123", "unrelated-ou-789").
+		Return(false, (*serviceerror.ServiceError)(nil))
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), common.ExecFailure, result.Status)
+	assert.Equal(suite.T(), "User type is not valid for the selected organization unit", result.FailureReason)
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboarding_OUFirst_IsParentServiceError() {
+	suite.SetupTest()
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding,
+		UserInputs: map[string]string{
+			userTypeKey: "employee",
+		},
+		RuntimeData: map[string]string{
+			ouIDKey: "child-ou-456",
+		},
+	}
+
+	entityType := &entitytype.EntityType{
+		ID:   "schema-123",
+		Name: "employee",
+		OUID: "parent-ou-123",
+	}
+	suite.mockEntityTypeService.On("GetEntityTypeByName", ctx.Context, mock.Anything, "employee").
+		Return(entityType, nil)
+	svcErr := &serviceerror.ServiceError{
+		Type:  serviceerror.ServerErrorType,
+		Error: i18ncore.I18nMessage{Key: "error.test.internal_error", DefaultValue: "internal error"},
+	}
+	suite.mockOUService.On("IsParent", mock.Anything, "parent-ou-123", "child-ou-456").
+		Return(false, svcErr)
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), result)
+	assert.Contains(suite.T(), err.Error(), "failed to validate user type against selected OU")
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboarding_OUFirst_FiltersSchemasByOU() {
+	suite.SetupTest()
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding,
+		UserInputs:  map[string]string{},
+		RuntimeData: map[string]string{
+			ouIDKey: "child-ou-456",
+		},
+	}
+
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
+			{Name: "employee", OUID: "parent-ou-123"},
+			{Name: "customer", OUID: "other-ou-789"},
+			{Name: "partner", OUID: "parent-ou-123"},
+		},
+	}
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
+		Return(schemaList, nil)
+
+	// employee's OU is ancestor of selected OU
+	suite.mockOUService.On("IsParent", mock.Anything, "parent-ou-123", "child-ou-456").
+		Return(true, (*serviceerror.ServiceError)(nil))
+	// customer's OU is NOT ancestor of selected OU
+	suite.mockOUService.On("IsParent", mock.Anything, "other-ou-789", "child-ou-456").
+		Return(false, (*serviceerror.ServiceError)(nil))
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, result.Status)
+	assert.Len(suite.T(), result.Inputs, 1)
+	// Only employee and partner should remain (both have parent-ou-123)
+	assert.ElementsMatch(suite.T(), []string{"employee", "partner"}, result.Inputs[0].Options)
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboarding_OUFirst_FiltersSchemasToSingle_AutoSelect() {
+	suite.SetupTest()
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding,
+		UserInputs:  map[string]string{},
+		RuntimeData: map[string]string{
+			ouIDKey: "child-ou-456",
+		},
+	}
+
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
+			{Name: "employee", OUID: "parent-ou-123"},
+			{Name: "customer", OUID: "other-ou-789"},
+		},
+	}
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
+		Return(schemaList, nil)
+
+	suite.mockOUService.On("IsParent", mock.Anything, "parent-ou-123", "child-ou-456").
+		Return(true, (*serviceerror.ServiceError)(nil))
+	suite.mockOUService.On("IsParent", mock.Anything, "other-ou-789", "child-ou-456").
+		Return(false, (*serviceerror.ServiceError)(nil))
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), common.ExecComplete, result.Status)
+	assert.Equal(suite.T(), "employee", result.RuntimeData[userTypeKey])
+	assert.Equal(suite.T(), "parent-ou-123", result.RuntimeData[defaultOUIDKey])
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboarding_OUFirst_AllSchemasFilteredOut() {
+	suite.SetupTest()
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding,
+		UserInputs:  map[string]string{},
+		RuntimeData: map[string]string{
+			ouIDKey: "unrelated-ou-999",
+		},
+	}
+
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
+			{Name: "employee", OUID: "ou-123"},
+			{Name: "customer", OUID: "ou-456"},
+		},
+	}
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
+		Return(schemaList, nil)
+
+	suite.mockOUService.On("IsParent", mock.Anything, "ou-123", "unrelated-ou-999").
+		Return(false, (*serviceerror.ServiceError)(nil))
+	suite.mockOUService.On("IsParent", mock.Anything, "ou-456", "unrelated-ou-999").
+		Return(false, (*serviceerror.ServiceError)(nil))
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), common.ExecFailure, result.Status)
+	assert.Equal(suite.T(), "No valid user types available for this flow", result.FailureReason)
+	suite.mockOUService.AssertExpectations(suite.T())
+}
+
+func (suite *UserTypeResolverTestSuite) TestExecute_UserOnboarding_OUFirst_IsParentErrorAbortsFiltering() {
+	suite.SetupTest()
+
+	ctx := &core.NodeContext{
+		ExecutionID: "flow-123",
+		FlowType:    common.FlowTypeUserOnboarding,
+		UserInputs:  map[string]string{},
+		RuntimeData: map[string]string{
+			ouIDKey: "child-ou-456",
+		},
+	}
+
+	schemaList := &entitytype.EntityTypeListResponse{
+		Types: []entitytype.EntityTypeListItem{
+			{Name: "employee", OUID: "parent-ou-123"},
+			{Name: "customer", OUID: "error-ou"},
+		},
+	}
+	suite.mockEntityTypeService.On("GetEntityTypeList", ctx.Context, mock.Anything, 100, 0, false).
+		Return(schemaList, nil)
+
+	suite.mockOUService.On("IsParent", mock.Anything, "parent-ou-123", "child-ou-456").
+		Return(true, (*serviceerror.ServiceError)(nil))
+	svcErr := &serviceerror.ServiceError{
+		Type:  serviceerror.ServerErrorType,
+		Error: i18ncore.I18nMessage{Key: "error.test.internal_error", DefaultValue: "internal error"},
+	}
+	suite.mockOUService.On("IsParent", mock.Anything, "error-ou", "child-ou-456").
+		Return(false, svcErr)
+
+	result, err := suite.executor.Execute(ctx)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), result)
+	assert.Contains(suite.T(), err.Error(), "failed to check OU ancestry for schema customer")
+	suite.mockOUService.AssertExpectations(suite.T())
 }

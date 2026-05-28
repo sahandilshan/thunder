@@ -28,12 +28,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/authn/credentials"
-	"github.com/asgardeo/thunder/internal/authn/otp"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/idp"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 type AuthenticationHandlerTestSuite struct {
@@ -97,12 +96,12 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestSuc
 	identifiers := map[string]interface{}{
 		"username": "testuser",
 	}
-	credentials := map[string]interface{}{
+	credentialsPayload := map[string]interface{}{
 		"password": "testpass",
 	}
 	authRequest := map[string]interface{}{
 		"identifiers": identifiers,
-		"credentials": credentials,
+		"credentials": credentialsPayload,
 	}
 	authResponse := &common.AuthenticationResponse{
 		ID:        "user123",
@@ -111,7 +110,7 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestSuc
 		Assertion: "jwt-token",
 	}
 
-	suite.mockService.On("AuthenticateWithCredentials", mock.Anything, identifiers, credentials,
+	suite.mockService.On("AuthenticateWithCredentials", mock.Anything, identifiers, credentialsPayload,
 		false, "").Return(authResponse, nil)
 
 	body, _ := json.Marshal(authRequest)
@@ -132,12 +131,12 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestWit
 	identifiers := map[string]interface{}{
 		"username": "testuser",
 	}
-	credentials := map[string]interface{}{
+	credentialsPayload := map[string]interface{}{
 		"password": "testpass",
 	}
 	authRequest := map[string]interface{}{
 		"identifiers":   identifiers,
-		"credentials":   credentials,
+		"credentials":   credentialsPayload,
 		"skipAssertion": true,
 	}
 	authResponse := &common.AuthenticationResponse{
@@ -146,7 +145,7 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestWit
 		OUID: "test-ou",
 	}
 
-	suite.mockService.On("AuthenticateWithCredentials", mock.Anything, identifiers, credentials,
+	suite.mockService.On("AuthenticateWithCredentials", mock.Anything, identifiers, credentialsPayload,
 		true, "").Return(authResponse, nil)
 
 	body, _ := json.Marshal(authRequest)
@@ -168,12 +167,12 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestWit
 	identifiers := map[string]interface{}{
 		"username": "testuser",
 	}
-	credentials := map[string]interface{}{
+	credentialsPayload := map[string]interface{}{
 		"password": "testpass",
 	}
 	authRequest := map[string]interface{}{
 		"identifiers": identifiers,
-		"credentials": credentials,
+		"credentials": credentialsPayload,
 		"assertion":   existingAssertion,
 	}
 	authResponse := &common.AuthenticationResponse{
@@ -183,7 +182,7 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestWit
 		Assertion: "updated.jwt.token",
 	}
 
-	suite.mockService.On("AuthenticateWithCredentials", mock.Anything, identifiers, credentials,
+	suite.mockService.On("AuthenticateWithCredentials", mock.Anything, identifiers, credentialsPayload,
 		false, existingAssertion).Return(authResponse, nil)
 
 	body, _ := json.Marshal(authRequest)
@@ -232,9 +231,9 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestSer
 					"password": "wrongpass",
 				},
 			},
-			serviceError:       &credentials.ErrorInvalidCredentials,
+			serviceError:       &ErrorInvalidCredentials,
 			expectedStatusCode: http.StatusUnauthorized,
-			expectedErrorCode:  credentials.ErrorInvalidCredentials.Code,
+			expectedErrorCode:  ErrorInvalidCredentials.Code,
 		},
 		{
 			name: "UserNotFound",
@@ -261,10 +260,12 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestSer
 				},
 			},
 			serviceError: &serviceerror.ServiceError{
-				Type:             serviceerror.ClientErrorType,
-				Code:             "CUSTOM_ERROR",
-				Error:            "Custom error",
-				ErrorDescription: "Custom error description",
+				Type:  serviceerror.ClientErrorType,
+				Code:  "CUSTOM_ERROR",
+				Error: core.I18nMessage{Key: "error.test.custom_error", DefaultValue: "Custom error"},
+				ErrorDescription: core.I18nMessage{
+					Key: "error.test.custom_error_description", DefaultValue: "Custom error description",
+				},
 			},
 			expectedStatusCode: http.StatusBadRequest,
 			expectedErrorCode:  "CUSTOM_ERROR",
@@ -280,10 +281,12 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleCredentialsAuthRequestSer
 				},
 			},
 			serviceError: &serviceerror.ServiceError{
-				Type:             serviceerror.ServerErrorType,
-				Code:             "INTERNAL_ERROR",
-				Error:            "Internal error",
-				ErrorDescription: "Internal error description",
+				Type:  serviceerror.ServerErrorType,
+				Code:  "INTERNAL_ERROR",
+				Error: core.I18nMessage{Key: "error.test.internal_error", DefaultValue: "Internal error"},
+				ErrorDescription: core.I18nMessage{
+					Key: "error.test.internal_error_description", DefaultValue: "Internal error description",
+				},
 			},
 			expectedStatusCode: http.StatusInternalServerError,
 			expectedErrorCode:  "INTERNAL_ERROR",
@@ -358,8 +361,8 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleSendSMSOTPRequestServiceE
 	serviceError := &serviceerror.ServiceError{
 		Type:             serviceerror.ClientErrorType,
 		Code:             "OTP_ERROR",
-		Error:            "OTP error",
-		ErrorDescription: "Failed to send OTP",
+		Error:            core.I18nMessage{Key: "error.test.otp_error", DefaultValue: "OTP error"},
+		ErrorDescription: core.I18nMessage{Key: "error.test.failed_to_send_otp", DefaultValue: "Failed to send OTP"},
 	}
 
 	suite.mockService.On("SendOTP", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("", serviceError)
@@ -427,7 +430,17 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleVerifySMSOTPRequestServic
 		SkipAssertion: false,
 		OTP:           "123456",
 	}
-	serviceError := &otp.ErrorIncorrectOTP
+	serviceError := &serviceerror.ServiceError{
+		Type: serviceerror.ClientErrorType,
+		Code: ErrorOTPAuthenticationFailed.Code,
+		Error: core.I18nMessage{
+			Key: "error.test.authentication_failed", DefaultValue: "Authentication failed",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.test.the_provided_otp_is_incorrect_or_has_expired",
+			DefaultValue: "The provided OTP is incorrect or has expired",
+		},
+	}
 
 	suite.mockService.On("VerifyOTP", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, serviceError)
@@ -442,7 +455,7 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleVerifySMSOTPRequestServic
 	var errResp apierror.ErrorResponse
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)
 	suite.NoError(err)
-	suite.Equal(otp.ErrorIncorrectOTP.Code, errResp.Code)
+	suite.Equal(ErrorOTPAuthenticationFailed.Code, errResp.Code)
 }
 
 func (suite *AuthenticationHandlerTestSuite) TestHandleGoogleAuthStartRequestSuccess() {
@@ -637,10 +650,12 @@ func (suite *AuthenticationHandlerTestSuite) TestHandleGithubAuthFinishRequestSe
 		Code:          "auth_code_123",
 	}
 	serviceError := &serviceerror.ServiceError{
-		Type:             serviceerror.ServerErrorType,
-		Code:             "INTERNAL_ERROR",
-		Error:            "Internal error",
-		ErrorDescription: "Internal error description",
+		Type:  serviceerror.ServerErrorType,
+		Code:  "INTERNAL_ERROR",
+		Error: core.I18nMessage{Key: "error.test.internal_error", DefaultValue: "Internal error"},
+		ErrorDescription: core.I18nMessage{
+			Key: "error.test.internal_error_description", DefaultValue: "Internal error description",
+		},
 	}
 
 	suite.mockService.On("FinishIDPAuthentication", mock.Anything, idp.IDPTypeGitHub, mock.Anything, mock.Anything,
@@ -890,10 +905,12 @@ func (suite *AuthenticationHandlerTestSuite) TestHandlePasskeyRegisterFinishRequ
 		SessionToken: testSessionTkn,
 	}
 	serviceError := &serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "INVALID_ATTESTATION",
-		Error:            "Invalid attestation",
-		ErrorDescription: "Failed to verify attestation",
+		Type:  serviceerror.ClientErrorType,
+		Code:  "INVALID_ATTESTATION",
+		Error: core.I18nMessage{Key: "error.test.invalid_attestation", DefaultValue: "Invalid attestation"},
+		ErrorDescription: core.I18nMessage{
+			Key: "error.test.failed_to_verify_attestation", DefaultValue: "Failed to verify attestation",
+		},
 	}
 
 	suite.mockService.On("FinishPasskeyRegistration",
@@ -1058,10 +1075,12 @@ func (suite *AuthenticationHandlerTestSuite) TestHandlePasskeyFinishRequestServi
 		SessionToken: testSessionTkn,
 	}
 	serviceError := &serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "INVALID_SIGNATURE",
-		Error:            "Invalid signature",
-		ErrorDescription: "Failed to verify signature",
+		Type:  serviceerror.ClientErrorType,
+		Code:  "INVALID_SIGNATURE",
+		Error: core.I18nMessage{Key: "error.test.invalid_signature", DefaultValue: "Invalid signature"},
+		ErrorDescription: core.I18nMessage{
+			Key: "error.test.failed_to_verify_signature", DefaultValue: "Failed to verify signature",
+		},
 	}
 
 	suite.mockService.On("FinishPasskeyAuthentication",

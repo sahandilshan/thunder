@@ -4,7 +4,7 @@ info:
   title: Flow Management API
   version: "1.0"
   description: |
-    This API is used to manage flow definitions such as authentication and registration flows.
+    Flows in ThunderID are node-graph definitions that orchestrate authentication and registration sessions; use this API to create, version, and activate flow definitions that the execution engine steps through at runtime.
     
     Flows are defined using a **node-based graph representation** where each node represents 
     a specific action or interaction in the flow. Nodes are connected through explicit 
@@ -45,6 +45,12 @@ servers:
         default: "localhost"
       port:
         default: "8090"
+
+tags:
+  - name: Flow Management
+    description: CRUD operations for flow definitions.
+  - name: Flow Versioning
+    description: Operations for listing and activating flow versions.
 
 security:
   - OAuth2: [system]
@@ -96,17 +102,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1001"
-                message: "Invalid pagination parameter"
-                description: "The limit parameter must be between 1 and 100"
+                code: "FLM-1006"
+                message:
+                  key: "error.flowmgtservice.invalid_limit_parameter"
+                  defaultValue: "Invalid pagination parameter"
+                description:
+                  key: "error.flowmgtservice.invalid_limit_parameter_description"
+                  defaultValue: "The limit parameter must be a positive integer"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/Error'
 
     post:
       tags:
@@ -133,17 +147,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1001"
-                message: "Invalid request format"
-                description: "The request body is malformed or contains invalid data"
+                code: "FLM-1001"
+                message:
+                  key: "error.flowmgtservice.invalid_request_format"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.flowmgtservice.invalid_request_format_description"
+                  defaultValue: "The request body is malformed or contains invalid data"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/Error'
 
   /flows/{flowId}:
     get:
@@ -171,17 +193,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1006"
-                message: "Flow not found"
-                description: "The flow with the specified ID does not exist"
+                code: "FLM-1003"
+                message:
+                  key: "error.flowmgtservice.flow_not_found"
+                  defaultValue: "Flow not found"
+                description:
+                  key: "error.flowmgtservice.flow_not_found_description"
+                  defaultValue: "The flow with the specified ID does not exist"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/Error'
 
     put:
       tags:
@@ -214,27 +244,39 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1001"
-                message: "Invalid request format"
-                description: "The request body is malformed or contains invalid data"
+                code: "FLM-1001"
+                message:
+                  key: "error.flowmgtservice.invalid_request_format"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.flowmgtservice.invalid_request_format_description"
+                  defaultValue: "The request body is malformed or contains invalid data"
         '404':
           description: Flow not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1006"
-                message: "Flow not found"
-                description: "The flow with the specified ID does not exist"
+                code: "FLM-1003"
+                message:
+                  key: "error.flowmgtservice.flow_not_found"
+                  defaultValue: "Flow not found"
+                description:
+                  key: "error.flowmgtservice.flow_not_found_description"
+                  defaultValue: "The flow with the specified ID does not exist"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/Error'
 
     delete:
       tags:
@@ -253,31 +295,42 @@ paths:
         '204':
           description: Flow deleted successfully
         '400':
-          description: Bad request
+          description: Bad request — missing/invalid flow ID or attempting to delete a declarative (read-only) flow
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
-              example:
-                code: "FMS-1002"
-                message: "Invalid flow ID"
-                description: "The provided flow ID is not a valid UUID"
-        '409':
-          description: Flow cannot be deleted (e.g., it's a default flow or currently in use)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClientError'
-              example:
-                code: "FMS-1007"
-                message: "Flow cannot be deleted"
-                description: "Cannot delete a default flow or a flow that is currently in use"
+                $ref: '#/components/schemas/Error'
+              examples:
+                missing-id:
+                  summary: Flow ID not provided
+                  value:
+                    code: "FLM-1002"
+                    message:
+                      key: "error.flowmgtservice.invalid_flow_id"
+                      defaultValue: "Invalid flow ID"
+                    description:
+                      key: "error.flowmgtservice.invalid_flow_id_description"
+                      defaultValue: "The flow ID must be provided"
+                immutable-flow:
+                  summary: Declarative flow cannot be deleted
+                  value:
+                    code: "FLM-1017"
+                    message:
+                      key: "error.flowmgtservice.flow_is_immutable"
+                      defaultValue: "Flow is immutable"
+                    description:
+                      key: "error.flowmgtservice.flow_is_immutable_description"
+                      defaultValue: "Declarative flows cannot be modified or deleted"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/Error'
 
   /flows/{flowId}/versions:
     get:
@@ -306,17 +359,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1006"
-                message: "Flow not found"
-                description: "The flow with the specified ID does not exist"
+                code: "FLM-1003"
+                message:
+                  key: "error.flowmgtservice.flow_not_found"
+                  defaultValue: "Flow not found"
+                description:
+                  key: "error.flowmgtservice.flow_not_found_description"
+                  defaultValue: "The flow with the specified ID does not exist"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/Error'
 
   /flows/{flowId}/versions/{version}:
     get:
@@ -351,17 +412,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1006"
-                message: "Version not found"
-                description: "The specified version does not exist for this flow"
+                code: "FLM-1008"
+                message:
+                  key: "error.flowmgtservice.flow_version_not_found"
+                  defaultValue: "Flow version not found"
+                description:
+                  key: "error.flowmgtservice.flow_version_not_found_description"
+                  defaultValue: "The requested flow version does not exist"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/Error'
 
   /flows/{flowId}/restore:
     post:
@@ -387,37 +456,49 @@ paths:
               $ref: '#/components/schemas/RestoreVersionRequest'
       responses:
         '200':
-          description: Flow restored successfully
+          description: Flow restored successfully — returns the updated flow definition with the new active version
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FlowVersionResponse'
+                $ref: '#/components/schemas/FlowDefinitionResponse'
         '400':
           description: Invalid request
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1001"
-                message: "Invalid version"
-                description: "The specified version number is invalid"
+                code: "FLM-1009"
+                message:
+                  key: "error.flowmgtservice.invalid_flow_version"
+                  defaultValue: "Invalid flow version"
+                description:
+                  key: "error.flowmgtservice.invalid_flow_version_description"
+                  defaultValue: "The specified flow version is invalid"
         '404':
           description: Flow or version not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientError'
+                $ref: '#/components/schemas/Error'
               example:
-                code: "FMS-1006"
-                message: "Version not found"
-                description: "The specified version does not exist for this flow"
+                code: "FLM-1008"
+                message:
+                  key: "error.flowmgtservice.flow_version_not_found"
+                  defaultValue: "Flow version not found"
+                description:
+                  key: "error.flowmgtservice.flow_version_not_found_description"
+                  defaultValue: "The requested flow version does not exist"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerError'
+                $ref: '#/components/schemas/Error'
 
 components:
   securitySchemes:
@@ -429,6 +510,40 @@ components:
           tokenUrl: https://localhost:8090/oauth2/token
           scopes:
             system: Access to system management APIs
+        clientCredentials:
+          tokenUrl: https://localhost:8090/oauth2/token
+          scopes:
+            system: Access to system management APIs
+
+  responses:
+    Unauthorized:
+      description: Unauthorized - missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "AUTH-4010"
+            message:
+              key: "error.unauthorized"
+              defaultValue: "Unauthorized"
+            description:
+              key: "error.unauthorized_description"
+              defaultValue: "Authentication is required to access this resource"
+    Forbidden:
+      description: Forbidden - insufficient permissions to perform this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "AUTH-4030"
+            message:
+              key: "error.forbidden"
+              defaultValue: "Forbidden"
+            description:
+              key: "error.forbidden_description"
+              defaultValue: "You do not have sufficient permissions to access this resource"
 
   schemas:
     FlowListResponse:
@@ -465,6 +580,7 @@ components:
             name: "Basic Authentication Flow"
             handle: "default-basic-flow"
             activeVersion: 2
+            isReadOnly: true
             createdAt: "2024-01-15T10:20:30Z"
             updatedAt: "2024-02-20T14:25:35Z"
           - id: "2sd4f6g7-h8i9-0j1k-2l3m-4n5o6p7q8r9s"
@@ -472,6 +588,7 @@ components:
             name: "Basic Registration Flow"
             handle: "basic-registration-flow"
             activeVersion: 7
+            isReadOnly: false
             createdAt: "2024-03-10T09:15:25Z"
             updatedAt: "2024-04-12T11:30:40Z"
           - id: "b12c3d45-6789-4e0f-9abc-def123456789"
@@ -479,6 +596,7 @@ components:
             name: "Google Registration Flow"
             handle: "google-registration-flow"
             activeVersion: 1
+            isReadOnly: false
             createdAt: "2024-05-05T08:10:20Z"
             updatedAt: "2024-06-01T12:00:00Z"
         links:
@@ -566,6 +684,7 @@ components:
         - name
         - handle
         - activeVersion
+        - isReadOnly
         - createdAt
         - updatedAt
       properties:
@@ -592,6 +711,10 @@ components:
           type: integer
           description: The version number that is currently active
           example: 5
+        isReadOnly:
+          type: boolean
+          description: Whether this flow is immutable (declarative resource — cannot be modified or deleted)
+          example: false
         createdAt:
           type: string
           format: date-time
@@ -686,20 +809,22 @@ components:
                 - type: ACTION
                   id: action_002
                   label: "{{ t(signin:buttons.continue.with.sms.otp.label) }}"
-            inputs:
-              - ref: input_001
-                type: TEXT_INPUT
-                identifier: username
-                required: true
-              - ref: input_002
-                type: PASSWORD_INPUT
-                identifier: password
-                required: true
-            actions:
-              - ref: action_001
-                nextNode: node_004
-              - ref: action_002
-                nextNode: node_002
+            prompts:
+              - inputs:
+                  - ref: input_001
+                    type: TEXT_INPUT
+                    identifier: username
+                    required: true
+                  - ref: input_002
+                    type: PASSWORD_INPUT
+                    identifier: password
+                    required: true
+                action:
+                  ref: action_001
+                  nextNode: node_004
+              - action:
+                  ref: action_002
+                  nextNode: node_002
           - id: node_002
             type: TASK_EXECUTION
             layout:
@@ -744,16 +869,18 @@ components:
                 - type: ACTION
                   id: action_004
                   label: "{{ t(sms.otp:verify.buttons.resend) }}"
-            inputs:
-              - ref: otp_001
-                type: OTP_INPUT
-                identifier: otp
-                required: true
-            actions:
-              - ref: action_003
-                nextNode: node_005
-              - ref: action_004
-                nextNode: node_002
+            prompts:
+              - inputs:
+                  - ref: otp_001
+                    type: OTP_INPUT
+                    identifier: otp
+                    required: true
+                action:
+                  ref: action_003
+                  nextNode: node_005
+              - action:
+                  ref: action_004
+                  nextNode: node_002
           - id: node_004
             type: TASK_EXECUTION
             layout:
@@ -765,15 +892,15 @@ components:
                 y: 100
             executor:
               name: BasicAuthExecutor
-            inputs:
-              - ref: input_001
-                identifier: username
-                type: TEXT_INPUT
-                required: true
-              - ref: input_002
-                identifier: password
-                type: PASSWORD_INPUT
-                required: true
+              inputs:
+                - ref: input_001
+                  identifier: username
+                  type: TEXT_INPUT
+                  required: true
+                - ref: input_002
+                  identifier: password
+                  type: PASSWORD_INPUT
+                  required: true
             onSuccess: node_008
           - id: node_005
             type: TASK_EXECUTION
@@ -786,13 +913,13 @@ components:
                 y: 320
             executor:
               name: VerifyOTPExecutor
+              inputs:
+                - ref: otp_001
+                  identifier: otp
+                  type: OTP_INPUT
+                  required: true
             properties:
               senderId: "<SENDER_ID>"
-            inputs:
-              - ref: otp_001
-                identifier: otp
-                type: OTP_INPUT
-                required: true
             onSuccess: node_008
           - id: node_007
             type: PROMPT
@@ -814,9 +941,10 @@ components:
                 - type: ACTION
                   id: action_007
                   label: "{{ t(sms.otp:error.buttons.retry) }}"
-            actions:
-              - ref: action_007
-                nextNode: node_002
+            prompts:
+              - action:
+                  ref: action_007
+                  nextNode: node_002
           - id: node_008
             type: END
             layout:
@@ -835,6 +963,7 @@ components:
         - flowType
         - handle
         - activeVersion
+        - isReadOnly
         - nodes
         - createdAt
         - updatedAt
@@ -866,6 +995,10 @@ components:
           type: integer
           description: The version number that is currently active
           example: 5
+        isReadOnly:
+          type: boolean
+          description: Whether this flow is immutable (declarative resource — cannot be modified or deleted)
+          example: false
         nodes:
           type: array
           minItems: 2
@@ -886,6 +1019,7 @@ components:
         flowType: AUTHENTICATION
         handle: default-basic-flow
         activeVersion: 5
+        isReadOnly: false
         nodes: *authFlowNodes
         createdAt: "2024-06-15T10:20:30Z"
         updatedAt: "2024-06-20T14:25:35Z"
@@ -980,18 +1114,25 @@ components:
           description: Optional UI metadata for PROMPT nodes (verbose mode)
           allOf:
             - $ref: '#/components/schemas/NodeMeta'
-        inputs:
+        prompts:
           type: array
           items:
-            $ref: '#/components/schemas/NodeInput'
+            $ref: '#/components/schemas/PromptDefinition'
           description: |
-            Input definitions for PROMPT nodes (required) and TASK_EXECUTION nodes (optional).
-            For TASK_EXECUTION nodes, inputs indicate which identifiers the executor should use.
-        actions:
-          type: array
-          items:
-            $ref: '#/components/schemas/NodeAction'
-          description: Available actions for PROMPT nodes
+            Prompt groups for PROMPT nodes. Each entry pairs a set of inputs with a single
+            action (navigation target). Mutually exclusive with `next`.
+        variant:
+          type: string
+          description: |
+            Optional PROMPT node sub-type. Use `LOGIN_OPTIONS` to activate login method
+            filtering on this node.
+          enum:
+            - LOGIN_OPTIONS
+          example: LOGIN_OPTIONS
+        condition:
+          description: Optional condition that gates whether this node executes
+          allOf:
+            - $ref: '#/components/schemas/ConditionDefinition'
         properties:
           type: object
           additionalProperties: true
@@ -1012,6 +1153,25 @@ components:
           type: string
           description: Next node ID on failed execution (TASK_EXECUTION nodes)
           example: node_007
+        onIncomplete:
+          type: string
+          description: |
+            For TASK_EXECUTION nodes: ID of the PROMPT node to transition to when user input
+            is required to complete the task.
+          example: node_003
+        next:
+          type: string
+          description: |
+            For display-only PROMPT nodes: ID of the next node to automatically transition to
+            after the display content is rendered. Mutually exclusive with `prompts`.
+          example: node_005
+        message:
+          type: string
+          description: |
+            For display-only PROMPT nodes: a plain-text message returned in non-verbose mode
+            alongside the flow status, intended for lightweight clients that do not process
+            the full meta/components payload.
+          example: "Registration complete. You may now sign in."
 
     NodeLayout:
       type: object
@@ -1104,6 +1264,13 @@ components:
           type: string
           description: Reference to the action component ID in meta.components
           example: action_001
+        type:
+          type: string
+          description: |
+            Optional action type forwarded to the next executor so it can determine which
+            processing path to take. Predefined values are `SUBMIT` (approve/confirm) and
+            `REJECT` (deny/cancel). If omitted, no action-type hint is forwarded.
+          example: SUBMIT
         nextNode:
           type: string
           description: ID of the next node to navigate to when this action is triggered
@@ -1116,9 +1283,19 @@ components:
       properties:
         name:
           type: string
-          description: |
-            Name of the registered executor
+          description: Name of the registered executor
           example: BasicAuthExecutor
+        mode:
+          type: string
+          description: Optional execution mode or configuration hint for the executor
+          example: "default"
+        inputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeInput'
+          description: |
+            Input references the executor should read from the accumulated user inputs.
+            Each entry maps a flow input (by ref/identifier) to the executor's expected parameter.
 
     Component:
       type: object
@@ -1166,34 +1343,68 @@ components:
             $ref: '#/components/schemas/Component'
           description: Nested child components (for BLOCK type)
 
-    ClientError:
+
+    PromptDefinition:
+      type: object
+      description: |
+        Groups a set of inputs with the action taken when the user submits them.
+        A PROMPT node may have multiple prompt groups — one per available action path.
+      properties:
+        inputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeInput'
+          description: Input fields presented to the user for this prompt group
+        action:
+          description: The action triggered when the user submits this prompt group
+          allOf:
+            - $ref: '#/components/schemas/NodeAction'
+
+    ConditionDefinition:
+      type: object
+      description: |
+        Optional condition that determines whether a node should execute.
+        If the condition is not met, the engine skips the node and transitions to `onSkip`.
+      required:
+        - key
+        - value
+        - onSkip
+      properties:
+        key:
+          type: string
+          description: Runtime data key to evaluate
+          example: "userAutoProvisioned"
+        value:
+          type: string
+          description: Expected value to match against the runtime key
+          example: "true"
+        onSkip:
+          type: string
+          description: ID of the node to transition to when the condition is not met
+          example: node_005
+
+    Error:
       type: object
       properties:
         code:
           type: string
-          description: The error code
-          example: "FMS-1001"
+          description: "Error code. Client errors follow the FLM-XXXX convention; server errors use SSE-XXXX."
+          example: "FLM-1001"
         message:
-          type: string
-          description: The error message
-          example: "Invalid request format"
+          $ref: '#/components/schemas/I18nMessage'
         description:
-          type: string
-          description: A detailed description of the error
-          example: "The request body is malformed or contains invalid data"
-    
-    ServerError:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
       type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
       properties:
-        code:
+        key:
           type: string
-          description: The server error code
-          example: "SSE-5000"
-        message:
+          description: Translation key for fetching localized message.
+        defaultValue:
           type: string
-          description: The server error message
-          example: "Internal server error"
-        description:
-          type: string
-          description: A detailed description of the server error
-          example: "An unexpected error occurred while processing the request"
+          description: Default message in English (fallback).

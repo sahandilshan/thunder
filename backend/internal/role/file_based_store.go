@@ -23,10 +23,10 @@ import (
 	"errors"
 	"strings"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 type fileBasedStore struct {
@@ -44,7 +44,7 @@ func newFileBasedStore() (roleStoreInterface, transaction.Transactioner) {
 func (f *fileBasedStore) Create(id string, data interface{}) error {
 	role, ok := data.(*RoleWithPermissionsAndAssignments)
 	if !ok {
-		return errors.New("role data corrupted")
+		return ErrRoleDataCorrupted
 	}
 	if role.ID == "" {
 		role.ID = id
@@ -153,6 +153,16 @@ func (f *fileBasedStore) GetRoleAssignments(
 	id string,
 	limit, offset int,
 ) ([]RoleAssignment, error) {
+	return f.GetRoleAssignmentsByType(ctx, id, limit, offset, "")
+}
+
+// GetRoleAssignmentsByType returns assignments for a role filtered by assignee type.
+func (f *fileBasedStore) GetRoleAssignmentsByType(
+	ctx context.Context,
+	id string,
+	limit, offset int,
+	assigneeType string,
+) ([]RoleAssignment, error) {
 	if limit <= 0 {
 		return []RoleAssignment{}, nil
 	}
@@ -176,7 +186,7 @@ func (f *fileBasedStore) GetRoleAssignments(
 		return nil, err
 	}
 
-	assignments := roleData.Assignments
+	assignments := filterAssignmentsByType(roleData.Assignments, assigneeType)
 	start := offset
 	if start >= len(assignments) {
 		return []RoleAssignment{}, nil
@@ -191,6 +201,13 @@ func (f *fileBasedStore) GetRoleAssignments(
 
 // GetRoleAssignmentsCount returns the assignment count for a role in the file-based store.
 func (f *fileBasedStore) GetRoleAssignmentsCount(ctx context.Context, id string) (int, error) {
+	return f.GetRoleAssignmentsCountByType(ctx, id, "")
+}
+
+// GetRoleAssignmentsCountByType returns the assignment count for a role filtered by type.
+func (f *fileBasedStore) GetRoleAssignmentsCountByType(
+	ctx context.Context, id string, assigneeType string,
+) (int, error) {
 	data, err := f.GenericFileBasedStore.Get(id)
 	if err != nil {
 		// Distinguish "not found" from other storage errors
@@ -207,7 +224,21 @@ func (f *fileBasedStore) GetRoleAssignmentsCount(ctx context.Context, id string)
 		return 0, err
 	}
 
-	return len(roleData.Assignments), nil
+	return len(filterAssignmentsByType(roleData.Assignments, assigneeType)), nil
+}
+
+// filterAssignmentsByType filters assignments by assignee type. If assigneeType is empty, all assignments are returned.
+func filterAssignmentsByType(assignments []RoleAssignment, assigneeType string) []RoleAssignment {
+	if assigneeType == "" {
+		return assignments
+	}
+	filtered := make([]RoleAssignment, 0)
+	for _, a := range assignments {
+		if string(a.Type) == assigneeType {
+			filtered = append(filtered, a)
+		}
+	}
+	return filtered
 }
 
 // UpdateRole is not supported in file-based store.
@@ -218,6 +249,11 @@ func (f *fileBasedStore) UpdateRole(ctx context.Context, id string, role RoleUpd
 // DeleteRole is not supported in file-based store.
 func (f *fileBasedStore) DeleteRole(ctx context.Context, id string) error {
 	return errors.New("DeleteRole is not supported in file-based store")
+}
+
+// DeleteAssignmentsByRoleID is not supported in file-based store.
+func (f *fileBasedStore) DeleteAssignmentsByRoleID(ctx context.Context, id string) error {
+	return errors.New("DeleteAssignmentsByRoleID is not supported in file-based store")
 }
 
 // AddAssignments is not supported in file-based store.
@@ -284,17 +320,17 @@ func (f *fileBasedStore) CheckRoleNameExistsExcludingID(
 	return false, nil
 }
 
-// GetAuthorizedPermissions returns permissions from roles assigned to the user or groups in the file store.
+// GetAuthorizedPermissions returns permissions from roles assigned to the entity or groups in the file store.
 func (f *fileBasedStore) GetAuthorizedPermissions(
 	ctx context.Context,
-	userID string,
+	entityID string,
 	groupIDs []string,
 	requestPermissions []string,
 ) ([]string, error) {
 	if len(requestPermissions) == 0 {
 		return []string{}, nil
 	}
-	if userID == "" && len(groupIDs) == 0 {
+	if entityID == "" && len(groupIDs) == 0 {
 		return []string{}, nil
 	}
 
@@ -323,7 +359,7 @@ func (f *fileBasedStore) GetAuthorizedPermissions(
 				log.Error(err))
 			continue
 		}
-		if !matchesAssignee(roleData.Assignments, userID, groupSet) {
+		if !matchesAssignee(roleData.Assignments, entityID, groupSet) {
 			continue
 		}
 		for _, resourcePerms := range roleData.Permissions {
@@ -344,6 +380,52 @@ func (f *fileBasedStore) GetAuthorizedPermissions(
 	return result, nil
 }
 
+// GetUserRoles retrieves the names of roles assigned to an entity directly and/or through group membership.
+func (f *fileBasedStore) GetUserRoles(
+	ctx context.Context, entityID string, groupIDs []string,
+) ([]string, error) {
+	if entityID == "" && len(groupIDs) == 0 {
+		return []string{}, nil
+	}
+
+	list, err := f.GenericFileBasedStore.List()
+	if err != nil {
+		return nil, err
+	}
+
+	groupSet := make(map[string]bool, len(groupIDs))
+	for _, groupID := range groupIDs {
+		groupSet[groupID] = true
+	}
+
+	roleNames := make([]string, 0)
+	for _, item := range list {
+		roleData, err := roleFromDeclarativeData(item.ID.ID, item.Data)
+		if err != nil {
+			log.GetLogger().Warn("Skipping malformed role in GetUserRoles",
+				log.String("roleID", item.ID.ID),
+				log.Error(err))
+			continue
+		}
+		if !matchesAssignee(roleData.Assignments, entityID, groupSet) {
+			continue
+		}
+		roleNames = append(roleNames, roleData.Name)
+	}
+
+	return roleNames, nil
+}
+
+// GetEntityRoleIDs is a no-op for the file-based store. Role assignments are persisted in the
+// database store and queried from there by the composite store; the file store has no
+// independent record of API-added assignments. Returning an empty slice keeps the composite
+// merge correct (callers union the result with the DB store's output).
+func (f *fileBasedStore) GetEntityRoleIDs(
+	ctx context.Context, entityID string, groupIDs []string,
+) ([]string, error) {
+	return []string{}, nil
+}
+
 // IsRoleDeclarative returns true for roles in the file-based store because they are declarative.
 func (f *fileBasedStore) IsRoleDeclarative(ctx context.Context, roleID string) (bool, error) {
 	exists, err := f.IsRoleExist(ctx, roleID)
@@ -358,7 +440,7 @@ func roleFromDeclarativeData(id string, data interface{}) (RoleWithPermissionsAn
 	role, ok := data.(*RoleWithPermissionsAndAssignments)
 	if !ok || role == nil {
 		declarativeresource.LogTypeAssertionError("role", id)
-		return RoleWithPermissionsAndAssignments{}, errors.New("role data corrupted")
+		return RoleWithPermissionsAndAssignments{}, ErrRoleDataCorrupted
 	}
 
 	return *role, nil
@@ -375,10 +457,10 @@ func isEntityNotFoundError(err error) bool {
 	return errMsg == "entity not found" || strings.Contains(errMsg, "not found")
 }
 
-// matchesAssignee returns true when the user or any of the user's groups is assigned.
-func matchesAssignee(assignments []RoleAssignment, userID string, groupSet map[string]bool) bool {
+// matchesAssignee returns true when the entity or any of the entity's groups is assigned.
+func matchesAssignee(assignments []RoleAssignment, entityID string, groupSet map[string]bool) bool {
 	for _, assignment := range assignments {
-		if assignment.Type == AssigneeTypeUser && assignment.ID == userID {
+		if assignment.Type == assigneeTypeEntity && assignment.ID == entityID {
 			return true
 		}
 		if assignment.Type == AssigneeTypeGroup && groupSet[assignment.ID] {

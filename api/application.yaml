@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Application Management API
   version: "1.0"
-  description: This API is used to manage applications.
+  description: Create and manage client applications registered with ThunderID. Applications define OAuth2/OIDC client configuration, associated authentication flows, and branding.
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
@@ -16,8 +16,8 @@ servers:
         default: "8090"
 
 tags:
-  - name: applications
-    description: Operations related to application management
+  - name: Applications
+    description: CRUD operations for registered client applications.
 
 security:
   - OAuth2: [system]
@@ -26,9 +26,12 @@ paths:
   /applications:
     get:
       tags:
-        - applications
+        - Applications
       summary: List applications
       description: Retrieve a list of all applications.
+      parameters:
+        - $ref: '#/components/parameters/limitQueryParam'
+        - $ref: '#/components/parameters/offsetQueryParam'
       responses:
         "200":
           description: List of applications
@@ -48,6 +51,8 @@ paths:
                     authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
                     registrationFlowId: "80024fb3-29ed-4c33-aa48-8aee5e96d522"
                     isRegistrationFlowEnabled: true
+                    recoveryFlowId: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+                    isRecoveryFlowEnabled: true
                   - id: "660e8400-e29b-41d4-a716-446655440001"
                     name: "Mobile App"
                     description: "Mobile application for customers"
@@ -56,19 +61,14 @@ paths:
                     authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
                     registrationFlowId: "80024fb3-29ed-4c33-aa48-8aee5e96d522"
                     isRegistrationFlowEnabled: false
+                    recoveryFlowId: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+                    isRecoveryFlowEnabled: false
         "400":
           description: Bad request
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              examples:
-                invalid-limit:
-                  summary: Invalid limit parameter
-                  value:
-                    code: "APP-1001"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be a positive integer"
         "500":
           description: Internal server error
           content:
@@ -77,12 +77,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "APP-5001"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     post:
       tags:
-        - applications
+        - Applications
       summary: Create an application
       description: Creates a new application with the provided details.
       requestBody:
@@ -92,11 +96,14 @@ paths:
             schema:
               $ref: '#/components/schemas/ApplicationRequest'
             example:
+              ouId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
               name: "My Web Application"
               description: "Customer portal application"
               authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
               registrationFlowId: "80024fb3-29ed-4c33-aa48-8aee5e96d522"
               isRegistrationFlowEnabled: true
+              recoveryFlowId: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+              isRecoveryFlowEnabled: true
               url: "https://myapp.example.com"
               logoUrl: "https://myapp.example.com/logo.png"
               tosUri: "https://myapp.example.com/terms"
@@ -130,6 +137,8 @@ paths:
                     tokenEndpointAuthMethod: "client_secret_basic"
                     pkceRequired: false
                     publicClient: false
+                    requirePushedAuthorizationRequests: false
+                    dpopBoundAccessTokens: false
                     scopes:
                       - "openid"
                       - "profile"
@@ -141,11 +150,17 @@ paths:
                       idToken:
                         validityPeriod: 3600
                         userAttributes: ["email", "name", "given_name", "family_name"]
+                        responseType: "JWE"
+                        encryptionAlg: "RSA-OAEP-256"
+                        encryptionEnc: "A256GCM"
                     userInfo:
+                      responseType: "JWS"
+                      signingAlg: "RS256"
                       userAttributes: ["email", "name", "given_name", "family_name", "picture"]
                     scopeClaims:
                       profile: ["name", "family_name", "given_name", "picture"]
                       employee: ["emp_id", "department"]
+                    acrValues: ["urn:thunder:silver", "urn:thunder:gold"]
       responses:
         "201":
           description: Application created
@@ -155,12 +170,15 @@ paths:
                 $ref: '#/components/schemas/ApplicationCompleteResponse'
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
+                ouId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                 name: "My Web Application"
                 description: "Customer portal application"
                 clientId: "myapp_client_id"
                 authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
                 registrationFlowId: "80024fb3-29ed-4c33-aa48-8aee5e96d522"
                 isRegistrationFlowEnabled: true
+                recoveryFlowId: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+                isRecoveryFlowEnabled: true
                 url: "https://myapp.example.com"
                 logoUrl: "https://myapp.example.com/logo.png"
                 tosUri: "https://myapp.example.com/terms"
@@ -195,6 +213,8 @@ paths:
                       tokenEndpointAuthMethod: "client_secret_basic"
                       pkceRequired: false
                       publicClient: false
+                      requirePushedAuthorizationRequests: false
+                      dpopBoundAccessTokens: false
                       scopes:
                         - "openid"
                         - "profile"
@@ -206,11 +226,17 @@ paths:
                         idToken:
                           validityPeriod: 1800
                           userAttributes: ["email", "email_verified", "name", "given_name", "family_name"]
+                          responseType: "JWE"
+                          encryptionAlg: "RSA-OAEP-256"
+                          encryptionEnc: "A256GCM"
                       userInfo:
+                        responseType: "JWS"
+                        signingAlg: "RS256"
                         userAttributes: ["email", "name", "given_name", "family_name", "picture"]
                       scopeClaims:
                         profile: ["name", "family_name", "given_name", "picture"]
                         employee: ["emp_id", "department"]
+                      acrValues: ["urn:thunder:silver", "urn:thunder:gold"]
         "400":
           description: Bad request
           content:
@@ -221,21 +247,33 @@ paths:
                 invalid-request-format:
                   summary: Invalid request format
                   value:
-                    code: "APP-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    code: "APP-1018"
+                    message:
+                      key: "error.applicationservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.applicationservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 invalid-redirect-uri:
                   summary: Invalid redirect URI
                   value:
-                    code: "APP-1002"
-                    message: "Invalid redirect URI"
-                    description: "One or more redirect URIs are not valid"
+                    code: "APP-1012"
+                    message:
+                      key: "error.applicationservice.invalid_redirect_uri"
+                      defaultValue: "Invalid redirect URI"
+                    description:
+                      key: "error.applicationservice.invalid_redirect_uri_description"
+                      defaultValue: "One or more provided redirect URIs are not valid URIs"
                 invalid-grant-type:
                   summary: Invalid grant type
                   value:
-                    code: "APP-1003"
-                    message: "Invalid grant type"
-                    description: "One or more grant types are not supported"
+                    code: "APP-1010"
+                    message:
+                      key: "error.applicationservice.invalid_grant_type"
+                      defaultValue: "Invalid grant type"
+                    description:
+                      key: "error.applicationservice.invalid_grant_type_description"
+                      defaultValue: "One or more provided grant types are invalid"
         "500":
           description: Internal server error
           content:
@@ -244,13 +282,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "APP-5001"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /applications/{id}:
     get:
       tags:
-        - applications
+        - Applications
       summary: Get an application by ID
       description: Retrieve a specific application using its ID.
       parameters:
@@ -271,12 +313,15 @@ paths:
                 $ref: '#/components/schemas/ApplicationGetResponse'
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
+                ouId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                 name: "My Web Application"
                 description: "Customer portal application"
                 clientId: "myapp_client_id"
                 authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
                 registrationFlowId: "80024fb3-29ed-4c33-aa48-8aee5e96d522"
                 isRegistrationFlowEnabled: true
+                recoveryFlowId: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+                isRecoveryFlowEnabled: true
                 url: "https://myapp.example.com"
                 logoUrl: "https://myapp.example.com/logo.png"
                 tosUri: "https://myapp.example.com/terms"
@@ -310,6 +355,8 @@ paths:
                       tokenEndpointAuthMethod: "client_secret_basic"
                       pkceRequired: false
                       publicClient: false
+                      requirePushedAuthorizationRequests: false
+                      dpopBoundAccessTokens: false
                       scopes:
                         - "openid"
                         - "profile"
@@ -321,11 +368,17 @@ paths:
                         idToken:
                           validityPeriod: 1800
                           userAttributes: ["email", "email_verified", "name", "given_name", "family_name"]
+                          responseType: "JWE"
+                          encryptionAlg: "RSA-OAEP-256"
+                          encryptionEnc: "A256GCM"
                       userInfo:
+                        responseType: "JWS"
+                        signingAlg: "RS256"
                         userAttributes: ["email", "name", "given_name", "family_name", "picture"]
                       scopeClaims:
                         profile: ["name", "family_name", "given_name", "picture"]
                         employee: ["emp_id", "department"]
+                      acrValues: ["urn:thunder:silver", "urn:thunder:gold"]
         "400":
           description: Bad request
           content:
@@ -333,9 +386,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                code: "APP-1001"
-                message: "Invalid request format"
-                description: "The request contains invalid data"
+                code: "APP-1002"
+                message:
+                  key: "error.applicationservice.invalid_application_id"
+                  defaultValue: "Invalid application ID"
+                description:
+                  key: "error.applicationservice.invalid_application_id_description"
+                  defaultValue: "The provided application ID is invalid or empty"
         "404":
           description: Application not found
           content:
@@ -343,9 +400,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                code: "APP-1004"
-                message: "Application not found"
-                description: "The application with the specified ID does not exist"
+                code: "APP-1001"
+                message:
+                  key: "error.applicationservice.application_not_found"
+                  defaultValue: "Application not found"
+                description:
+                  key: "error.applicationservice.application_not_found_description"
+                  defaultValue: "The requested application could not be found"
         "500":
           description: Internal server error
           content:
@@ -354,12 +415,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "APP-5001"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     put:
       tags:
-        - applications
+        - Applications
       summary: Update an application
       description: Update the details of an existing application.
       parameters:
@@ -378,11 +443,14 @@ paths:
             schema:
               $ref: '#/components/schemas/ApplicationRequest'
             example:
+              ouId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
               name: "Updated Web Application"
               description: "Updated customer portal application"
               authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
               registrationFlowId: "80024fb3-29ed-4c33-aa48-8aee5e96d522"
               isRegistrationFlowEnabled: true
+              recoveryFlowId: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+              isRecoveryFlowEnabled: true
               url: "https://myapp.example.com"
               logoUrl: "https://myapp.example.com/updated-logo.png"
               tosUri: "https://myapp.example.com/terms"
@@ -418,6 +486,7 @@ paths:
                     tokenEndpointAuthMethod: "client_secret_basic"
                     pkceRequired: false
                     publicClient: false
+                    dpopBoundAccessTokens: false
                     scopes:
                       - "openid"
                       - "profile"
@@ -429,11 +498,17 @@ paths:
                       idToken:
                         validityPeriod: 1800
                         userAttributes: ["email", "email_verified", "name", "given_name", "family_name"]
+                        responseType: "JWE"
+                        encryptionAlg: "RSA-OAEP-256"
+                        encryptionEnc: "A256GCM"
                     userInfo:
+                      responseType: "JWS"
+                      signingAlg: "RS256"
                       userAttributes: ["email", "name", "given_name", "family_name", "picture"]
                     scopeClaims:
                       profile: ["name", "family_name", "given_name", "picture"]
                       employee: ["emp_id", "department"]
+                    acrValues: ["urn:thunder:silver", "urn:thunder:gold"]
       responses:
         "200":
           description: Application updated
@@ -443,12 +518,15 @@ paths:
                 $ref: '#/components/schemas/ApplicationCompleteResponse'
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
+                ouId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                 name: "Updated Web Application"
                 description: "Updated customer portal application"
                 clientId: "myapp_client_id"
                 authFlowId: "edc013d0-e893-4dc0-990c-3e1d203e005b"
                 registrationFlowId: "80024fb3-29ed-4c33-aa48-8aee5e96d522"
                 isRegistrationFlowEnabled: true
+                recoveryFlowId: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+                isRecoveryFlowEnabled: true
                 url: "https://myapp.example.com"
                 logoUrl: "https://myapp.example.com/updated-logo.png"
                 tosUri: "https://myapp.example.com/terms"
@@ -485,6 +563,8 @@ paths:
                       tokenEndpointAuthMethod: "client_secret_basic"
                       pkceRequired: false
                       publicClient: false
+                      requirePushedAuthorizationRequests: false
+                      dpopBoundAccessTokens: false
                       scopes:
                         - "openid"
                         - "profile"
@@ -496,11 +576,17 @@ paths:
                         idToken:
                           validityPeriod: 1800
                           userAttributes: ["email", "email_verified", "name", "given_name", "family_name"]
+                          responseType: "JWE"
+                          encryptionAlg: "RSA-OAEP-256"
+                          encryptionEnc: "A256GCM"
                       userInfo:
+                        responseType: "JWS"
+                        signingAlg: "RS256"
                         userAttributes: ["email", "name", "given_name", "family_name", "picture"]
                       scopeClaims:
                         profile: ["name", "family_name", "given_name", "picture"]
                         employee: ["emp_id", "department"]
+                      acrValues: ["urn:thunder:silver", "urn:thunder:gold"]
         "400":
           description: Bad request
           content:
@@ -508,18 +594,36 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
+                missing-application-id:
+                  summary: Missing application ID
+                  value:
+                    code: "APP-1002"
+                    message:
+                      key: "error.applicationservice.invalid_application_id"
+                      defaultValue: "Invalid application ID"
+                    description:
+                      key: "error.applicationservice.invalid_application_id_description"
+                      defaultValue: "The provided application ID is invalid or empty"
                 invalid-request-format:
                   summary: Invalid request format
                   value:
-                    code: "APP-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    code: "APP-1018"
+                    message:
+                      key: "error.applicationservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.applicationservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 invalid-redirect-uri:
                   summary: Invalid redirect URI
                   value:
-                    code: "APP-1002"
-                    message: "Invalid redirect URI"
-                    description: "One or more redirect URIs are not valid"
+                    code: "APP-1012"
+                    message:
+                      key: "error.applicationservice.invalid_redirect_uri"
+                      defaultValue: "Invalid redirect URI"
+                    description:
+                      key: "error.applicationservice.invalid_redirect_uri_description"
+                      defaultValue: "One or more provided redirect URIs are not valid URIs"
         "404":
           description: Application not found
           content:
@@ -527,9 +631,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                code: "APP-1004"
-                message: "Application not found"
-                description: "The application with the specified ID does not exist"
+                code: "APP-1001"
+                message:
+                  key: "error.applicationservice.application_not_found"
+                  defaultValue: "Application not found"
+                description:
+                  key: "error.applicationservice.application_not_found_description"
+                  defaultValue: "The requested application could not be found"
         "500":
           description: Internal server error
           content:
@@ -538,12 +646,16 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "APP-5001"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     delete:
       tags:
-        - applications
+        - Applications
       summary: Delete an application
       description: Delete an application using its ID.
       parameters:
@@ -565,9 +677,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                code: "APP-1001"
-                message: "Invalid request format"
-                description: "The request contains invalid data"
+                code: "APP-1002"
+                message:
+                  key: "error.applicationservice.invalid_application_id"
+                  defaultValue: "Invalid application ID"
+                description:
+                  key: "error.applicationservice.invalid_application_id_description"
+                  defaultValue: "The provided application ID is invalid or empty"
         "500":
           description: Internal server error
           content:
@@ -576,8 +692,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "APP-5001"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
 components:
   securitySchemes:
@@ -586,6 +706,10 @@ components:
       flows:
         authorizationCode:
           authorizationUrl: https://localhost:8090/oauth2/authorize
+          tokenUrl: https://localhost:8090/oauth2/token
+          scopes:
+            system: Access to system management APIs
+        clientCredentials:
           tokenUrl: https://localhost:8090/oauth2/token
           scopes:
             system: Access to system management APIs
@@ -614,8 +738,12 @@ components:
   schemas:
     ApplicationRequest:
       type: object
-      required: [name]
+      required: [name, ouId]
       properties:
+        ouId:
+          type: string
+          description: The ID of the organization unit this application belongs to.
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         name:
           type: string
           description: The name of the application.
@@ -635,6 +763,19 @@ components:
         isRegistrationFlowEnabled:
           type: boolean
           description: Indicates if the registration flow is enabled for the application.
+          example: true
+          default: false
+        recoveryFlowId:
+          type: string
+          description: The ID of the recovery flow.
+          example: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+        isRecoveryFlowEnabled:
+          type: boolean
+          description: >
+            Indicates if the recovery flow is enabled for the application.
+            When set to true, recoveryFlowId must also be provided in the
+            ApplicationRequest; omitting recoveryFlowId while setting this
+            field to true will result in a 400 error.
           example: true
           default: false
         themeId:
@@ -716,6 +857,10 @@ components:
           format: uuid
           description: The unique identifier of the application.
           example: "550e8400-e29b-41d4-a716-446655440000"
+        ouId:
+          type: string
+          description: The ID of the organization unit this application belongs to.
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         name:
           type: string
           description: The name of the application.
@@ -739,6 +884,14 @@ components:
         isRegistrationFlowEnabled:
           type: boolean
           description: Indicates if the registration flow is enabled for the application.
+          example: true
+        recoveryFlowId:
+          type: string
+          description: The ID of the recovery flow.
+          example: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+        isRecoveryFlowEnabled:
+          type: boolean
+          description: Indicates if the recovery flow is enabled for the application.
           example: true
         themeId:
           type: string
@@ -818,6 +971,10 @@ components:
           format: uuid
           description: The unique identifier of the application.
           example: "550e8400-e29b-41d4-a716-446655440000"
+        ouId:
+          type: string
+          description: The ID of the organization unit this application belongs to.
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         name:
           type: string
           description: The name of the application.
@@ -841,6 +998,14 @@ components:
         isRegistrationFlowEnabled:
           type: boolean
           description: Indicates if the registration flow is enabled for the application.
+          example: true
+        recoveryFlowId:
+          type: string
+          description: The ID of the recovery flow.
+          example: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+        isRecoveryFlowEnabled:
+          type: boolean
+          description: Indicates if the recovery flow is enabled for the application.
           example: true
         themeId:
           type: string
@@ -949,6 +1114,14 @@ components:
           type: boolean
           description: Indicates if the registration flow is enabled for the application.
           example: true
+        recoveryFlowId:
+          type: string
+          description: The ID of the recovery flow.
+          example: "f60d3e8a-8c9a-4b2f-9e1a-5b3c8d7e2f4a"
+        isRecoveryFlowEnabled:
+          type: boolean
+          description: Indicates if the recovery flow is enabled for the application.
+          example: true
         themeId:
           type: string
           format: uuid
@@ -962,6 +1135,10 @@ components:
           type: string
           description: The template type of the application.
           example: "spa"
+        isReadOnly:
+          type: boolean
+          description: Indicates if the application is read-only (declarative/immutable).
+          example: false
 
     ApplicationListResponse:
       type: object
@@ -1026,19 +1203,73 @@ components:
             type: string
           description: The user attributes to include in the ID token. Only claims requested by scopes AND listed here will be included.
           example: ["email", "name", "given_name", "family_name"]
+        responseType:
+          type: string
+          description: |
+            The format of the ID token response.
+            JWT returns a standard signed JWT (default).
+            JWE returns an encrypted JWT — requires encryptionAlg, encryptionEnc, and a client certificate.
+            NESTED_JWT returns a sign-then-encrypt JWT — requires encryptionAlg, encryptionEnc, and a client certificate.
+          enum: ["JWT", "JWE", "NESTED_JWT"]
+          example: "JWE"
+        encryptionAlg:
+          type: string
+          description: JWE key-management algorithm for encrypted ID token responses (e.g. RSA-OAEP-256). Required when responseType is JWE or NESTED_JWT.
+          enum: ["RSA-OAEP", "RSA-OAEP-256"]
+          example: "RSA-OAEP-256"
+        encryptionEnc:
+          type: string
+          description: JWE content-encryption algorithm (e.g. A256GCM). Required when responseType is JWE or NESTED_JWT.
+          enum: ["A128CBC-HS256", "A256GCM"]
+          example: "A256GCM"
 
     UserInfoConfig:
       type: object
       description: UserInfo endpoint configuration for the OAuth application
       properties:
+        responseType:
+          type: string
+          description: |
+            The format of the UserInfo response.
+            JSON returns a plain JSON object.
+            JWS returns a signed JWT — requires signingAlg.
+            JWE returns an encrypted JWT — requires encryptionAlg, encryptionEnc, and a client certificate.
+            NESTED_JWT returns a sign-then-encrypt JWT — requires signingAlg, encryptionAlg, encryptionEnc, and a client certificate.
+          enum: ["JSON", "JWS", "JWE", "NESTED_JWT"]
+          example: "JWS"
         userAttributes:
           type: array
           items:
             type: string
           description: |
-            The user attributes to include in the userinfo response. 
+            The user attributes to include in the userinfo response.
             If not specified, falls back to ID token user attributes.
           example: ["email", "name", "given_name", "family_name", "picture"]
+        signingAlg:
+          type: string
+          description: |
+            JWS algorithm used to sign the UserInfo response JWT.
+            When set (without encryptionAlg), the response is a signed JWT (JWS).
+            When set together with encryptionAlg, the response is a Nested JWT (sign-then-encrypt).
+            Omit to return a plain JSON response.
+          enum: ["RS256", "RS512", "PS256", "ES256", "ES384", "ES512", "EdDSA"]
+          example: "RS256"
+        encryptionAlg:
+          type: string
+          description: |
+            JWE key-management algorithm used to encrypt the UserInfo response.
+            Must be set together with encryptionEnc and a client certificate (JWKS).
+            When set without signingAlg, the response is a JWE over the plain JSON payload.
+            When set together with signingAlg, the response is a Nested JWT (sign-then-encrypt).
+          enum: ["RSA-OAEP", "RSA-OAEP-256"]
+          example: "RSA-OAEP-256"
+        encryptionEnc:
+          type: string
+          description: |
+            JWE content-encryption algorithm used to encrypt the UserInfo response payload.
+            Required when encryptionAlg is set.
+          enum: ["A128CBC-HS256", "A256GCM"]
+          example: "A256GCM"
 
     Certificate:
       type: object
@@ -1047,7 +1278,6 @@ components:
           type: string
           description: The type of the certificate.
           enum:
-            - "NONE"
             - "JWKS"
             - "JWKS_URI"
           example: "JWKS_URI"
@@ -1110,7 +1340,7 @@ components:
           example: ["code"]
         tokenEndpointAuthMethod:
           type: string
-          enum: ["client_secret_basic", "client_secret_post", "none"]
+          enum: ["client_secret_basic", "client_secret_post", "private_key_jwt", "none"]
           description: The token endpoint authentication method for the OAuth application. Defaults to "client_secret_basic" if not specified.
           example: "client_secret_basic"
         pkceRequired:
@@ -1121,6 +1351,16 @@ components:
         publicClient:
           type: boolean
           description: Whether the application is a public client (Mobile apps, SPAs, etc.), which cannot store secrets securely.
+          example: false
+          default: false
+        requirePushedAuthorizationRequests:
+          type: boolean
+          description: Whether Pushed Authorization Requests (PAR) per RFC 9126 are required for this application.
+          example: false
+          default: false
+        dpopBoundAccessTokens:
+          type: boolean
+          description: Whether DPoP-bound access tokens (RFC 9449) are required for this application.
           example: false
           default: false
         scopes:
@@ -1148,6 +1388,20 @@ components:
           example:
             profile: ["name", "family_name", "given_name", "picture"]
             employee: ["emp_id", "department"]
+        certificate:
+          $ref: '#/components/schemas/Certificate'
+        acrValues:
+          type: array
+          items:
+            type: string
+          description: |
+            ACR (Authentication Context Class Reference) values for the application.
+            Defines the allowed set of ACR values for authorization requests. When acr_values is
+            provided in an authorization request, only values present in this list are accepted;
+            unrecognised values are silently ignored. If filtering removes all requested ACRs,
+            the full list is used as a fallback. When acr_values is omitted from the request,
+            this configured list is used as the effective ACR set.
+          example: ["urn:thunder:silver", "urn:thunder:gold"]
 
     OAuthAppConfigComplete:
       type: object
@@ -1183,7 +1437,7 @@ components:
           example: ["code"]
         tokenEndpointAuthMethod:
           type: string
-          enum: ["client_secret_basic", "client_secret_post", "none"]
+          enum: ["client_secret_basic", "client_secret_post", "private_key_jwt", "none"]
           description: The token endpoint authentication method for the OAuth application. Defaults to "client_secret_basic" if not specified.
           example: "client_secret_basic"
         pkceRequired:
@@ -1194,6 +1448,16 @@ components:
         publicClient:
           type: boolean
           description: Whether the application is a public client (Mobile apps, SPAs, etc.), which cannot store secrets securely.
+          example: false
+          default: false
+        requirePushedAuthorizationRequests:
+          type: boolean
+          description: Whether Pushed Authorization Requests (PAR) per RFC 9126 are required for this application.
+          example: false
+          default: false
+        dpopBoundAccessTokens:
+          type: boolean
+          description: Whether DPoP-bound access tokens (RFC 9449) are required for this application.
           example: false
           default: false
         scopes:
@@ -1221,6 +1485,20 @@ components:
           example:
             profile: ["name", "family_name", "given_name", "picture"]
             employee: ["emp_id", "department"]
+        certificate:
+          $ref: '#/components/schemas/Certificate'
+        acrValues:
+          type: array
+          items:
+            type: string
+          description: |
+            ACR (Authentication Context Class Reference) values for the application.
+            Defines the allowed set of ACR values for authorization requests. When acr_values is
+            provided in an authorization request, only values present in this list are accepted;
+            unrecognised values are silently ignored. If filtering removes all requested ACRs,
+            the full list is used as a fallback. When acr_values is omitted from the request,
+            this configured list is used as the effective ACR set.
+          example: ["urn:thunder:silver", "urn:thunder:gold"]
 
     Error:
       type: object
@@ -1228,13 +1506,23 @@ components:
       properties:
         code:
           type: string
-          description: The error code.
+          description: "Error code. Codes follow the APP-XXXX convention."
           example: "APP-1001"
         message:
-          type: string
-          description: The error message.
-          example: "Invalid request format"
+          $ref: '#/components/schemas/I18nMessage'
         description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
           type: string
-          description: A detailed description of the error.
-          example: "The request body is malformed or contains invalid data"
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

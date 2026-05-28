@@ -24,8 +24,8 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/database/model"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/database/model"
 )
 
 type DBProviderTestSuite struct {
@@ -43,22 +43,22 @@ func (suite *DBProviderTestSuite) SetupTest() {
 	suite.mockDB = mock
 
 	// Reset global config before each test
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 
 	// Initialize a dummy config
 	dummyConfig := &config.Config{
 		Database: config.DatabaseConfig{
-			Config:  config.DataSource{Name: "identity", Type: "postgres"},
-			Runtime: config.DataSource{Name: "runtime", Type: "postgres"},
-			User:    config.DataSource{Name: "user", Type: "postgres"},
+			Config:  config.DataSource{Type: "postgres", Postgres: config.PostgresDataSource{Name: "identity"}},
+			Runtime: config.DataSource{Type: "postgres", Postgres: config.PostgresDataSource{Name: "runtime"}},
+			User:    config.DataSource{Type: "postgres", Postgres: config.PostgresDataSource{Name: "user"}},
 		},
 	}
-	err = config.InitializeThunderRuntime(".", dummyConfig)
+	err = config.InitializeServerRuntime(".", dummyConfig)
 	suite.Require().NoError(err)
 }
 
 func (suite *DBProviderTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func (suite *DBProviderTestSuite) TestGetUserDBTransactioner_Success() {
@@ -71,7 +71,7 @@ func (suite *DBProviderTestSuite) TestGetUserDBTransactioner_Success() {
 
 	// Manually construct the provider with an initialized client
 	provider := &dbProvider{
-		userClient: NewDBClient(model.NewDB(db), "postgres", "user"),
+		userClient: NewDBClient(model.NewDB(db), "postgres", "user", retryConfig{}),
 	}
 
 	// Test getting the transactioner
@@ -90,7 +90,7 @@ func (suite *DBProviderTestSuite) TestGetRuntimeDBTransactioner_Success() {
 
 	// Manually construct the provider with an initialized client
 	provider := &dbProvider{
-		runtimeClient: NewDBClient(model.NewDB(db), "postgres", "runtime"),
+		runtimeClient: NewDBClient(model.NewDB(db), "postgres", "runtime", retryConfig{}),
 	}
 
 	// Test getting the transactioner

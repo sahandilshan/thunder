@@ -20,7 +20,7 @@ package authz
 
 // GetAuthorizedPermissionsRequest represents the request for getting authorized permissions.
 type GetAuthorizedPermissionsRequest struct {
-	UserID               string   `json:"userId,omitempty"`
+	EntityID             string   `json:"entityId,omitempty"`
 	GroupIDs             []string `json:"groupIds,omitempty"`
 	RequestedPermissions []string `json:"requestedPermissions"`
 }

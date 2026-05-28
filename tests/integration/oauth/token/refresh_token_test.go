@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -47,7 +47,7 @@ var (
 		Parent:      nil,
 	}
 
-	refreshTokenTestUserSchema = testutils.UserSchema{
+	refreshTokenTestUserType = testutils.UserType{
 		Name: "refresh-token-test-person",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
@@ -156,7 +156,7 @@ var (
 type RefreshTokenTestSuite struct {
 	suite.Suite
 	applicationID string
-	userSchemaID  string
+	entityTypeID  string
 	authFlowID    string
 	ouID          string
 	userID        string
@@ -175,11 +175,11 @@ func (ts *RefreshTokenTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "Failed to create test organization unit")
 	ts.ouID = ouID
 
-	// Create user schema.
-	refreshTokenTestUserSchema.OUID = ouID
-	schemaID, err := testutils.CreateUserType(refreshTokenTestUserSchema)
+	// Create user type.
+	refreshTokenTestUserType.OUID = ouID
+	schemaID, err := testutils.CreateUserType(refreshTokenTestUserType)
 	ts.Require().NoError(err, "Failed to create test user type")
-	ts.userSchemaID = schemaID
+	ts.entityTypeID = schemaID
 
 	// Create authentication flow.
 	flowID, err := testutils.CreateFlow(refreshTokenTestAuthFlow)
@@ -191,8 +191,8 @@ func (ts *RefreshTokenTestSuite) SetupSuite() {
 
 	// Create test user.
 	user := testutils.User{
-		OUID:             ouID,
-		Type:             "refresh-token-test-person",
+		OUID: ouID,
+		Type: "refresh-token-test-person",
 		Attributes: json.RawMessage(fmt.Sprintf(`{
 			"username": "%s",
 			"password": "%s",
@@ -208,20 +208,21 @@ func (ts *RefreshTokenTestSuite) SetupSuite() {
 
 func (ts *RefreshTokenTestSuite) createTestApplication() string {
 	app := map[string]interface{}{
-		"name":                         refreshTokenTestAppName,
-		"description":                  "Application for refresh token integration tests",
-		"authFlowId":                 ts.authFlowID,
+		"name":                      refreshTokenTestAppName,
+		"description":               "Application for refresh token integration tests",
+		"ouId":                      ts.ouID,
+		"authFlowId":                ts.authFlowID,
 		"isRegistrationFlowEnabled": false,
-		"allowedUserTypes":           []string{"refresh-token-test-person"},
+		"allowedUserTypes":          []string{"refresh-token-test-person"},
 		"inboundAuthConfig": []map[string]interface{}{
 			{
 				"type": "oauth2",
 				"config": map[string]interface{}{
-					"clientId":                  refreshTokenTestClientID,
-					"clientSecret":              refreshTokenTestClientSecret,
-					"redirectUris":              []string{refreshTokenTestRedirectURI},
-					"grantTypes":                []string{"authorization_code", "refresh_token"},
-					"responseTypes":             []string{"code"},
+					"clientId":                refreshTokenTestClientID,
+					"clientSecret":            refreshTokenTestClientSecret,
+					"redirectUris":            []string{refreshTokenTestRedirectURI},
+					"grantTypes":              []string{"authorization_code", "refresh_token"},
+					"responseTypes":           []string{"code"},
 					"tokenEndpointAuthMethod": "client_secret_basic",
 				},
 			},
@@ -273,8 +274,8 @@ func (ts *RefreshTokenTestSuite) TearDownSuite() {
 		}
 	}
 
-	if ts.userSchemaID != "" {
-		if err := testutils.DeleteUserType(ts.userSchemaID); err != nil {
+	if ts.entityTypeID != "" {
+		if err := testutils.DeleteUserType(ts.entityTypeID); err != nil {
 			ts.T().Logf("Failed to delete test user type: %v", err)
 		}
 	}
@@ -303,18 +304,18 @@ func (ts *RefreshTokenTestSuite) obtainTokensViaAuthCodeFlow(
 	location := resp.Header.Get("Location")
 	ts.Require().NotEmpty(location, "Expected Location header")
 
-	authID, flowID, err := testutils.ExtractAuthData(location)
+	authID, executionId, err := testutils.ExtractAuthData(location)
 	ts.Require().NoError(err, "Failed to extract auth data")
 
 	// Step 2: Execute authentication flow.
-	_, err = testutils.ExecuteAuthenticationFlow(flowID, nil, "")
+	initialStep, err := testutils.ExecuteAuthenticationFlow(executionId, nil, "")
 	ts.Require().NoError(err, "Failed to initiate authentication flow")
 
-	flowStep, err := testutils.ExecuteAuthenticationFlow(flowID,
+	flowStep, err := testutils.ExecuteAuthenticationFlow(executionId,
 		map[string]string{
 			"username": refreshTokenTestUsername,
 			"password": refreshTokenTestPassword,
-		}, "action_001")
+		}, "action_001", initialStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to execute authentication flow")
 	ts.Require().Equal("COMPLETE", flowStep.FlowStatus,
 		"Authentication flow should complete")

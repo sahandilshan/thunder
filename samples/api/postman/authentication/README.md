@@ -1,6 +1,6 @@
 # Authentication Demo - Postman Collection
 
-This Postman collection demonstrates the main authentication/registration capabilities in Thunder. It showcases three different approaches to authenticate users and includes resources setup for running the demos. Additionally, it includes one scenario for user registration.
+This Postman collection demonstrates the main authentication/registration capabilities in ThunderID. It showcases three different approaches to authenticate users and includes resources setup for running the demos. Additionally, it includes one scenario for user registration.
 
 ## Demo Scenarios
 
@@ -13,7 +13,7 @@ Individual authentication endpoints that can be used independently for specific 
 - **Asgardeo Login** - OAuth-based login with Asgardeo
 
 ### 2. Authenticate with Flow Native APIs
-Orchestrated authentication flows using Thunder's flow execution engine:
+Orchestrated authentication flows using flow execution engine:
 - **Login with Username & Password** - Basic username/password flow
 - **Login with Username & Password (Verbose)** - Detailed flow execution with frontend metadata
 - **Login with SMS OTP** - SMS OTP-based authentication flow
@@ -22,7 +22,7 @@ Orchestrated authentication flows using Thunder's flow execution engine:
 
 ### 3. Authenticate with OAuth (Standard Based)
 Standard OAuth 2.0 authorization code flow with PKCE:
-- Initiate authorization request
+- Start authorization request
 - Execute flow-based authentication
 - Complete authorization and exchange code for tokens
 
@@ -54,7 +54,7 @@ User self-registration flows:
 
 ## Prerequisites
 
-1. A running Thunder server
+1. A running ThunderID server
 2. Postman desktop app or web version
 3. External service credentials (for social login demos):
    - Google OAuth credentials
@@ -64,16 +64,16 @@ User self-registration flows:
 
 ## Environment Setup
 
-Import the `environment.json` file into Postman and fill in the required values. Alternatively, create a new environment manually with the following variables.
+Import the `environment.json` file into Postman and fill in the required values. Or create a new environment manually with the following variables.
 
 ### Server Configuration
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `scheme` | Thunder server scheme | `https` |
-| `host` | Thunder server host | `localhost` |
-| `port` | Thunder server port | `8090` |
-| `baseUrl` | Thunder server base URL | `{{scheme}}://{{host}}:{{port}}` (`https://localhost:8090`) |
+| `scheme` | Server scheme | `https` |
+| `host` | Server host | `localhost` |
+| `port` | Server port | `8090` |
+| `baseUrl` | Server base URL | `{{scheme}}://{{host}}:{{port}}` (`https://localhost:8090`) |
 
 ### Management Token App (for obtaining access tokens)
 
@@ -107,7 +107,7 @@ Import the `environment.json` file into Postman and fill in the required values.
 |----------|-------------|
 | `ASGARDEO_CLIENT_ID` | Asgardeo OAuth client ID |
 | `ASGARDEO_CLIENT_SECRET` | Asgardeo OAuth client secret |
-| `ASGARDEO_BASE_URI` | Asgardeo organization base URI (Ex: https://api.asgardeo.io/t/your-org) |
+| `THUNDERID_BASE_URI` | Asgardeo organization base URI (Ex: https://localhost:8090) |
 
 Note: Replace `your-org` with your actual Asgardeo organization name.
 
@@ -162,7 +162,7 @@ Note: Replace `your-org` with your actual Asgardeo organization name.
 | `demoAsgardeoUserSub` | Asgardeo user subject identifier (unique id from Asgardeo) |
 | `demoAsgardeoUserEmail` | Asgardeo user email |
 
-### Resource IDs (For the created resources)
+### Resource IDs (for the Created Resources)
 
 These variables will be auto-populated during the resource setup phase:
 
@@ -174,7 +174,7 @@ These variables will be auto-populated during the resource setup phase:
 | `demoSchemaName` | Created demo user schema name |
 | `googleIDPId` | Created Google IDP ID |
 | `githubIDPId` | Created GitHub IDP ID |
-| `asgardeoIDPId` | Created Asgardeo IDP ID |
+| `thunderidIDPId` | Created Asgardeo IDP ID |
 | `messageNotificationSenderId` | Created SMS notification sender ID |
 | `loginApplicationId` | Created demo application ID |
 | `basicAuthFlowGraphId` | Created basic authentication flow graph ID |
@@ -191,19 +191,13 @@ These variables are used to manage tokens and authentication state. These will b
 |----------|-------------|
 | `accessToken` | Access token for management API calls |
 | `refreshToken` | Refresh token for token renewal |
-| `expiresAt` | Token expiration timestamp |
-| `codeVerifier` | PKCE code verifier |
-| `codeChallenge` | PKCE code challenge |
-| `authId` | Authentication session ID |
-| `flowId` | Flow execution ID |
-| `assertion` | Authentication assertion |
-| `authCode` | Authorization code |
+| `expiresAt` | Token expiry timestamp |
 
 ## Collection Variables (Auto-populated)
 
 These variables are automatically populated during the demo execution:
 
-### Authentication Session (Demo execution)
+### Authentication Session (Demo Execution)
 
 | Variable | Description |
 |----------|-------------|
@@ -211,8 +205,9 @@ These variables are automatically populated during the demo execution:
 | `first_factor_assertion` | First factor authentication assertion for MFA flows |
 | `google_session_token` | Google authentication session token |
 | `github_session_token` | GitHub authentication session token |
-| `asgardeo_session_token` | Asgardeo authentication session token |
+| `thunderid_session_token` | Asgardeo authentication session token |
 | `exec_flow_id` | Flow execution ID for flow-native APIs |
+| `exec_challenge_token` | Challenge token for flow execution |
 | `auth_std_auth_id` | OAuth standard flow auth ID |
 | `auth_std_flow_id` | OAuth standard flow flow exec ID |
 | `auth_std_assertion` | OAuth standard flow assertion |
@@ -227,10 +222,10 @@ These variables are automatically populated during the demo execution:
 3. Fill in the environment variable values (server config, credentials, demo user details, etc)
 4. Select the environment before running requests
 
-### Step 2: Obtain Management Token
+### Step 2: Get Management Token
 
 Run the requests in `01 - Set Token` folder sequentially:
-1. **01 - Initiate Authorization** - Starts the OAuth flow
+1. **01 - Start Authorization** - Starts the OAuth flow
 2. **02 - Init Flow** - Initializes the authentication flow
 3. **03 - Execute Flow** - Completes authentication with admin credentials
 4. **04 - Complete Authorization** - Completes the authorization
@@ -260,4 +255,4 @@ Choose any of the authentication demo folders:
 - The collection includes a pre-request script that automatically refreshes the access token when it's about to expire.
 - For social login demos (Google, GitHub, Asgardeo), you'll need to complete the OAuth flow in a browser and provide the authorization code manually.
 - SMS OTP demos require a webhook endpoint to receive OTP messages. You can use services like [webhook.site](https://webhook.site/) for testing.
-- Some requests may return `201` (created) or `409` (already exists) depending on whether resources were previously created
+- Some requests may return `201` (created) or `409` (already exists) depending on whether resources already exist

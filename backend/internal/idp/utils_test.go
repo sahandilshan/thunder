@@ -23,9 +23,9 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 type IDPUtilsTestSuite struct {
@@ -87,8 +87,8 @@ func (s *IDPUtilsTestSuite) TestValidateIDPProperties_OAuth_MissingRequired() {
 	s.NotNil(err)
 	s.Nil(result)
 	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
-	s.Contains(err.ErrorDescription, "required property")
-	s.Contains(err.ErrorDescription, "missing")
+	s.Contains(err.ErrorDescription.DefaultValue, "required property")
+	s.Contains(err.ErrorDescription.DefaultValue, "missing")
 }
 
 func (s *IDPUtilsTestSuite) TestValidateIDPProperties_OIDC_AllRequired() {
@@ -271,7 +271,7 @@ func (s *IDPUtilsTestSuite) TestValidateIDPProperties_EmptyPropertyName() {
 	s.NotNil(err)
 	s.Nil(result)
 	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
-	s.Contains(err.ErrorDescription, "property names cannot be empty")
+	s.Contains(err.ErrorDescription.DefaultValue, "property names cannot be empty")
 }
 
 func (s *IDPUtilsTestSuite) TestValidateIDPProperties_EmptyPropertyValue() {
@@ -284,7 +284,7 @@ func (s *IDPUtilsTestSuite) TestValidateIDPProperties_EmptyPropertyValue() {
 	s.NotNil(err)
 	s.Nil(result)
 	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
-	s.Contains(err.ErrorDescription, "value cannot be empty")
+	s.Contains(err.ErrorDescription.DefaultValue, "value cannot be empty")
 }
 
 func (s *IDPUtilsTestSuite) TestValidateIDPProperties_UnsupportedProperty() {
@@ -298,8 +298,8 @@ func (s *IDPUtilsTestSuite) TestValidateIDPProperties_UnsupportedProperty() {
 	s.NotNil(err)
 	s.Nil(result)
 	s.Equal(ErrorUnsupportedIDPProperty.Code, err.Code)
-	s.Contains(err.ErrorDescription, "unsupported_prop")
-	s.Contains(err.ErrorDescription, "not supported")
+	s.Contains(err.ErrorDescription.DefaultValue, "unsupported_prop")
+	s.Contains(err.ErrorDescription.DefaultValue, "not supported")
 }
 
 func (s *IDPUtilsTestSuite) TestValidateIDPProperties_InvalidIDPType() {
@@ -502,7 +502,7 @@ func (s *IDPUtilsTestSuite) TestValidateIDPProperties_WithWhitespacePropertyName
 	s.NotNil(err)
 	s.Nil(result)
 	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
-	s.Contains(err.ErrorDescription, "property names cannot be empty")
+	s.Contains(err.ErrorDescription.DefaultValue, "property names cannot be empty")
 }
 
 func (s *IDPUtilsTestSuite) TestValidateIDPProperties_WithWhitespacePropertyValue() {
@@ -515,7 +515,7 @@ func (s *IDPUtilsTestSuite) TestValidateIDPProperties_WithWhitespacePropertyValu
 	s.NotNil(err)
 	s.Nil(result)
 	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
-	s.Contains(err.ErrorDescription, "value cannot be empty")
+	s.Contains(err.ErrorDescription.DefaultValue, "value cannot be empty")
 }
 
 func (s *IDPUtilsTestSuite) TestCreateAndAppendProperty_Success() {
@@ -601,4 +601,88 @@ func (s *IDPUtilsTestSuite) TestEnsureOpenIDScope_WithEmptyStringInScopes() {
 	s.Contains(value, "email")
 	// Should not have consecutive commas
 	s.NotContains(value, ",,")
+}
+
+func (s *IDPUtilsTestSuite) TestValidateIDPProperties_TokenExchangeOnly_OIDC_Succeeds() {
+	// OIDC IDP with only the token-exchange required props and token_exchange_enabled=true should succeed.
+	// client_id is no longer required for token exchange; issuer and jwks_endpoint are sufficient.
+	prop1, _ := cmodels.NewProperty(PropIssuer, "https://api.asgardeo.io/t/myorg/oauth2/token", false)
+	prop2, _ := cmodels.NewProperty(PropJwksEndpoint, "https://api.asgardeo.io/t/myorg/oauth2/jwks", false)
+	prop3, _ := cmodels.NewProperty(PropTokenExchangeEnabled, "true", false)
+
+	properties := []cmodels.Property{*prop1, *prop2, *prop3}
+
+	result, err := validateIDPProperties(IDPTypeOIDC, properties, s.logger)
+
+	s.Nil(err)
+	s.NotNil(result)
+}
+
+func (s *IDPUtilsTestSuite) TestValidateIDPProperties_TokenExchangeEnabled_MissingIssuer_Fails() {
+	// OIDC IDP with token_exchange_enabled=true but missing issuer should fail.
+	prop1, _ := cmodels.NewProperty(PropClientID, "your_client_id", false)
+	prop2, _ := cmodels.NewProperty(PropJwksEndpoint, "https://api.asgardeo.io/t/myorg/oauth2/jwks", false)
+	prop3, _ := cmodels.NewProperty(PropTokenExchangeEnabled, "true", false)
+
+	properties := []cmodels.Property{*prop1, *prop2, *prop3}
+
+	result, err := validateIDPProperties(IDPTypeOIDC, properties, s.logger)
+
+	s.NotNil(err)
+	s.Nil(result)
+	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
+	s.Contains(err.ErrorDescription.DefaultValue, "required property")
+	s.Contains(err.ErrorDescription.DefaultValue, PropIssuer)
+}
+
+func (s *IDPUtilsTestSuite) TestValidateIDPProperties_TokenExchangeEnabled_MissingJWKS_Fails() {
+	// OIDC IDP with token_exchange_enabled=true but missing jwks_endpoint should fail.
+	prop1, _ := cmodels.NewProperty(PropClientID, "your_client_id", false)
+	prop2, _ := cmodels.NewProperty(PropIssuer, "https://api.asgardeo.io/t/myorg/oauth2/token", false)
+	prop3, _ := cmodels.NewProperty(PropTokenExchangeEnabled, "true", false)
+
+	properties := []cmodels.Property{*prop1, *prop2, *prop3}
+
+	result, err := validateIDPProperties(IDPTypeOIDC, properties, s.logger)
+
+	s.NotNil(err)
+	s.Nil(result)
+	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
+	s.Contains(err.ErrorDescription.DefaultValue, "required property")
+	s.Contains(err.ErrorDescription.DefaultValue, PropJwksEndpoint)
+}
+
+func (s *IDPUtilsTestSuite) TestValidateIDPProperties_OIDCWithoutTokenExchange_StillRequiresRedirectProps() {
+	// OIDC IDP without token_exchange_enabled must still require all 5 redirect-flow props.
+	prop1, _ := cmodels.NewProperty(PropClientID, "your_client_id", false)
+	prop2, _ := cmodels.NewProperty(PropIssuer, "https://api.asgardeo.io/t/myorg/oauth2/token", false)
+	prop3, _ := cmodels.NewProperty(PropJwksEndpoint, "https://api.asgardeo.io/t/myorg/oauth2/jwks", false)
+
+	properties := []cmodels.Property{*prop1, *prop2, *prop3}
+
+	result, err := validateIDPProperties(IDPTypeOIDC, properties, s.logger)
+
+	s.NotNil(err)
+	s.Nil(result)
+	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
+	s.Contains(err.ErrorDescription.DefaultValue, "required property")
+}
+
+func (s *IDPUtilsTestSuite) TestValidateIDPProperties_OIDCWithoutTokenExchange_MissingClientSecret_Fails() {
+	// OIDC IDP without token_exchange_enabled must fail when client_secret is missing.
+	prop1, _ := cmodels.NewProperty(PropClientID, "your_client_id", false)
+	prop2, _ := cmodels.NewProperty(PropRedirectURI, "https://thunder.example.com/callback", false)
+	prop3, _ := cmodels.NewProperty(PropAuthorizationEndpoint, "https://api.asgardeo.io/t/myorg/oauth2/authorize",
+		false)
+	prop4, _ := cmodels.NewProperty(PropTokenEndpoint, "https://api.asgardeo.io/t/myorg/oauth2/token", false)
+
+	properties := []cmodels.Property{*prop1, *prop2, *prop3, *prop4}
+
+	result, err := validateIDPProperties(IDPTypeOIDC, properties, s.logger)
+
+	s.NotNil(err)
+	s.Nil(result)
+	s.Equal(ErrorInvalidIDPProperty.Code, err.Code)
+	s.Contains(err.ErrorDescription.DefaultValue, "required property")
+	s.Contains(err.ErrorDescription.DefaultValue, PropClientSecret)
 }

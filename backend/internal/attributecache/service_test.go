@@ -26,6 +26,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // AttributeCacheServiceTestSuite is the test suite for the attribute cache service.
@@ -134,7 +136,7 @@ func (suite *AttributeCacheServiceTestSuite) TestCreateAttributeCache_StoreError
 
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, err.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, err.Code)
 }
 
 // Tests for GetAttributeCache
@@ -187,7 +189,7 @@ func (suite *AttributeCacheServiceTestSuite) TestGetAttributeCache_StoreError() 
 
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, err.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, err.Code)
 }
 
 // Tests for ExtendAttributeCacheTTL
@@ -248,7 +250,7 @@ func (suite *AttributeCacheServiceTestSuite) TestExtendAttributeCacheTTL_StoreUp
 	err := suite.service.ExtendAttributeCacheTTL(suite.ctx, suite.testCache.ID, 3600)
 
 	assert.NotNil(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, err.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, err.Code)
 }
 
 // Tests for DeleteAttributeCache
@@ -293,5 +295,5 @@ func (suite *AttributeCacheServiceTestSuite) TestDeleteAttributeCache_StoreError
 	err := suite.service.DeleteAttributeCache(suite.ctx, suite.testCache.ID)
 
 	assert.NotNil(suite.T(), err)
-	assert.Equal(suite.T(), ErrorInternalServerError.Code, err.Code)
+	assert.Equal(suite.T(), serviceerror.InternalServerError.Code, err.Code)
 }

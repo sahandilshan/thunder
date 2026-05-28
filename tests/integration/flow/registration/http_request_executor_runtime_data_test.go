@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -232,7 +232,7 @@ var (
 		Description: "Organization unit for HTTP request runtime data registration flow",
 	}
 
-	httpRequestRuntimeDataUserSchema = testutils.UserSchema{
+	httpRequestRuntimeDataEntityType = testutils.UserType{
 		Name: "http_request_runtime_user",
 		Schema: map[string]interface{}{
 			"sub": map[string]interface{}{
@@ -278,7 +278,7 @@ var (
 		ClientID:                  "http_runtime_data_reg_client",
 		ClientSecret:              "http_runtime_data_reg_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{httpRequestRuntimeDataUserSchema.Name},
+		AllowedUserTypes:          []string{httpRequestRuntimeDataEntityType.Name},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
 		},
@@ -299,7 +299,7 @@ type HTTPRequestRuntimeDataRegistrationFlowTestSuite struct {
 	mockHTTPServer         *testutils.MockHTTPServer
 	idpID                  string
 	senderID               string
-	userSchemaID           string
+	entityTypeID           string
 }
 
 func TestHTTPRequestRuntimeDataRegistrationFlowTestSuite(t *testing.T) {
@@ -342,11 +342,11 @@ func (ts *HTTPRequestRuntimeDataRegistrationFlowTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "Failed to create test organization unit")
 	httpRequestRuntimeDataOUID = ouID
 
-	httpRequestRuntimeDataUserSchema.OUID = httpRequestRuntimeDataOUID
-	httpRequestRuntimeDataUserSchema.AllowSelfRegistration = true
-	schemaID, err := testutils.CreateUserType(httpRequestRuntimeDataUserSchema)
-	ts.Require().NoError(err, "Failed to create user schema for runtime data flow")
-	ts.userSchemaID = schemaID
+	httpRequestRuntimeDataEntityType.OUID = httpRequestRuntimeDataOUID
+	httpRequestRuntimeDataEntityType.AllowSelfRegistration = true
+	schemaID, err := testutils.CreateUserType(httpRequestRuntimeDataEntityType)
+	ts.Require().NoError(err, "Failed to create user type for runtime data flow")
+	ts.entityTypeID = schemaID
 
 	idp := testutils.IDP{
 		Name:        "HTTP Request Runtime Data Google IDP",
@@ -442,6 +442,7 @@ func (ts *HTTPRequestRuntimeDataRegistrationFlowTestSuite) SetupSuite() {
 	ts.config.CreatedFlowIDs = append(ts.config.CreatedFlowIDs, flowID)
 	httpRequestRuntimeDataApp.RegistrationFlowID = flowID
 
+	httpRequestRuntimeDataApp.OUID = httpRequestRuntimeDataOUID
 	appID, err := testutils.CreateApplication(httpRequestRuntimeDataApp)
 	ts.Require().NoError(err, "Failed to create runtime data test application")
 	httpRequestRuntimeDataAppID = appID
@@ -490,9 +491,9 @@ func (ts *HTTPRequestRuntimeDataRegistrationFlowTestSuite) TearDownSuite() {
 		}
 	}
 
-	if ts.userSchemaID != "" {
-		if err := testutils.DeleteUserType(ts.userSchemaID); err != nil {
-			ts.T().Logf("Failed to delete user schema during teardown: %v", err)
+	if ts.entityTypeID != "" {
+		if err := testutils.DeleteUserType(ts.entityTypeID); err != nil {
+			ts.T().Logf("Failed to delete user type during teardown: %v", err)
 		}
 	}
 
@@ -521,21 +522,21 @@ func (ts *HTTPRequestRuntimeDataRegistrationFlowTestSuite) TestHTTPRequestRuntim
 	ts.Require().Equal("REDIRECTION", flowStep.Type)
 	ts.Require().NotEmpty(flowStep.Data.RedirectURL)
 
-	authCode, err := testutils.SimulateFederatedOAuthFlow(flowStep.Data.RedirectURL)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(flowStep.Data.RedirectURL)
 	ts.Require().NoError(err, "Failed to simulate Google authorization for runtime data flow")
 	ts.Require().NotEmpty(authCode, "Authorization code should not be empty")
 
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, map[string]string{
-		"code": authCode,
-	}, "")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, map[string]string{
+		"code": authCode, "state": state,
+	}, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete runtime data flow with authorization code")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 	ts.Require().Equal("VIEW", flowStep.Type)
 	ts.Require().True(common.HasInput(flowStep.Data.Inputs, "mobileNumber"))
 
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, map[string]string{
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, map[string]string{
 		"mobileNumber": mobileNumber,
-	}, "action_mobile")
+	}, "action_mobile", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to continue runtime data flow with mobile number")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 	ts.Require().Equal("VIEW", flowStep.Type)
@@ -546,9 +547,9 @@ func (ts *HTTPRequestRuntimeDataRegistrationFlowTestSuite) TestHTTPRequestRuntim
 	ts.Require().NotNil(otpMessage, "OTP message should be captured by mock notification server")
 	ts.Require().NotEmpty(otpMessage.OTP, "OTP should be available for verification")
 
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, map[string]string{
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, map[string]string{
 		"otp": otpMessage.OTP,
-	}, "action_otp")
+	}, "action_otp", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete runtime data flow with OTP")
 	ts.Require().Equal("COMPLETE", flowStep.FlowStatus, "Flow should complete after HTTP request executor")
 	ts.Require().NotEmpty(flowStep.Assertion, "Assertion should be present after flow completion")

@@ -25,8 +25,9 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -138,6 +139,10 @@ func (suite *OUAPITestSuite) TestGetOrganizationUnit() {
 	suite.Equal(ouToCreate.CookiePolicyURI, retrievedOU.CookiePolicyURI)
 	suite.Equal(ouToCreate.ThemeID, retrievedOU.ThemeID)
 	suite.Equal(ouToCreate.LayoutID, retrievedOU.LayoutID)
+	suite.False(retrievedOU.CreatedAt.IsZero(), "createdAt must not be zero")
+	suite.False(retrievedOU.UpdatedAt.IsZero(), "updatedAt must not be zero")
+	suite.Equal(time.UTC, retrievedOU.CreatedAt.Location(), "createdAt must be UTC")
+	suite.Equal(time.UTC, retrievedOU.UpdatedAt.Location(), "updatedAt must be UTC")
 }
 
 func (suite *OUAPITestSuite) TestListOrganizationUnits() {
@@ -175,6 +180,11 @@ func (suite *OUAPITestSuite) TestListOrganizationUnits() {
 			foundParent = true
 			suite.Equal(ouToCreate.Name, ou.Name)
 			suite.Equal(ouToCreate.Description, ou.Description)
+			suite.Equal(ouToCreate.LogoURL, ou.LogoURL)
+			suite.False(ou.CreatedAt.IsZero(), "createdAt must not be zero")
+			suite.False(ou.UpdatedAt.IsZero(), "updatedAt must not be zero")
+			suite.Equal(time.UTC, ou.CreatedAt.Location(), "createdAt must be UTC")
+			suite.Equal(time.UTC, ou.UpdatedAt.Location(), "updatedAt must be UTC")
 		}
 	}
 	suite.True(foundParent, "Created parent OU should be in the list")
@@ -275,6 +285,9 @@ func (suite *OUAPITestSuite) TestUpdateOrganizationUnit() {
 		suite.T().Fatal("OU ID is not available for update")
 	}
 
+	ouBefore := suite.fetchOU(createdOUID)
+	time.Sleep(10 * time.Millisecond)
+
 	updateRequest := UpdateOURequest{
 		Name:            "Updated Test Organization Unit",
 		Handle:          "updated-test-org-unit",
@@ -320,6 +333,11 @@ func (suite *OUAPITestSuite) TestUpdateOrganizationUnit() {
 	suite.Equal("https://example.com/updated-cookie-policy", updatedOU.CookiePolicyURI)
 	suite.Equal("theme-updated", updatedOU.ThemeID)
 	suite.Equal("layout-updated", updatedOU.LayoutID)
+	suite.False(updatedOU.UpdatedAt.IsZero(), "updatedAt must not be zero after update")
+	suite.Equal(time.UTC, updatedOU.UpdatedAt.Location(), "updatedAt must be UTC")
+	suite.True(updatedOU.UpdatedAt.After(ouBefore.UpdatedAt),
+		"updatedAt must advance after update (before=%v, after=%v)", ouBefore.UpdatedAt, updatedOU.UpdatedAt)
+	suite.Equal(ouBefore.CreatedAt, updatedOU.CreatedAt, "createdAt must not change after an update")
 }
 
 func (suite *OUAPITestSuite) TestDeleteOrganizationUnit() {
@@ -423,7 +441,7 @@ func (suite *OUAPITestSuite) TestCreateOrganizationUnitWithInvalidParent() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1005", errorResp["code"])
-	suite.Equal("Parent organization unit not found", errorResp["message"])
+	suite.Equal("Parent organization unit not found", errorResp["message"].(map[string]interface{})["defaultValue"])
 }
 
 func (suite *OUAPITestSuite) TestCreateOrganizationUnitWithDuplicateName() {
@@ -458,7 +476,7 @@ func (suite *OUAPITestSuite) TestCreateOrganizationUnitWithDuplicateName() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1004", errorResp["code"])
-	suite.Equal("Organization unit name conflict", errorResp["message"])
+	suite.Equal("Organization unit name conflict", errorResp["message"].(map[string]interface{})["defaultValue"])
 }
 
 func (suite *OUAPITestSuite) TestCreateOrganizationUnitWithDuplicateHandle() {
@@ -493,7 +511,7 @@ func (suite *OUAPITestSuite) TestCreateOrganizationUnitWithDuplicateHandle() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1008", errorResp["code"])
-	suite.Equal("Organization unit handle conflict", errorResp["message"])
+	suite.Equal("Organization unit handle conflict", errorResp["message"].(map[string]interface{})["defaultValue"])
 }
 
 func (suite *OUAPITestSuite) TestDeleteOrganizationUnitWithChildren() {
@@ -521,7 +539,7 @@ func (suite *OUAPITestSuite) TestDeleteOrganizationUnitWithChildren() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1006", errorResp["code"])
-	suite.Equal("Organization unit has children", errorResp["message"])
+	suite.Equal("Organization unit has children", errorResp["message"].(map[string]interface{})["defaultValue"])
 }
 
 func (suite *OUAPITestSuite) TestUpdateOrganizationUnitWithInvalidParent() {
@@ -560,7 +578,7 @@ func (suite *OUAPITestSuite) TestUpdateOrganizationUnitWithInvalidParent() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1005", errorResp["code"])
-	suite.Equal("Parent organization unit not found", errorResp["message"])
+	suite.Equal("Parent organization unit not found", errorResp["message"].(map[string]interface{})["defaultValue"])
 }
 
 func (suite *OUAPITestSuite) TestUpdateOrganizationUnitWithDuplicateName() {
@@ -631,7 +649,7 @@ func (suite *OUAPITestSuite) TestUpdateOrganizationUnitWithDuplicateName() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1004", errorResp["code"])
-	suite.Equal("Organization unit name conflict", errorResp["message"])
+	suite.Equal("Organization unit name conflict", errorResp["message"].(map[string]interface{})["defaultValue"])
 }
 
 func (suite *OUAPITestSuite) TestCreateOrganizationUnitWithEmptyName() {
@@ -756,6 +774,11 @@ func (suite *OUAPITestSuite) TestGetOrganizationUnitChildren() {
 			foundChild = true
 			suite.Equal(childOUToCreate.Name, ou.Name)
 			suite.Equal(childOUToCreate.Description, ou.Description)
+			suite.Equal(childOUToCreate.LogoURL, ou.LogoURL)
+			suite.False(ou.CreatedAt.IsZero(), "createdAt must not be zero for child OU")
+			suite.False(ou.UpdatedAt.IsZero(), "updatedAt must not be zero for child OU")
+			suite.Equal(time.UTC, ou.CreatedAt.Location(), "createdAt must be UTC for child OU")
+			suite.Equal(time.UTC, ou.UpdatedAt.Location(), "updatedAt must be UTC for child OU")
 		}
 	}
 	suite.True(foundChild, "Created child OU should be in the children list")
@@ -975,6 +998,29 @@ func (suite *OUAPITestSuite) TestGetOrganizationUnitGroupsWithPagination() {
 	suite.GreaterOrEqual(groupsResponse.TotalResults, 0)
 	suite.Equal(1, groupsResponse.StartIndex)
 	suite.LessOrEqual(groupsResponse.Count, 10)
+}
+
+func (suite *OUAPITestSuite) fetchOU(id string) OrganizationUnit {
+	client := testutils.GetHTTPClient()
+	req, err := http.NewRequest("GET", testServerURL+"/organization-units/"+id, nil)
+	suite.Require().NoError(err)
+
+	resp, err := client.Do(req)
+	suite.Require().NoError(err)
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			suite.T().Logf("Failed to close response body: %v", err)
+		}
+	}()
+
+	suite.Require().Equal(http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	suite.Require().NoError(err)
+
+	var ou OrganizationUnit
+	suite.Require().NoError(json.Unmarshal(body, &ou))
+	return ou
 }
 
 func createOU(ts *OUAPITestSuite, ouRequest CreateOURequest) (string, error) {

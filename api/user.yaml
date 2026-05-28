@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: User Management API
   version: "1.0"
-  description: This API is used to manage users.
+  description: Create, search, and manage user accounts. Covers full lifecycle operations, self-service profile management, and user type schema definitions.
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
@@ -16,14 +16,14 @@ servers:
         default: "8090"
 
 tags:
-  - name: users
-    description: Operations related to user management
+  - name: Users
+    description: CRUD operations for user accounts including attribute management, role assignment, and group membership.
   - name: users-by-path
-    description: Operations related to user management using hierarchical handle paths
-  - name: self
-    description: Self service operations related to the user
-  - name: user-schemas
-    description: Operations related to user type schema management
+    description: Create and list users within an organization unit identified by its handle path.
+  - name: Self
+    description: Self-service operations that the authenticated user performs on their own profile.
+  - name: User Types
+    description: Manage user type schemas that define the attribute structure for different user categories.
 
 security:
   - OAuth2: [system]
@@ -32,7 +32,7 @@ paths:
   /users:
     get:
       tags:
-        - users
+        - Users
       summary: List users
       parameters:
         - $ref: '#/components/parameters/limitQueryParam'
@@ -99,25 +99,37 @@ paths:
                   summary: Invalid limit parameter
                   value:
                     code: "USR-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be between 1 and 100"
+                    message:
+                      key: "error.userservice.invalid_limit_parameter"
+                      defaultValue: "Invalid pagination parameter"
+                    description:
+                      key: "error.userservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be between 1 and 100"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
                     code: "USR-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    message:
+                      key: "error.userservice.invalid_offset_parameter"
+                      defaultValue: "Invalid pagination parameter"
+                    description:
+                      key: "error.userservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
                 invalid-filter:
                   summary: Invalid filter parameter
                   value:
                     code: "USR-1020"
-                    message: "Invalid filter parameter"
-                    description: "The filter format is invalid"
+                    message:
+                      key: "error.userservice.invalid_filter_parameter"
+                      defaultValue: "Invalid filter parameter"
+                    description:
+                      key: "error.userservice.invalid_filter_parameter_description"
+                      defaultValue: "The filter format is invalid"
         "500":
           description: Internal server error
     post:
       tags:
-        - users
+        - Users
       summary: Create a new user
       requestBody:
         required: true
@@ -128,9 +140,6 @@ paths:
             example:
               ouId: "456e8400-e29b-41d4-a716-446655440001"
               type: "customer"
-              groups:
-                - "550e8400-e29b-41d4-a716-446655440000"
-                - "660e8400-e29b-41d4-a716-446655440001"
               attributes:
                 age: 24
                 email: "jane.doe@example.com"
@@ -173,32 +182,72 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "USR-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
-                invalid-group-id:
-                  summary: Invalid group ID
-                  value:
-                    code: "USR-1007"
-                    message: "Invalid group ID"
-                    description: "One or more group IDs in the request do not exist"
+                    message:
+                      key: "error.userservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 ou-not-found:
                   summary: Organization unit not found
                   value:
                     code: "USR-1005"
-                    message: "Organization unit not found"
-                    description: "The specified organization unit does not exist"
+                    message:
+                      key: "error.userservice.organization_unit_not_found"
+                      defaultValue: "Organization unit not found"
+                    description:
+                      key: "error.userservice.organization_unit_not_found_description"
+                      defaultValue: "The specified organization unit does not exist"
                 schema-validation-failed:
                   summary: Schema validation failed
                   value:
                     code: "USR-1019"
-                    message: "Schema validation failed"
-                    description: "User attributes do not conform to the required schema"
-                user-schema-not-found:
-                  summary: User schema not found
+                    message:
+                      key: "error.userservice.schema_validation_failed"
+                      defaultValue: "Schema validation failed"
+                    description:
+                      key: "error.userservice.schema_validation_failed_description"
+                      defaultValue: "User attributes do not conform to the required schema"
+                user-type-not-found:
+                  summary: User type not found
                   value:
                     code: "USR-1021"
-                    message: "User schema not found"
-                    description: "The specified user schema does not exist"
+                    message:
+                      key: "error.userservice.user_type_not_found"
+                      defaultValue: "User type not found"
+                    description:
+                      key: "error.userservice.user_type_not_found_description"
+                      defaultValue: "The specified user type does not exist"
+                invalid-organization-unit:
+                  summary: Invalid organization unit ID
+                  value:
+                    code: "USR-1022"
+                    message:
+                      key: "error.userservice.invalid_organization_unit"
+                      defaultValue: "Invalid organization unit"
+                    description:
+                      key: "error.userservice.invalid_organization_unit_description"
+                      defaultValue: "Organization unit id must be specified as a valid UUID"
+                organization-unit-mismatch:
+                  summary: Organization unit mismatch
+                  value:
+                    code: "USR-1023"
+                    message:
+                      key: "error.userservice.organization_unit_mismatch"
+                      defaultValue: "Organization unit mismatch"
+                    description:
+                      key: "error.userservice.organization_unit_mismatch_description"
+                      defaultValue: "The organization unit does not match the user type configuration"
+                invalid-credential:
+                  summary: Invalid credential fields
+                  value:
+                    code: "USR-1024"
+                    message:
+                      key: "error.userservice.invalid_credential"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_credential_description"
+                      defaultValue: "Invalid credential fields in request"
         "409":
           description: Conflict
           content:
@@ -210,15 +259,19 @@ paths:
                   summary: Unique attribute conflict
                   value:
                     code: "USR-1014"
-                    message: "Attribute conflict"
-                    description: "A user with the same unique attribute value already exists"
+                    message:
+                      key: "error.userservice.attribute_conflict"
+                      defaultValue: "Attribute conflict"
+                    description:
+                      key: "error.userservice.attribute_conflict_description"
+                      defaultValue: "A user with the same unique attribute value already exists"
         "500":
           description: Internal server error
 
   /users/{id}:
     get:
       tags:
-        - users
+        - Users
       summary: Get a user by id
       parameters:
         - in: path
@@ -228,6 +281,7 @@ paths:
             type: string
             format: uuid
           example: "9a475e1e-b0cb-4b29-8df5-2e5b24fb0ed3"
+        - $ref: '#/components/parameters/includeQueryParam'
       responses:
         "200":
           description: User details
@@ -255,7 +309,7 @@ paths:
           description: Internal server error
     put:
       tags:
-        - users
+        - Users
       summary: Update a user by id
       parameters:
         - in: path
@@ -274,8 +328,6 @@ paths:
             example:
               ouId: "456e8400-e29b-41d4-a716-446655440001"
               type: "customer"
-              groups:
-                - "550e8400-e29b-41d4-a716-446655440000"
               attributes:
                 age: 25
                 email: "jane.doe@example.com"
@@ -316,32 +368,82 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "USR-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
-                invalid-group-id:
-                  summary: Invalid group ID
-                  value:
-                    code: "USR-1007"
-                    message: "Invalid group ID"
-                    description: "One or more group IDs in the request do not exist"
+                    message:
+                      key: "error.userservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 ou-not-found:
                   summary: Organization unit not found
                   value:
                     code: "USR-1005"
-                    message: "Organization unit not found"
-                    description: "The specified organization unit does not exist"
+                    message:
+                      key: "error.userservice.organization_unit_not_found"
+                      defaultValue: "Organization unit not found"
+                    description:
+                      key: "error.userservice.organization_unit_not_found_description"
+                      defaultValue: "The specified organization unit does not exist"
                 schema-validation-failed:
                   summary: Schema validation failed
                   value:
                     code: "USR-1019"
-                    message: "Schema validation failed"
-                    description: "User attributes do not conform to the required schema"
-                user-schema-not-found:
-                  summary: User schema not found
+                    message:
+                      key: "error.userservice.schema_validation_failed"
+                      defaultValue: "Schema validation failed"
+                    description:
+                      key: "error.userservice.schema_validation_failed_description"
+                      defaultValue: "User attributes do not conform to the required schema"
+                user-type-not-found:
+                  summary: User type not found
                   value:
                     code: "USR-1021"
-                    message: "User schema not found"
-                    description: "The specified user schema does not exist"
+                    message:
+                      key: "error.userservice.user_type_not_found"
+                      defaultValue: "User type not found"
+                    description:
+                      key: "error.userservice.user_type_not_found_description"
+                      defaultValue: "The specified user type does not exist"
+                invalid-organization-unit:
+                  summary: Invalid organization unit ID
+                  value:
+                    code: "USR-1022"
+                    message:
+                      key: "error.userservice.invalid_organization_unit"
+                      defaultValue: "Invalid organization unit"
+                    description:
+                      key: "error.userservice.invalid_organization_unit_description"
+                      defaultValue: "Organization unit id must be specified as a valid UUID"
+                organization-unit-mismatch:
+                  summary: Organization unit mismatch
+                  value:
+                    code: "USR-1023"
+                    message:
+                      key: "error.userservice.organization_unit_mismatch"
+                      defaultValue: "Organization unit mismatch"
+                    description:
+                      key: "error.userservice.organization_unit_mismatch_description"
+                      defaultValue: "The organization unit does not match the user type configuration"
+                invalid-credential:
+                  summary: Invalid credential fields
+                  value:
+                    code: "USR-1024"
+                    message:
+                      key: "error.userservice.invalid_credential"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_credential_description"
+                      defaultValue: "Invalid credential fields in request"
+                cannot-modify-declarative-resource:
+                  summary: Cannot modify declarative resource
+                  value:
+                    code: "USR-1025"
+                    message:
+                      key: "error.userservice.cannot_modify_declarative_resource"
+                      defaultValue: "Cannot modify declarative resource"
+                    description:
+                      key: "error.userservice.cannot_modify_declarative_resource_description"
+                      defaultValue: "The user is declarative and cannot be modified or deleted"
         "409":
           description: Conflict
           content:
@@ -353,8 +455,12 @@ paths:
                   summary: Unique attribute conflict
                   value:
                     code: "USR-1014"
-                    message: "Attribute conflict"
-                    description: "A user with the same unique attribute value already exists"
+                    message:
+                      key: "error.userservice.attribute_conflict"
+                      defaultValue: "Attribute conflict"
+                    description:
+                      key: "error.userservice.attribute_conflict_description"
+                      defaultValue: "A user with the same unique attribute value already exists"
         "404":
           description: User not found
           content:
@@ -363,13 +469,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-1003"
-                message: "User not found"
-                description: "The user with the specified id does not exist"
+                message:
+                  key: "error.userservice.user_not_found"
+                  defaultValue: "User not found"
+                description:
+                  key: "error.userservice.user_not_found_description"
+                  defaultValue: "The user with the specified id does not exist"
         "500":
           description: Internal server error
     delete:
       tags:
-        - users
+        - Users
       summary: Delete a user by id
       parameters:
         - in: path
@@ -382,6 +492,23 @@ paths:
       responses:
         "204":
           description: User deleted
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                cannot-modify-declarative-resource:
+                  summary: Cannot modify declarative resource
+                  value:
+                    code: "USR-1025"
+                    message:
+                      key: "error.userservice.cannot_modify_declarative_resource"
+                      defaultValue: "Cannot modify declarative resource"
+                    description:
+                      key: "error.userservice.cannot_modify_declarative_resource_description"
+                      defaultValue: "The user is declarative and cannot be modified or deleted"
         "404":
           description: User not found
         "500":
@@ -390,7 +517,7 @@ paths:
   /users/{id}/groups:
     get:
       tags:
-        - users
+        - Users
       summary: List groups that the user belongs to
       parameters:
         - in: path
@@ -431,34 +558,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
-                missing-user-id:
-                  summary: Missing user ID
-                  value:
-                    code: "USR-1002"
-                    message: "Invalid request format"
-                    description: "User ID is required"
                 invalid-limit:
                   summary: Invalid limit parameter
                   value:
                     code: "USR-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be between 1 and 100"
+                    message:
+                      key: "error.userservice.invalid_limit_parameter"
+                      defaultValue: "Invalid pagination parameter"
+                    description:
+                      key: "error.userservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be between 1 and 100"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
                     code: "USR-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    message:
+                      key: "error.userservice.invalid_offset_parameter"
+                      defaultValue: "Invalid pagination parameter"
+                    description:
+                      key: "error.userservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
         "404":
           description: User not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                code: "USR-1003"
-                message: "User not found"
-                description: "The user with the specified id does not exist"
+              examples:
+                user-not-found:
+                  summary: User not found
+                  value:
+                    code: "USR-1003"
+                    message:
+                      key: "error.userservice.user_not_found"
+                      defaultValue: "User not found"
+                    description:
+                      key: "error.userservice.user_not_found_description"
+                      defaultValue: "The user with the specified id does not exist"
+                missing-user-id:
+                  summary: Missing user ID
+                  value:
+                    code: "USR-1002"
+                    message:
+                      key: "error.userservice.missing_user_id"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.missing_user_id_description"
+                      defaultValue: "User ID is required"
         "500":
           description: Internal server error
           content:
@@ -467,8 +613,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /users/tree/{path}:
     get:
@@ -521,20 +671,32 @@ paths:
                   summary: Invalid limit parameter
                   value:
                     code: "USR-1011"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be between 1 and 100"
+                    message:
+                      key: "error.userservice.invalid_limit_parameter"
+                      defaultValue: "Invalid pagination parameter"
+                    description:
+                      key: "error.userservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be between 1 and 100"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
                     code: "USR-1012"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    message:
+                      key: "error.userservice.invalid_offset_parameter"
+                      defaultValue: "Invalid pagination parameter"
+                    description:
+                      key: "error.userservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
                 invalid-filter:
                   summary: Invalid filter parameter
                   value:
                     code: "USR-1020"
-                    message: "Invalid filter parameter"
-                    description: "The filter format is invalid"
+                    message:
+                      key: "error.userservice.invalid_filter_parameter"
+                      defaultValue: "Invalid filter parameter"
+                    description:
+                      key: "error.userservice.invalid_filter_parameter_description"
+                      defaultValue: "The filter format is invalid"
         "404":
           description: Organization unit not found
           content:
@@ -546,14 +708,22 @@ paths:
                   summary: Handle path not found
                   value:
                     code: "USR-1005"
-                    message: "Organization unit not found"
-                    description: "The organization unit with the specified handle path does not exist"
+                    message:
+                      key: "error.userservice.organization_unit_not_found"
+                      defaultValue: "Organization unit not found"
+                    description:
+                      key: "error.userservice.organization_unit_not_found_description"
+                      defaultValue: "The organization unit with the specified handle path does not exist"
                 invalid-path:
                   summary: Invalid path structure
                   value:
                     code: "USR-1009"
-                    message: "Invalid handle path"
-                    description: "The handle path does not represent a valid organizational hierarchy"
+                    message:
+                      key: "error.userservice.invalid_handle_path"
+                      defaultValue: "Invalid handle path"
+                    description:
+                      key: "error.userservice.invalid_handle_path_description"
+                      defaultValue: "The handle path does not represent a valid organizational hierarchy"
         "500":
           description: Internal server error
           content:
@@ -589,9 +759,6 @@ paths:
               $ref: '#/components/schemas/CreateUserByPathRequest'
             example:
               type: "employee"
-              groups:
-                - "880e8400-e29b-41d4-a716-446655440003"
-                - "990e8400-e29b-41d4-a716-446655440004"
               attributes:
                 username: "john.doe"
                 firstname: "John"
@@ -626,26 +793,62 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "USR-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed, contains invalid data, or required fields are missing/empty"
+                    message:
+                      key: "error.userservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed, contains invalid data, or required fields are missing/empty"
                 invalid-group-id:
                   summary: Invalid group ID
                   value:
                     code: "USR-1007"
-                    message: "Invalid group ID"
-                    description: "One or more group IDs in the request do not exist"
+                    message:
+                      key: "error.userservice.invalid_group_id"
+                      defaultValue: "Invalid group ID"
+                    description:
+                      key: "error.userservice.invalid_group_id_description"
+                      defaultValue: "One or more group IDs in the request do not exist"
                 schema-validation-failed:
                   summary: Schema validation failed
                   value:
                     code: "USR-1019"
-                    message: "Schema validation failed"
-                    description: "User attributes do not conform to the required schema"
-                user-schema-not-found:
-                  summary: User schema not found
+                    message:
+                      key: "error.userservice.schema_validation_failed"
+                      defaultValue: "Schema validation failed"
+                    description:
+                      key: "error.userservice.schema_validation_failed_description"
+                      defaultValue: "User attributes do not conform to the required schema"
+                user-type-not-found:
+                  summary: User type not found
                   value:
                     code: "USR-1021"
-                    message: "User schema not found"
-                    description: "The specified user schema does not exist"
+                    message:
+                      key: "error.userservice.user_type_not_found"
+                      defaultValue: "User type not found"
+                    description:
+                      key: "error.userservice.user_type_not_found_description"
+                      defaultValue: "The specified user type does not exist"
+                organization-unit-mismatch:
+                  summary: Organization unit mismatch
+                  value:
+                    code: "USR-1023"
+                    message:
+                      key: "error.userservice.organization_unit_mismatch"
+                      defaultValue: "Organization unit mismatch"
+                    description:
+                      key: "error.userservice.organization_unit_mismatch_description"
+                      defaultValue: "The organization unit does not match the user type configuration"
+                invalid-credential:
+                  summary: Invalid credential fields
+                  value:
+                    code: "USR-1024"
+                    message:
+                      key: "error.userservice.invalid_credential"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_credential_description"
+                      defaultValue: "Invalid credential fields in request"
         "404":
           description: Organization unit not found
           content:
@@ -657,14 +860,22 @@ paths:
                   summary: Handle path not found
                   value:
                     code: "USR-1005"
-                    message: "Organization unit not found"
-                    description: "The organization unit with the specified handle path does not exist"
+                    message:
+                      key: "error.userservice.organization_unit_not_found"
+                      defaultValue: "Organization unit not found"
+                    description:
+                      key: "error.userservice.organization_unit_not_found_description"
+                      defaultValue: "The organization unit with the specified handle path does not exist"
                 invalid-path:
                   summary: Invalid path structure
                   value:
                     code: "USR-1009"
-                    message: "Invalid handle path"
-                    description: "The handle path does not represent a valid organizational hierarchy"
+                    message:
+                      key: "error.userservice.invalid_handle_path"
+                      defaultValue: "Invalid handle path"
+                    description:
+                      key: "error.userservice.invalid_handle_path_description"
+                      defaultValue: "The handle path does not represent a valid organizational hierarchy"
         "409":
           description: Conflict
           content:
@@ -676,14 +887,22 @@ paths:
                   summary: Unique attribute conflict
                   value:
                     code: "USR-1014"
-                    message: "Attribute conflict"
-                    description: "A user with the same unique attribute value already exists"
+                    message:
+                      key: "error.userservice.attribute_conflict"
+                      defaultValue: "Attribute conflict"
+                    description:
+                      key: "error.userservice.attribute_conflict_description"
+                      defaultValue: "A user with the same unique attribute value already exists"
                 email-conflict:
                   summary: Email already exists
                   value:
                     code: "USR-1015"
-                    message: "Email conflict"
-                    description: "A user with the same email already exists"
+                    message:
+                      key: "error.userservice.email_conflict"
+                      defaultValue: "Email conflict"
+                    description:
+                      key: "error.userservice.email_conflict_description"
+                      defaultValue: "A user with the same email already exists"
         "500":
           description: Internal server error
           content:
@@ -695,7 +914,7 @@ paths:
   /users/me:
     get:
       tags:
-        - self
+        - Self
       summary: Get self user profile
       security:
         - OAuth2: []
@@ -716,15 +935,19 @@ paths:
                   lastname: "Wu"
                   email: "alice.wu@company.inc"
         "401":
-          description: Unauthorized - missing or invalid token
+          description: Unauthorized - missing or invalid authentication token
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                code: "USR-1018"
-                message: "Authentication failed"
-                description: "Invalid credentials provided"
+                code: "AUTH-4010"
+                message:
+                  key: "error.unauthorized"
+                  defaultValue: "Unauthorized"
+                description:
+                  key: "error.unauthorized_description"
+                  defaultValue: "Authentication is required to access this resource"
         "404":
           description: Authenticated user not found
           content:
@@ -733,8 +956,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-1003"
-                message: "User not found"
-                description: "The user with the specified id does not exist"
+                message:
+                  key: "error.userservice.user_not_found"
+                  defaultValue: "User not found"
+                description:
+                  key: "error.userservice.user_not_found_description"
+                  defaultValue: "The user with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -743,11 +970,15 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
     put:
       tags:
-        - self
+        - Self
       summary: Update self user profile
       security:
         - OAuth2: []
@@ -790,30 +1021,46 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "USR-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.userservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 schema-validation-failed:
                   summary: Schema validation failed
                   value:
                     code: "USR-1019"
-                    message: "Schema validation failed"
-                    description: "User attributes do not conform to the required schema"
-                user-schema-not-found:
-                  summary: User schema not found
+                    message:
+                      key: "error.userservice.schema_validation_failed"
+                      defaultValue: "Schema validation failed"
+                    description:
+                      key: "error.userservice.schema_validation_failed_description"
+                      defaultValue: "User attributes do not conform to the required schema"
+                user-type-not-found:
+                  summary: User type not found
                   value:
                     code: "USR-1021"
-                    message: "User schema not found"
-                    description: "The specified user schema does not exist"
+                    message:
+                      key: "error.userservice.user_type_not_found"
+                      defaultValue: "User type not found"
+                    description:
+                      key: "error.userservice.user_type_not_found_description"
+                      defaultValue: "The specified user type does not exist"
         "401":
-          description: Unauthorized - missing or invalid token
+          description: Unauthorized - missing or invalid authentication token
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                code: "USR-1018"
-                message: "Authentication failed"
-                description: "Invalid credentials provided"
+                code: "AUTH-4010"
+                message:
+                  key: "error.unauthorized"
+                  defaultValue: "Unauthorized"
+                description:
+                  key: "error.unauthorized_description"
+                  defaultValue: "Authentication is required to access this resource"
         "404":
           description: Authenticated user not found
           content:
@@ -822,8 +1069,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-1003"
-                message: "User not found"
-                description: "The user with the specified id does not exist"
+                message:
+                  key: "error.userservice.user_not_found"
+                  defaultValue: "User not found"
+                description:
+                  key: "error.userservice.user_not_found_description"
+                  defaultValue: "The user with the specified id does not exist"
         "409":
           description: Conflict
           content:
@@ -832,8 +1083,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-1014"
-                message: "Attribute conflict"
-                description: "A user with the same unique attribute value already exists"
+                message:
+                  key: "error.userservice.attribute_conflict"
+                  defaultValue: "Attribute conflict"
+                description:
+                  key: "error.userservice.attribute_conflict_description"
+                  defaultValue: "A user with the same unique attribute value already exists"
         "500":
           description: Internal server error
           content:
@@ -842,13 +1097,17 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /users/me/update-credentials:
     post:
       tags:
-        - self
+        - Self
       summary: Update self user credentials
       security:
         - OAuth2: []
@@ -875,18 +1134,26 @@ paths:
                   summary: Missing credentials
                   value:
                     code: "USR-1017"
-                    message: "Missing credentials"
-                    description: "At least one credential field must be provided"
+                    message:
+                      key: "error.userservice.missing_credentials"
+                      defaultValue: "Missing credentials"
+                    description:
+                      key: "error.userservice.missing_credentials_description"
+                      defaultValue: "At least one credential field must be provided"
         "401":
-          description: Unauthorized - missing or invalid token
+          description: Unauthorized - missing or invalid authentication token
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                code: "USR-1018"
-                message: "Authentication failed"
-                description: "Invalid credentials provided"
+                code: "AUTH-4010"
+                message:
+                  key: "error.unauthorized"
+                  defaultValue: "Unauthorized"
+                description:
+                  key: "error.unauthorized_description"
+                  defaultValue: "Authentication is required to access this resource"
         "404":
           description: Authenticated user not found
           content:
@@ -895,8 +1162,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-1003"
-                message: "User not found"
-                description: "The user with the specified id does not exist"
+                message:
+                  key: "error.userservice.user_not_found"
+                  defaultValue: "User not found"
+                description:
+                  key: "error.userservice.user_not_found_description"
+                  defaultValue: "The user with the specified id does not exist"
         "500":
           description: Internal server error
           content:
@@ -905,32 +1176,37 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USR-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
-  /user-schemas:
+  /user-types:
     get:
       tags:
-        - user-schemas
+        - User Types
       summary: List user type schemas
       description: |
-        Retrieves a list of all user type schemas that define the structure 
+        Retrieves a list of all user type schemas that define the structure
         and attributes for different user types.
       parameters:
         - $ref: '#/components/parameters/limitQueryParam'
         - $ref: '#/components/parameters/offsetQueryParam'
+        - $ref: '#/components/parameters/includeQueryParam'
       responses:
         "200":
           description: List of user type schemas
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserSchemaListResponse'
+                $ref: '#/components/schemas/UserTypeListResponse'
               example:
                 totalResults: 3
                 startIndex: 1
                 count: 3
-                schemas:
+                types:
                   - id: "660e8400-e29b-41d4-a716-446655440001"
                     name: "employee"
                     ouId: "a839f4bd-39dc-4eaa-b5cc-210d8ecaee87"
@@ -960,20 +1236,28 @@ paths:
                   summary: Invalid limit parameter
                   value:
                     code: "USRS-1005"
-                    message: "Invalid pagination parameter"
-                    description: "The limit parameter must be between 1 and 100"
+                    message:
+                      key: "error.userservice.invalid_limit_parameter"
+                      defaultValue: "Invalid pagination parameter"
+                    description:
+                      key: "error.userservice.invalid_limit_parameter_description"
+                      defaultValue: "The limit parameter must be between 1 and 100"
                 invalid-offset:
                   summary: Invalid offset parameter
                   value:
                     code: "USRS-1006"
-                    message: "Invalid pagination parameter"
-                    description: "The offset parameter must be a non-negative integer"
+                    message:
+                      key: "error.userservice.invalid_offset_parameter"
+                      defaultValue: "Invalid pagination parameter"
+                    description:
+                      key: "error.userservice.invalid_offset_parameter_description"
+                      defaultValue: "The offset parameter must be a non-negative integer"
         "500":
           description: Internal server error
 
     post:
       tags:
-        - user-schemas
+        - User Types
       summary: Create a new user type schema
       description: |
         Creates a new user type schema that defines the structure and attributes
@@ -983,7 +1267,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateUserSchemaRequest'
+              $ref: '#/components/schemas/CreateUserTypeRequest'
             example:
               name: "partner"
               ouId: "26eec421-f1bb-4deb-a5d3-9ab6554c2ae6"
@@ -1015,11 +1299,11 @@ paths:
                   type: "string"
       responses:
         "201":
-          description: User schema created
+          description: User type created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserSchema'
+                $ref: '#/components/schemas/UserType'
               example:
                 id: "880e8400-e29b-41d4-a716-446655440003"
                 name: "partner"
@@ -1061,14 +1345,22 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "USRS-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.userservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 invalid-attribute-definition:
                   summary: Invalid attribute definition
                   value:
                     code: "USRS-1004"
-                    message: "Invalid user schema request"
-                    description: "One or more attribute definitions are invalid"
+                    message:
+                      key: "error.entitytypeservice.invalid_user_type_request"
+                      defaultValue: "Invalid user type request"
+                    description:
+                      key: "error.entitytypeservice.invalid_user_type_request_description"
+                      defaultValue: "One or more attribute definitions are invalid"
         "409":
           description: Conflict
           content:
@@ -1077,15 +1369,19 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USRS-1003"
-                message: "User schema name conflict"
-                description: "A user schema with the same name already exists"
+                message:
+                  key: "error.entitytypeservice.user_type_name_conflict"
+                  defaultValue: "User type name conflict"
+                description:
+                  key: "error.entitytypeservice.user_type_name_conflict_description"
+                  defaultValue: "A user type with the same name already exists"
         "500":
           description: Internal server error
 
-  /user-schemas/{id}:
+  /user-types/{id}:
     get:
       tags:
-        - user-schemas
+        - User Types
       summary: Get a user type schema by ID
       description: |
         Retrieves the details of a specific user type schema by its ID.
@@ -1097,13 +1393,14 @@ paths:
             type: string
             format: uuid
           example: "550e8400-e29b-41d4-a716-446655440000"
+        - $ref: '#/components/parameters/includeQueryParam'
       responses:
         "200":
-          description: User schema details
+          description: User type details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserSchema'
+                $ref: '#/components/schemas/UserType'
               examples:
                 simple:
                   summary: Employee schema with simple attributes
@@ -1175,21 +1472,25 @@ paths:
                           type: "string"
                           enum: ["email", "sms", "phone", "mail"]
         "404":
-          description: User schema not found
+          description: User type not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USRS-1002"
-                message: "User schema not found"
-                description: "The user schema with the specified id does not exist"
+                message:
+                  key: "error.entitytypeservice.user_type_not_found"
+                  defaultValue: "User type not found"
+                description:
+                  key: "error.entitytypeservice.user_type_not_found_description"
+                  defaultValue: "The user type with the specified id does not exist"
         "500":
           description: Internal server error
 
     put:
       tags:
-        - user-schemas
+        - User Types
       summary: Update a user type schema by ID
       description: |
         Updates an existing user type schema with new attribute definitions.
@@ -1207,7 +1508,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateUserSchemaRequest'
+              $ref: '#/components/schemas/UpdateUserTypeRequest'
             example:
               name: "customer"
               ouId: "26eec421-f1bb-4deb-a5d3-9ab6554c2ae6"
@@ -1235,11 +1536,11 @@ paths:
                   enum: ["bronze", "silver", "gold", "platinum"]
       responses:
         "200":
-          description: User schema updated
+          description: User type updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserSchema'
+                $ref: '#/components/schemas/UserType'
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 name: "customer"
@@ -1277,40 +1578,56 @@ paths:
                   summary: Invalid request format
                   value:
                     code: "USRS-1001"
-                    message: "Invalid request format"
-                    description: "The request body is malformed or contains invalid data"
+                    message:
+                      key: "error.userservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.userservice.invalid_request_format_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
                 invalid-attribute-definition:
                   summary: Invalid attribute definition
                   value:
                     code: "USRS-1004"
-                    message: "Invalid user schema request"
-                    description: "One or more attribute definitions are invalid"
+                    message:
+                      key: "error.entitytypeservice.invalid_user_type_request"
+                      defaultValue: "Invalid user type request"
+                    description:
+                      key: "error.entitytypeservice.invalid_user_type_request_description"
+                      defaultValue: "One or more attribute definitions are invalid"
         "404":
-          description: User schema not found
+          description: User type not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USRS-1002"
-                message: "User schema not found"
-                description: "The user schema with the specified id does not exist"
+                message:
+                  key: "error.entitytypeservice.user_type_not_found"
+                  defaultValue: "User type not found"
+                description:
+                  key: "error.entitytypeservice.user_type_not_found_description"
+                  defaultValue: "The user type with the specified id does not exist"
         "409":
-          description: User schema name already exists
+          description: User type name already exists
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USRS-1003"
-                message: "User schema name conflict"
-                description: "A user schema with the same name already exists"
+                message:
+                  key: "error.entitytypeservice.user_type_name_conflict"
+                  defaultValue: "User type name conflict"
+                description:
+                  key: "error.entitytypeservice.user_type_name_conflict_description"
+                  defaultValue: "A user type with the same name already exists"
         "500":
           description: Internal server error
 
     delete:
       tags:
-        - user-schemas
+        - User Types
       summary: Delete a user type schema by ID
       description: |
         Deletes a user type schema. This operation will fail if there are 
@@ -1325,7 +1642,7 @@ paths:
           example: "550e8400-e29b-41d4-a716-446655440000"
       responses:
         "204":
-          description: User schema deleted
+          description: User type deleted
         "400":
           description: Bad request
           content:
@@ -1334,8 +1651,12 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 code: "USRS-1004"
-                message: "Invalid user schema request"
-                description: "Cannot delete schema because users of this type exist"
+                message:
+                  key: "error.entitytypeservice.invalid_user_type_request"
+                  defaultValue: "Invalid user type request"
+                description:
+                  key: "error.entitytypeservice.invalid_user_type_request_description"
+                  defaultValue: "Cannot delete schema because users of this type exist"
         "500":
           description: Internal server error
 
@@ -1346,6 +1667,10 @@ components:
       flows:
         authorizationCode:
           authorizationUrl: https://localhost:8090/oauth2/authorize
+          tokenUrl: https://localhost:8090/oauth2/token
+          scopes:
+            system: Access to system management APIs
+        clientCredentials:
           tokenUrl: https://localhost:8090/oauth2/token
           scopes:
             system: Access to system management APIs
@@ -1381,8 +1706,7 @@ components:
         enum:
           - display
       description: |
-        Optional parameter to include additional information.
-        - `display` - Include display names for users. The display value is resolved from the schema-configured display attribute (`systemAttributes.display`). Falls back to the user ID if no display attribute is configured, the configured attribute path does not exist in the user's data, or the attribute value is empty.
+        Optional parameter to include additional display information in the response. The exact fields included depend on the endpoint. See each endpoint's response schema for details on which fields are enriched.
     filterParam:
       in: query
       name: filter
@@ -1418,6 +1742,10 @@ components:
         ouId:
           type: string
           format: uuid
+        ouHandle:
+          type: string
+          readOnly: true
+          description: "Human-readable handle of the organization unit (only included when include=display query parameter is used)."
         type:
           type: string
         attributes:
@@ -1427,6 +1755,10 @@ components:
           type: string
           readOnly: true
           description: "Display name of the user (only included when include=display query parameter is used). Resolved from the schema-configured display attribute (`systemAttributes.display`). Falls back to the user ID if no display attribute is configured, the configured attribute path does not exist in the user's data, or the attribute value is empty."
+        isReadOnly:
+          type: boolean
+          readOnly: true
+          description: "Whether the user is declarative and cannot be modified or deleted by clients."
 
     Link:
       type: object
@@ -1510,13 +1842,6 @@ components:
           type: string
           description: "The type of user"
           example: "employee"
-        groups:
-          type: array
-          description: "List of groups that the user should belong to"
-          items:
-            type: string
-            format: uuid
-            description: "Group ID"
         attributes:
           type: object
           description: "User attributes"
@@ -1540,13 +1865,6 @@ components:
           type: string
           description: "The type of user"
           example: "customer"
-        groups:
-          type: array
-          description: "List of groups that the user should belong to"
-          items:
-            type: string
-            format: uuid
-            description: "Group ID"
         attributes:
           type: object
           description: "User attributes"
@@ -1562,13 +1880,6 @@ components:
         type:
           type: string
           description: "The type of user"
-        groups:
-          type: array
-          description: "List of groups that the user should belong to"
-          items:
-            type: string
-            format: uuid
-            description: "Group ID"
         attributes:
           type: object
           description: "User attributes"
@@ -1582,14 +1893,14 @@ components:
           description: "User attributes"
           additionalProperties: true
 
-    UserSchema:
+    UserType:
       type: object
       required: [id, name, ouId, schema]
       properties:
         id:
           type: string
           format: uuid
-          description: "The unique identifier of the user schema"
+          description: "The unique identifier of the user type"
         name:
           type: string
           description: "The user type this schema defines"
@@ -1597,13 +1908,17 @@ components:
           type: string
           format: uuid
           description: "The root organization unit ID associated with this user type schema"
+        ouHandle:
+          type: string
+          readOnly: true
+          description: "Human-readable handle of the organization unit (only included when include=display query parameter is used)."
         allowSelfRegistration:
           type: boolean
           description: "Indicates whether users of this type can perform self-registration flows"
           default: false
         systemAttributes:
           type: object
-          description: "System-level metadata for the user schema"
+          description: "System-level metadata for the user type"
           properties:
             display:
               type: string
@@ -1672,7 +1987,7 @@ components:
                     type: object
                     description: "Nested properties of the object"
                     additionalProperties:
-                      $ref: "#/components/schemas/UserSchema/properties/schema/additionalProperties"
+                      $ref: "#/components/schemas/UserType/properties/schema/additionalProperties"
                 additionalProperties: false
               - type: object
                 description: "Array property definition"
@@ -1718,7 +2033,7 @@ components:
                           properties:
                             type: object
                             additionalProperties:
-                              $ref: "#/components/schemas/UserSchema/properties/schema/additionalProperties"
+                              $ref: "#/components/schemas/UserType/properties/schema/additionalProperties"
                         additionalProperties: false
                 additionalProperties: false
           example:
@@ -1760,7 +2075,7 @@ components:
                 type: "string"
                 enum: ["vip", "premium", "standard"]
 
-    UserSchemaListResponse:
+    UserTypeListResponse:
       type: object
       properties:
         totalResults:
@@ -1775,7 +2090,7 @@ components:
           type: integer
           description: "Number of elements in the returned page."
           example: 3
-        schemas:
+        types:
           type: array
           items:
             type: object
@@ -1784,7 +2099,7 @@ components:
               id:
                 type: string
                 format: uuid
-                description: "The unique identifier of the user schema"
+                description: "The unique identifier of the user type"
               name:
                 type: string
                 description: "The user type this schema defines"
@@ -1792,13 +2107,17 @@ components:
                 type: string
                 format: uuid
                 description: "The root organization unit ID associated with this user type schema"
+              ouHandle:
+                type: string
+                readOnly: true
+                description: "Human-readable handle of the organization unit (only included when include=display query parameter is used)."
               allowSelfRegistration:
                 type: boolean
                 description: "Indicates whether users of this type can perform self-registration flows"
                 default: false
               systemAttributes:
                 type: object
-                description: "System-level metadata for the user schema"
+                description: "System-level metadata for the user type"
                 properties:
                   display:
                     type: string
@@ -1809,7 +2128,7 @@ components:
           items:
             $ref: '#/components/schemas/Link'
 
-    CreateUserSchemaRequest:
+    CreateUserTypeRequest:
       type: object
       required: [name, ouId, schema]
       properties:
@@ -1825,14 +2144,14 @@ components:
           description: "Whether the user type supports user-initiated registration"
           default: false
         systemAttributes:
-          $ref: "#/components/schemas/UserSchema/properties/systemAttributes"
+          $ref: "#/components/schemas/UserType/properties/systemAttributes"
         schema:
           type: object
           description: "JSON Schema definition for the user type"
           additionalProperties:
-            $ref: "#/components/schemas/UserSchema/properties/schema/additionalProperties"
+            $ref: "#/components/schemas/UserType/properties/schema/additionalProperties"
 
-    UpdateUserSchemaRequest:
+    UpdateUserTypeRequest:
       type: object
       required: [name, ouId, schema]
       properties:
@@ -1848,12 +2167,12 @@ components:
           description: "Whether the user type supports user-initiated registration"
           default: false
         systemAttributes:
-          $ref: "#/components/schemas/UserSchema/properties/systemAttributes"
+          $ref: "#/components/schemas/UserType/properties/systemAttributes"
         schema:
           type: object
           description: "JSON Schema definition for the user type"
           additionalProperties:
-            $ref: "#/components/schemas/UserSchema/properties/schema/additionalProperties"
+            $ref: "#/components/schemas/UserType/properties/schema/additionalProperties"
 
     Error:
       type: object
@@ -1861,7 +2180,23 @@ components:
       properties:
         code:
           type: string
+          description: "Error code. Codes follow the USR-XXXX convention."
+          example: "USR-1001"
         message:
-          type: string
+          $ref: '#/components/schemas/I18nMessage'
         description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
           type: string
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

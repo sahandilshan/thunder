@@ -19,9 +19,9 @@
 package core
 
 import (
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // ExecutorBackedNodeInterface extends NodeInterface for nodes backed by executors.
@@ -83,7 +83,7 @@ func newTaskExecutionNode(id string, properties map[string]interface{}, isStartN
 
 // Execute executes the node's executor.
 func (n *taskExecutionNode) Execute(ctx *NodeContext) (*common.NodeResponse, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := log.GetLogger().With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing task execution node")
 
 	if n.executor == nil {
@@ -148,6 +148,12 @@ func (n *taskExecutionNode) Execute(ctx *NodeContext) (*common.NodeResponse, *se
 				delete(ctx.UserInputs, input.Identifier)
 			}
 		}
+	} else if nodeResp.Status == common.NodeStatusIncomplete && nodeResp.Type == common.NodeResponseTypeView &&
+		len(nodeResp.Inputs) == 0 {
+		// Executor returned INCOMPLETE+VIEW with no inputs — broken executor implementation.
+		// There is nothing for the client to act on; surface as a server error.
+		logger.Error("Executor returned INCOMPLETE with VIEW type but no inputs")
+		return nil, &serviceerror.InternalServerError
 	}
 
 	return nodeResp, nil
@@ -160,8 +166,8 @@ func (n *taskExecutionNode) enrichRuntimeData(ctx *NodeContext) {
 		ctx.RuntimeData = make(map[string]string)
 	}
 
-	if ctx.AppID != "" {
-		ctx.RuntimeData["applicationId"] = ctx.AppID
+	if ctx.EntityID != "" {
+		ctx.RuntimeData["applicationId"] = ctx.EntityID
 	}
 
 	if idpID, ok := ctx.NodeProperties["idpId"].(string); ok && idpID != "" {
@@ -200,6 +206,7 @@ func (n *taskExecutionNode) buildNodeResponse(execResp *common.ExecutorResponse)
 		ForwardedData:     execResp.ForwardedData,
 		AuthenticatedUser: execResp.AuthenticatedUser,
 		Assertion:         execResp.Assertion,
+		AuthUser:          execResp.AuthUser,
 	}
 	if nodeResp.AdditionalData == nil {
 		nodeResp.AdditionalData = make(map[string]string)
@@ -239,6 +246,15 @@ func (n *taskExecutionNode) buildNodeResponse(execResp *common.ExecutorResponse)
 	}
 
 	return nodeResp
+}
+
+// GetExecutionPolicy returns the execution policy for the current node by delegating to the
+// configured executor with the node's mode. Returns nil if no executor is set.
+func (n *taskExecutionNode) GetExecutionPolicy() *ExecutionPolicy {
+	if n.executor == nil {
+		return nil
+	}
+	return n.executor.GetExecutionPolicy(n.mode)
 }
 
 // GetExecutorName returns the executor name for the task execution node

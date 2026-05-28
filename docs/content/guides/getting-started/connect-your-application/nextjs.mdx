@@ -1,0 +1,245 @@
+---
+title: Next.js Quickstart
+sidebar_position: 3
+persona: app
+description: Quick start guide to integrate with a Next.js application
+---
+
+import {
+  Boxes,
+  Package,
+  LogIn,
+  BookOpen,
+  Clock,
+  Server,
+  Hexagon,
+  FileCode,
+} from '@wso2/oxygen-ui-icons-react';
+
+# Next.js Quickstart
+
+This is **step 4** of the getting started sequence. By the end you will have a working Next.js app with sign-in and sign-out powered by <ProductName />.
+
+<TutorialHero>
+
+## What You Will Learn
+
+<TutorialHeroItem icon={<Boxes />}>Create a new Next.js app</TutorialHeroItem>
+<TutorialHeroItem icon={<Package />}>Install the <code>@thunderid/nextjs</code> package</TutorialHeroItem>
+<TutorialHeroItem icon={<LogIn />}>Add working sign-in and sign-out</TutorialHeroItem>
+<TutorialHeroItem icon={<BookOpen />}>Protect routes with middleware</TutorialHeroItem>
+
+## Prerequisites
+
+<TutorialHeroItem icon={<Clock />}>About 15 minutes</TutorialHeroItem>
+<TutorialHeroItem icon={<Server />}>Steps 1–3 complete: <ProductName /> running, an application registered, and a sign-in flow built. Start at <a href="../../getting-started/get-thunderid">Get <ProductName /></a> if you haven't already.</TutorialHeroItem>
+<TutorialHeroItem icon={<Hexagon />}>Node.js installed on your system</TutorialHeroItem>
+<TutorialHeroItem icon={<Package />}>npm, yarn, or pnpm</TutorialHeroItem>
+<TutorialHeroItem icon={<FileCode />}>Your preferred code editor</TutorialHeroItem>
+
+</TutorialHero>
+
+<Stepper stepNode="h2" as="h2">
+
+## Create a Next.js App
+
+Create your new Next.js app:
+
+<CodeGroup>
+  <CodeBlock lang="bash" label="npm">
+    npx create-next-app@latest my-nextjs-app
+    cd my-nextjs-app
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Yarn">
+    yarn create next-app my-nextjs-app
+    cd my-nextjs-app
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="pnpm">
+    pnpm create next-app my-nextjs-app
+    cd my-nextjs-app
+  </CodeBlock>
+</CodeGroup>
+
+When prompted, select the **App Router** option (the default).
+
+## Install @thunderid/nextjs
+
+Install the <ProductName /> Next.js SDK in your project:
+
+<CodeGroup>
+  <CodeBlock lang="bash" label="npm">
+    npm install @thunderid/nextjs
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Yarn">
+    yarn add @thunderid/nextjs
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="pnpm">
+    pnpm add @thunderid/nextjs
+  </CodeBlock>
+</CodeGroup>
+
+## Set Environment Variables
+
+Create a `.env.local` file in your project root with the following:
+
+```bash title=".env.local" showLineNumbers
+NEXT_PUBLIC_THUNDERID_BASE_URL=https://localhost:8090
+NEXT_PUBLIC_THUNDERID_CLIENT_ID=<your-client-id>
+THUNDERID_CLIENT_SECRET=<your-client-secret>
+THUNDERID_SECRET=<a-random-secret-for-session-signing>
+```
+
+:::warning Configuration
+Replace `<your-client-id>` and `<your-client-secret>` with the values from your <ProductName /> application. Generate a random string for `THUNDERID_SECRET` (at least 32 characters).
+:::
+
+## Add `ThunderIDProvider` to Your Layout
+
+Wrap your root layout with `ThunderIDProvider` from the server export. This enables authentication across your entire app.
+
+:::info
+`ThunderIDProvider` handles the OAuth callback automatically — no manual callback route is needed. Make sure the authorized redirect URL in your <ProductName /> application settings is set to `http://localhost:3000`.
+:::
+
+```tsx title="app/layout.tsx" showLineNumbers
+import { ThunderIDProvider } from '@thunderid/nextjs/server'
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body>
+        <ThunderIDProvider>
+          {children}
+        </ThunderIDProvider>
+      </body>
+    </html>
+  )
+}
+```
+
+## Add Middleware for Route Protection
+
+Create a `middleware.ts` file at your project root to protect routes and handle token refresh:
+
+```ts title="middleware.ts" showLineNumbers
+import {
+  thunderIDMiddleware,
+  createRouteMatcher,
+} from '@thunderid/nextjs/middleware'
+
+const isProtectedRoute = createRouteMatcher(['/dashboard(.*)'])
+
+export default thunderIDMiddleware(async (thunderid, request) => {
+  if (isProtectedRoute(request)) {
+    await thunderid.protectRoute()
+  }
+})
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}
+```
+
+## Add Sign-In and Sign-Out
+
+Update your home page to show sign-in and sign-out buttons:
+
+```tsx title="app/page.tsx" showLineNumbers
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignOutButton,
+  UserDropdown,
+} from '@thunderid/nextjs'
+
+export default function Home() {
+  return (
+    <main>
+      <h1>Next.js Auth Demo</h1>
+
+      <SignedOut>
+        <SignInButton>Sign In</SignInButton>
+      </SignedOut>
+
+      <SignedIn>
+        <UserDropdown />
+        <SignOutButton>Sign Out</SignOutButton>
+      </SignedIn>
+    </main>
+  )
+}
+```
+
+## Run Your App
+
+Start the development server:
+
+<CodeGroup>
+  <CodeBlock lang="bash" label="npm">
+    npm run dev
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Yarn">
+    yarn dev
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="pnpm">
+    pnpm dev
+  </CodeBlock>
+</CodeGroup>
+
+Visit your app at [http://localhost:3000](http://localhost:3000)
+
+:::tip Success
+You should see the sign-in button. Click it to be redirected to the <ProductName />-hosted sign-in page. Authenticate with the test user you created in step 2, then return to your app with the user dropdown displayed.
+:::
+
+</Stepper>
+
+## You're Done
+
+You have completed the full getting started sequence:
+
+1. ✅ <ProductName /> running
+2. ✅ Application registered with a Client ID and Secret
+3. ✅ Sign-in flow built in the Flow Designer
+4. ✅ Next.js app integrated and authenticating
+
+## What's Next
+
+<div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginTop: '1.5rem'}}>
+
+  <a href="/docs/next/guides/guides/flows/what-is-flows/" style={{textDecoration: 'none', color: 'inherit'}}>
+    <div style={{border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: '10px', padding: '1.25rem', cursor: 'pointer'}}>
+      <div style={{fontSize: '1rem', fontWeight: '700', marginBottom: '0.4rem'}}>Upgrade the Sign-In Flow</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-700)', marginBottom: '0.75rem'}}>Add MFA, passkeys, or social login to your flow — no app code changes required.</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-primary)', fontWeight: 600}}>Flow Designer →</div>
+    </div>
+  </a>
+
+  <a href="../../../sdks/nextjs/overview" style={{textDecoration: 'none', color: 'inherit'}}>
+    <div style={{border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: '10px', padding: '1.25rem', cursor: 'pointer'}}>
+      <div style={{fontSize: '1rem', fontWeight: '700', marginBottom: '0.4rem'}}>Next.js SDK Reference</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-700)', marginBottom: '0.75rem'}}>Explore the full API reference for the <ProductName /> Next.js SDK.</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-primary)', fontWeight: 600}}>API Reference →</div>
+    </div>
+  </a>
+
+  <a href="../../../use-cases/b2b/multi-tenant-saas" style={{textDecoration: 'none', color: 'inherit'}}>
+    <div style={{border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: '10px', padding: '1.25rem', cursor: 'pointer'}}>
+      <div style={{fontSize: '1rem', fontWeight: '700', marginBottom: '0.4rem'}}>Add Organizations</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-700)', marginBottom: '0.75rem'}}>Multi-tenant SaaS with per-org identity providers and delegated admin access.</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-primary)', fontWeight: 600}}>B2B guide →</div>
+    </div>
+  </a>
+
+</div>

@@ -5,9 +5,9 @@
 package core
 
 import (
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // NewPromptNodeInterfaceMock creates a new instance of PromptNodeInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -227,6 +227,52 @@ func (_c *PromptNodeInterfaceMock_GetCondition_Call) RunAndReturn(run func() *No
 	return _c
 }
 
+// GetExecutionPolicy provides a mock function for the type PromptNodeInterfaceMock
+func (_mock *PromptNodeInterfaceMock) GetExecutionPolicy() *ExecutionPolicy {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetExecutionPolicy")
+	}
+
+	var r0 *ExecutionPolicy
+	if returnFunc, ok := ret.Get(0).(func() *ExecutionPolicy); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*ExecutionPolicy)
+		}
+	}
+	return r0
+}
+
+// PromptNodeInterfaceMock_GetExecutionPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetExecutionPolicy'
+type PromptNodeInterfaceMock_GetExecutionPolicy_Call struct {
+	*mock.Call
+}
+
+// GetExecutionPolicy is a helper method to define mock.On call
+func (_e *PromptNodeInterfaceMock_Expecter) GetExecutionPolicy() *PromptNodeInterfaceMock_GetExecutionPolicy_Call {
+	return &PromptNodeInterfaceMock_GetExecutionPolicy_Call{Call: _e.mock.On("GetExecutionPolicy")}
+}
+
+func (_c *PromptNodeInterfaceMock_GetExecutionPolicy_Call) Run(run func()) *PromptNodeInterfaceMock_GetExecutionPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_GetExecutionPolicy_Call) Return(executionPolicy *ExecutionPolicy) *PromptNodeInterfaceMock_GetExecutionPolicy_Call {
+	_c.Call.Return(executionPolicy)
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_GetExecutionPolicy_Call) RunAndReturn(run func() *ExecutionPolicy) *PromptNodeInterfaceMock_GetExecutionPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetID provides a mock function for the type PromptNodeInterfaceMock
 func (_mock *PromptNodeInterfaceMock) GetID() string {
 	ret := _mock.Called()
@@ -267,6 +313,50 @@ func (_c *PromptNodeInterfaceMock_GetID_Call) Return(s string) *PromptNodeInterf
 }
 
 func (_c *PromptNodeInterfaceMock_GetID_Call) RunAndReturn(run func() string) *PromptNodeInterfaceMock_GetID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetMessage provides a mock function for the type PromptNodeInterfaceMock
+func (_mock *PromptNodeInterfaceMock) GetMessage() string {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetMessage")
+	}
+
+	var r0 string
+	if returnFunc, ok := ret.Get(0).(func() string); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	return r0
+}
+
+// PromptNodeInterfaceMock_GetMessage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessage'
+type PromptNodeInterfaceMock_GetMessage_Call struct {
+	*mock.Call
+}
+
+// GetMessage is a helper method to define mock.On call
+func (_e *PromptNodeInterfaceMock_Expecter) GetMessage() *PromptNodeInterfaceMock_GetMessage_Call {
+	return &PromptNodeInterfaceMock_GetMessage_Call{Call: _e.mock.On("GetMessage")}
+}
+
+func (_c *PromptNodeInterfaceMock_GetMessage_Call) Run(run func()) *PromptNodeInterfaceMock_GetMessage_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_GetMessage_Call) Return(s string) *PromptNodeInterfaceMock_GetMessage_Call {
+	_c.Call.Return(s)
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_GetMessage_Call) RunAndReturn(run func() string) *PromptNodeInterfaceMock_GetMessage_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -313,6 +403,50 @@ func (_c *PromptNodeInterfaceMock_GetMeta_Call) Return(ifaceVal interface{}) *Pr
 }
 
 func (_c *PromptNodeInterfaceMock_GetMeta_Call) RunAndReturn(run func() interface{}) *PromptNodeInterfaceMock_GetMeta_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetNextNode provides a mock function for the type PromptNodeInterfaceMock
+func (_mock *PromptNodeInterfaceMock) GetNextNode() string {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetNextNode")
+	}
+
+	var r0 string
+	if returnFunc, ok := ret.Get(0).(func() string); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	return r0
+}
+
+// PromptNodeInterfaceMock_GetNextNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetNextNode'
+type PromptNodeInterfaceMock_GetNextNode_Call struct {
+	*mock.Call
+}
+
+// GetNextNode is a helper method to define mock.On call
+func (_e *PromptNodeInterfaceMock_Expecter) GetNextNode() *PromptNodeInterfaceMock_GetNextNode_Call {
+	return &PromptNodeInterfaceMock_GetNextNode_Call{Call: _e.mock.On("GetNextNode")}
+}
+
+func (_c *PromptNodeInterfaceMock_GetNextNode_Call) Run(run func()) *PromptNodeInterfaceMock_GetNextNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_GetNextNode_Call) Return(s string) *PromptNodeInterfaceMock_GetNextNode_Call {
+	_c.Call.Return(s)
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_GetNextNode_Call) RunAndReturn(run func() string) *PromptNodeInterfaceMock_GetNextNode_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -541,6 +675,94 @@ func (_c *PromptNodeInterfaceMock_GetType_Call) Return(nodeType common.NodeType)
 }
 
 func (_c *PromptNodeInterfaceMock_GetType_Call) RunAndReturn(run func() common.NodeType) *PromptNodeInterfaceMock_GetType_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetVariant provides a mock function for the type PromptNodeInterfaceMock
+func (_mock *PromptNodeInterfaceMock) GetVariant() common.NodeVariant {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetVariant")
+	}
+
+	var r0 common.NodeVariant
+	if returnFunc, ok := ret.Get(0).(func() common.NodeVariant); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(common.NodeVariant)
+	}
+	return r0
+}
+
+// PromptNodeInterfaceMock_GetVariant_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVariant'
+type PromptNodeInterfaceMock_GetVariant_Call struct {
+	*mock.Call
+}
+
+// GetVariant is a helper method to define mock.On call
+func (_e *PromptNodeInterfaceMock_Expecter) GetVariant() *PromptNodeInterfaceMock_GetVariant_Call {
+	return &PromptNodeInterfaceMock_GetVariant_Call{Call: _e.mock.On("GetVariant")}
+}
+
+func (_c *PromptNodeInterfaceMock_GetVariant_Call) Run(run func()) *PromptNodeInterfaceMock_GetVariant_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_GetVariant_Call) Return(nodeVariant common.NodeVariant) *PromptNodeInterfaceMock_GetVariant_Call {
+	_c.Call.Return(nodeVariant)
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_GetVariant_Call) RunAndReturn(run func() common.NodeVariant) *PromptNodeInterfaceMock_GetVariant_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// IsDisplayOnly provides a mock function for the type PromptNodeInterfaceMock
+func (_mock *PromptNodeInterfaceMock) IsDisplayOnly() bool {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsDisplayOnly")
+	}
+
+	var r0 bool
+	if returnFunc, ok := ret.Get(0).(func() bool); ok {
+		r0 = returnFunc()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	return r0
+}
+
+// PromptNodeInterfaceMock_IsDisplayOnly_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsDisplayOnly'
+type PromptNodeInterfaceMock_IsDisplayOnly_Call struct {
+	*mock.Call
+}
+
+// IsDisplayOnly is a helper method to define mock.On call
+func (_e *PromptNodeInterfaceMock_Expecter) IsDisplayOnly() *PromptNodeInterfaceMock_IsDisplayOnly_Call {
+	return &PromptNodeInterfaceMock_IsDisplayOnly_Call{Call: _e.mock.On("IsDisplayOnly")}
+}
+
+func (_c *PromptNodeInterfaceMock_IsDisplayOnly_Call) Run(run func()) *PromptNodeInterfaceMock_IsDisplayOnly_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_IsDisplayOnly_Call) Return(b bool) *PromptNodeInterfaceMock_IsDisplayOnly_Call {
+	_c.Call.Return(b)
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_IsDisplayOnly_Call) RunAndReturn(run func() bool) *PromptNodeInterfaceMock_IsDisplayOnly_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -819,6 +1041,46 @@ func (_c *PromptNodeInterfaceMock_SetCondition_Call) RunAndReturn(run func(condi
 	return _c
 }
 
+// SetMessage provides a mock function for the type PromptNodeInterfaceMock
+func (_mock *PromptNodeInterfaceMock) SetMessage(message string) {
+	_mock.Called(message)
+	return
+}
+
+// PromptNodeInterfaceMock_SetMessage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMessage'
+type PromptNodeInterfaceMock_SetMessage_Call struct {
+	*mock.Call
+}
+
+// SetMessage is a helper method to define mock.On call
+//   - message string
+func (_e *PromptNodeInterfaceMock_Expecter) SetMessage(message interface{}) *PromptNodeInterfaceMock_SetMessage_Call {
+	return &PromptNodeInterfaceMock_SetMessage_Call{Call: _e.mock.On("SetMessage", message)}
+}
+
+func (_c *PromptNodeInterfaceMock_SetMessage_Call) Run(run func(message string)) *PromptNodeInterfaceMock_SetMessage_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_SetMessage_Call) Return() *PromptNodeInterfaceMock_SetMessage_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_SetMessage_Call) RunAndReturn(run func(message string)) *PromptNodeInterfaceMock_SetMessage_Call {
+	_c.Run(run)
+	return _c
+}
+
 // SetMeta provides a mock function for the type PromptNodeInterfaceMock
 func (_mock *PromptNodeInterfaceMock) SetMeta(meta interface{}) {
 	_mock.Called(meta)
@@ -855,6 +1117,46 @@ func (_c *PromptNodeInterfaceMock_SetMeta_Call) Return() *PromptNodeInterfaceMoc
 }
 
 func (_c *PromptNodeInterfaceMock_SetMeta_Call) RunAndReturn(run func(meta interface{})) *PromptNodeInterfaceMock_SetMeta_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetNextNode provides a mock function for the type PromptNodeInterfaceMock
+func (_mock *PromptNodeInterfaceMock) SetNextNode(nextNode string) {
+	_mock.Called(nextNode)
+	return
+}
+
+// PromptNodeInterfaceMock_SetNextNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetNextNode'
+type PromptNodeInterfaceMock_SetNextNode_Call struct {
+	*mock.Call
+}
+
+// SetNextNode is a helper method to define mock.On call
+//   - nextNode string
+func (_e *PromptNodeInterfaceMock_Expecter) SetNextNode(nextNode interface{}) *PromptNodeInterfaceMock_SetNextNode_Call {
+	return &PromptNodeInterfaceMock_SetNextNode_Call{Call: _e.mock.On("SetNextNode", nextNode)}
+}
+
+func (_c *PromptNodeInterfaceMock_SetNextNode_Call) Run(run func(nextNode string)) *PromptNodeInterfaceMock_SetNextNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_SetNextNode_Call) Return() *PromptNodeInterfaceMock_SetNextNode_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_SetNextNode_Call) RunAndReturn(run func(nextNode string)) *PromptNodeInterfaceMock_SetNextNode_Call {
 	_c.Run(run)
 	return _c
 }
@@ -975,6 +1277,46 @@ func (_c *PromptNodeInterfaceMock_SetPrompts_Call) Return() *PromptNodeInterface
 }
 
 func (_c *PromptNodeInterfaceMock_SetPrompts_Call) RunAndReturn(run func(prompts []common.Prompt)) *PromptNodeInterfaceMock_SetPrompts_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetVariant provides a mock function for the type PromptNodeInterfaceMock
+func (_mock *PromptNodeInterfaceMock) SetVariant(variant common.NodeVariant) {
+	_mock.Called(variant)
+	return
+}
+
+// PromptNodeInterfaceMock_SetVariant_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetVariant'
+type PromptNodeInterfaceMock_SetVariant_Call struct {
+	*mock.Call
+}
+
+// SetVariant is a helper method to define mock.On call
+//   - variant common.NodeVariant
+func (_e *PromptNodeInterfaceMock_Expecter) SetVariant(variant interface{}) *PromptNodeInterfaceMock_SetVariant_Call {
+	return &PromptNodeInterfaceMock_SetVariant_Call{Call: _e.mock.On("SetVariant", variant)}
+}
+
+func (_c *PromptNodeInterfaceMock_SetVariant_Call) Run(run func(variant common.NodeVariant)) *PromptNodeInterfaceMock_SetVariant_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 common.NodeVariant
+		if args[0] != nil {
+			arg0 = args[0].(common.NodeVariant)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_SetVariant_Call) Return() *PromptNodeInterfaceMock_SetVariant_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *PromptNodeInterfaceMock_SetVariant_Call) RunAndReturn(run func(variant common.NodeVariant)) *PromptNodeInterfaceMock_SetVariant_Call {
 	_c.Run(run)
 	return _c
 }

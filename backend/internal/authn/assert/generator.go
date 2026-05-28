@@ -21,9 +21,9 @@
 package assert
 
 import (
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // TODO: Refactor this to be a centralized auth assertion generator with appropriate token generation logics.
@@ -32,7 +32,8 @@ const loggerComponentName = "AuthAssertGenerator"
 
 // AuthAssertGeneratorInterface defines the interface for generating auth assertion claims.
 type AuthAssertGeneratorInterface interface {
-	GenerateAssertion(authenticators []authncm.AuthenticatorReference) (*AssertionResult, *serviceerror.ServiceError)
+	GenerateAssertion(authenticators []authncm.AuthenticatorReference) (*AssertionResult,
+		*serviceerror.ServiceError)
 	UpdateAssertion(context *AssuranceContext, authenticator authncm.AuthenticatorReference) (
 		*AssertionResult, *serviceerror.ServiceError)
 	VerifyAssurance(context *AssuranceContext, requiredAAL AssuranceLevel, requiredIAL AssuranceLevel) (

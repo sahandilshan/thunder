@@ -20,12 +20,14 @@ package executor
 
 import (
 	"fmt"
+	"net/url"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // inviteExecutor generates an invite link for the user to complete registration.
@@ -56,6 +58,18 @@ func newInviteExecutor(flowFactory core.FlowFactoryInterface) *inviteExecutor {
 	}
 }
 
+// GetExecutionPolicy returns the execution policy for the given mode.
+// The verify mode skips challenge token validation because the invite token itself serves as the challenge.
+func (e *inviteExecutor) GetExecutionPolicy(mode string) *core.ExecutionPolicy {
+	if mode == ExecutorModeVerify {
+		return &core.ExecutionPolicy{
+			SkipChallengeValidation: true,
+			AllowSegmentRestart:     true,
+		}
+	}
+	return nil
+}
+
 // Execute delegates to the appropriate mode handler based on the executor mode.
 func (e *inviteExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
 	switch ctx.ExecutorMode {
@@ -70,12 +84,13 @@ func (e *inviteExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorRespons
 
 // executeGenerate generates the invite token and link.
 func (e *inviteExecutor) executeGenerate(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := e.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := e.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing invite executor in generate mode")
 
 	execResp := &common.ExecutorResponse{
 		AdditionalData: make(map[string]string),
 		RuntimeData:    make(map[string]string),
+		ForwardedData:  make(map[string]interface{}),
 	}
 
 	inviteToken, err := e.getOrGenerateToken(ctx)
@@ -89,7 +104,15 @@ func (e *inviteExecutor) executeGenerate(ctx *core.NodeContext) (*common.Executo
 
 	execResp.RuntimeData[common.RuntimeKeyStoredInviteToken] = inviteToken
 	execResp.RuntimeData[common.RuntimeKeyInviteLink] = inviteLink
-	execResp.AdditionalData[common.DataInviteLink] = inviteLink
+
+	execResp.ForwardedData[common.ForwardedDataKeyTemplateData] = map[string]interface{}{
+		"inviteLink": inviteLink,
+		"appName":    ctx.Application.Name,
+	}
+
+	if ctx.FlowType == common.FlowTypeUserOnboarding {
+		execResp.AdditionalData[common.DataInviteLink] = inviteLink
+	}
 
 	execResp.Status = common.ExecComplete
 	return execResp, nil
@@ -97,7 +120,7 @@ func (e *inviteExecutor) executeGenerate(ctx *core.NodeContext) (*common.Executo
 
 // executeVerify validates the user-provided invite token against the stored token.
 func (e *inviteExecutor) executeVerify(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := e.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := e.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing invite executor in verify mode")
 
 	execResp := &common.ExecutorResponse{
@@ -123,7 +146,7 @@ func (e *inviteExecutor) executeVerify(ctx *core.NodeContext) (*common.ExecutorR
 	}
 
 	if inviteTokenInput != storedToken {
-		logger.Debug("Invite token mismatch", log.String("flowId", ctx.FlowID))
+		logger.Debug("Invite token mismatch", log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 		execResp.Status = common.ExecFailure
 		execResp.FailureReason = "Invalid invite token"
 		return execResp, nil
@@ -143,14 +166,35 @@ func (e *inviteExecutor) getOrGenerateToken(ctx *core.NodeContext) (string, erro
 	return utils.GenerateUUIDv7()
 }
 
-// generateInviteLink constructs the invite link using the GateClient configuration.
+// generateInviteLink constructs the invite link. If the node declares an inviteBaseURL
+// property it is used as the base; otherwise the GateClient configuration is the fallback.
 func (e *inviteExecutor) generateInviteLink(ctx *core.NodeContext, inviteToken string) string {
-	gateConfig := config.GetThunderRuntime().Config.GateClient
+	queryParams := url.Values{
+		"executionId": []string{ctx.ExecutionID},
+		"inviteToken": []string{inviteToken},
+	}
+
+	if ctx.EntityID != "" {
+		queryParams.Set(oauth2const.AppID, ctx.EntityID)
+	}
+
+	if baseURL, ok := ctx.NodeProperties[propertyKeyInviteBaseURL].(string); ok && baseURL != "" {
+		if u, err := url.Parse(baseURL); err == nil {
+			q := u.Query()
+			for k, vals := range queryParams {
+				q[k] = vals
+			}
+			u.RawQuery = q.Encode()
+			return u.String()
+		}
+	}
+
+	gateConfig := config.GetServerRuntime().Config.GateClient
 	gateAppURL := fmt.Sprintf("%s://%s:%d%s",
 		gateConfig.Scheme,
 		gateConfig.Hostname,
 		gateConfig.Port,
 		gateConfig.Path)
 
-	return fmt.Sprintf("%s/invite?flowId=%s&inviteToken=%s", gateAppURL, ctx.FlowID, inviteToken)
+	return fmt.Sprintf("%s/invite?%s", gateAppURL, queryParams.Encode())
 }

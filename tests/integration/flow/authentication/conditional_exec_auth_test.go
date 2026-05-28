@@ -24,8 +24,8 @@ import (
 
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -121,7 +121,7 @@ var (
 		Description: "Organization unit for conditional execution authentication flow tests",
 	}
 
-	conditionalExecUserSchema = testutils.UserSchema{
+	conditionalExecEntityType = testutils.UserType{
 		Name:                  "conditional_exec_flow_user",
 		AllowSelfRegistration: true,
 		Schema: map[string]interface{}{
@@ -168,7 +168,7 @@ var (
 
 var (
 	conditionalExecTestAppID      string
-	conditionalExecUserSchemaID   string
+	conditionalExecEntityTypeID   string
 	conditionalExecPreCreatedOUID string
 )
 
@@ -223,11 +223,11 @@ func (ts *ConditionalExecAuthFlowTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "Failed to create test organization unit")
 	conditionalExecPreCreatedOUID = ouID
 
-	// Create user schema with self-registration enabled
-	conditionalExecUserSchema.OUID = conditionalExecPreCreatedOUID
-	schemaID, err := testutils.CreateUserType(conditionalExecUserSchema)
-	ts.Require().NoError(err, "Failed to create conditional exec user schema")
-	conditionalExecUserSchemaID = schemaID
+	// create user type with self-registration enabled
+	conditionalExecEntityType.OUID = conditionalExecPreCreatedOUID
+	schemaID, err := testutils.CreateUserType(conditionalExecEntityType)
+	ts.Require().NoError(err, "Failed to create conditional exec user type")
+	conditionalExecEntityTypeID = schemaID
 
 	// Create an existing user
 	existingUserAttributes := map[string]interface{}{
@@ -242,9 +242,9 @@ func (ts *ConditionalExecAuthFlowTestSuite) SetupSuite() {
 	ts.Require().NoError(err)
 
 	existingUser := testutils.User{
-		Type:             conditionalExecUserSchema.Name,
-		OUID:             conditionalExecPreCreatedOUID,
-		Attributes:       json.RawMessage(attributesJSON),
+		Type:       conditionalExecEntityType.Name,
+		OUID:       conditionalExecPreCreatedOUID,
+		Attributes: json.RawMessage(attributesJSON),
 	}
 	existingUserID, err := testutils.CreateUser(existingUser)
 	ts.Require().NoError(err, "Failed to create existing test user")
@@ -315,6 +315,7 @@ func (ts *ConditionalExecAuthFlowTestSuite) SetupSuite() {
 	conditionalExecTestApp.AuthFlowID = flowID
 
 	// Create test application
+	conditionalExecTestApp.OUID = conditionalExecPreCreatedOUID
 	appID, err := testutils.CreateApplication(conditionalExecTestApp)
 	ts.Require().NoError(err, "Failed to create test application")
 	conditionalExecTestAppID = appID
@@ -347,9 +348,9 @@ func (ts *ConditionalExecAuthFlowTestSuite) TearDownSuite() {
 		_ = testutils.DeleteUser(ts.existingUserID)
 	}
 
-	// Delete user schema
-	if conditionalExecUserSchemaID != "" {
-		_ = testutils.DeleteUserType(conditionalExecUserSchemaID)
+	// delete user type
+	if conditionalExecEntityTypeID != "" {
+		_ = testutils.DeleteUserType(conditionalExecEntityTypeID)
 	}
 
 	// Delete test organization units
@@ -379,18 +380,19 @@ func (ts *ConditionalExecAuthFlowTestSuite) TestSkipConditionalNodes() {
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("REDIRECTION", flowStep.Type, "Expected flow type to be REDIRECTION")
 
-	flowID := flowStep.FlowID
+	ExecutionID := flowStep.ExecutionID
 	redirectURLStr := flowStep.Data.RedirectURL
 
 	// Step 2: Simulate user authorization at Google
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
 	ts.Require().NoError(err, "Failed to simulate Google authorization")
 
 	// Step 3: Complete the flow with the authorization code
 	inputs := map[string]string{
-		"code": authCode,
+		"code":  authCode,
+		"state": state,
 	}
-	flowStep, err = common.CompleteFlow(flowID, inputs, "")
+	flowStep, err = common.CompleteFlow(ExecutionID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete authentication flow")
 
 	// For existing user, flow should complete directly
@@ -403,7 +405,7 @@ func (ts *ConditionalExecAuthFlowTestSuite) TestSkipConditionalNodes() {
 	jwtClaims, err := testutils.ValidateJWTAssertionFields(
 		flowStep.Assertion,
 		conditionalExecTestAppID,
-		conditionalExecUserSchema.Name,
+		conditionalExecEntityType.Name,
 		conditionalExecPreCreatedOUID,
 		conditionalExecTestOU.Name,
 		conditionalExecTestOU.Handle,
@@ -424,20 +426,21 @@ func (ts *ConditionalExecAuthFlowTestSuite) TestExecuteConditionalNodes() {
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("REDIRECTION", flowStep.Type, "Expected flow type to be REDIRECTION")
 
-	flowID := flowStep.FlowID
+	ExecutionID := flowStep.ExecutionID
 	redirectURLStr := flowStep.Data.RedirectURL
 	ts.Require().NotEmpty(redirectURLStr, "Redirect URL should not be empty")
 
 	// Step 2: Simulate user authorization at Google
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
 	ts.Require().NoError(err, "Failed to simulate Google authorization")
 	ts.Require().NotEmpty(authCode, "Authorization code should not be empty")
 
 	// Step 3: Continue the flow with the authorization code
 	inputs := map[string]string{
-		"code": authCode,
+		"code":  authCode,
+		"state": state,
 	}
-	flowStep, err = common.CompleteFlow(flowID, inputs, "")
+	flowStep, err = common.CompleteFlow(ExecutionID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete authentication flow")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("VIEW", flowStep.Type, "Expected flow type to be VIEW")
@@ -448,7 +451,7 @@ func (ts *ConditionalExecAuthFlowTestSuite) TestExecuteConditionalNodes() {
 		"ouHandle":      conditionalExecNewOUHandle,
 		"ouDescription": "Organization Unit created during conditional exec auth flow test",
 	}
-	flowStep, err = common.CompleteFlow(flowID, ouInputs, "")
+	flowStep, err = common.CompleteFlow(ExecutionID, ouInputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete authentication flow after OU details")
 	ts.Require().Equal("COMPLETE", flowStep.FlowStatus, "Expected flow status to be COMPLETE")
 	ts.Require().NotEmpty(flowStep.Assertion, "Assertion token should be present")
@@ -463,7 +466,7 @@ func (ts *ConditionalExecAuthFlowTestSuite) TestExecuteConditionalNodes() {
 	ts.Require().NoError(err, "Failed to decode JWT assertion")
 	ts.Require().NotNil(jwtClaims, "JWT claims should not be nil")
 	ts.Require().Equal(conditionalExecTestAppID, jwtClaims.Aud, "JWT aud should match app ID")
-	ts.Require().Equal(conditionalExecUserSchema.Name, jwtClaims.UserType, "JWT userType should match schema")
+	ts.Require().Equal(conditionalExecEntityType.Name, jwtClaims.UserType, "JWT userType should match schema")
 	ts.Require().NotEmpty(jwtClaims.OUID, "JWT ouId should not be empty")
 
 	// Verify the created OU

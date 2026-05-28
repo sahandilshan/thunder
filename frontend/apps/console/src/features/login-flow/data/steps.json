@@ -1,0 +1,127 @@
+[
+  {
+    "resourceType": "STEP",
+    "category": "INTERFACE",
+    "type": "VIEW",
+    "display": {
+      "label": "Username + Password",
+      "image": "assets/images/icons/password.svg",
+      "showOnResourcePanel": true
+    },
+    "config": {},
+    "data": {
+      "components": [
+        {
+          "category": "BLOCK",
+          "type": "BLOCK",
+          "config": {},
+          "id": "{{ID}}",
+          "components": [
+            {
+              "id": "{{ID}}",
+              "category": "FIELD",
+              "type": "TEXT_INPUT",
+              "inputType": "text",
+              "hint": "",
+              "label": "Username",
+              "required": true,
+              "placeholder": "Enter your username",
+              "ref": "username"
+            },
+            {
+              "id": "{{ID}}",
+              "category": "FIELD",
+              "type": "PASSWORD_INPUT",
+              "ref": "password",
+              "inputType": "password",
+              "hint": "",
+              "label": "Password",
+              "required": true,
+              "placeholder": "Enter your password"
+            },
+            {
+              "id": "{{ID}}",
+              "category": "ACTION",
+              "type": "ACTION",
+              "variant": "PRIMARY",
+              "buttonType": "submit",
+              "label": "Continue",
+              "action": {
+                "type": "NEXT"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "resourceType": "STEP",
+    "category": "INTERFACE",
+    "type": "VIEW",
+    "display": {
+      "label": "Consent View",
+      "image": "assets/images/icons/stamp.svg",
+      "showOnResourcePanel": true
+    },
+    "config": {},
+    "data": {
+      "components": [
+        {
+          "id": "{{ID}}",
+          "category": "DISPLAY",
+          "type": "TEXT",
+          "variant": "HEADING_3",
+          "label": "{{meta(application.name)}} wants to access your account"
+        },
+        {
+          "id": "{{ID}}",
+          "category": "DISPLAY",
+          "type": "TEXT",
+          "variant": "BODY_1",
+          "label": "Please review the information requested by the application and provide your consent to proceed."
+        },
+        {
+          "id": "{{ID}}",
+          "category": "BLOCK",
+          "type": "BLOCK",
+          "components": [
+            {
+              "id": "{{ID}}",
+              "category": "DISPLAY",
+              "type": "CONSENT"
+            },
+            {
+              "id": "{{ID}}",
+              "category": "ACTION",
+              "type": "ACTION",
+              "variant": "PRIMARY",
+              "eventType": "SUBMIT",
+              "label": "Allow",
+              "action": {
+                "type": "NEXT"
+              }
+            },
+            {
+              "id": "{{ID}}",
+              "category": "ACTION",
+              "type": "ACTION",
+              "variant": "SECONDARY",
+              "eventType": "SUBMIT",
+              "label": "Deny",
+              "action": {
+                "type": "NEXT"
+              }
+            }
+          ]
+        },
+        {
+          "id": "{{ID}}",
+          "category": "DISPLAY",
+          "type": "RICH_TEXT",
+          "label": "<p class=\"rich-text-paragraph\"><span class=\"rich-text-pre-wrap\">Go back to </span><a href=\"{{meta(application.url)}}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"rich-text-link\"><span class=\"rich-text-pre-wrap\">Application</span></a></p>"
+        }
+      ]
+    }
+  }
+]

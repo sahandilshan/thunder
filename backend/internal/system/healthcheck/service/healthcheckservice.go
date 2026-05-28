@@ -20,17 +20,13 @@
 package service
 
 import (
-	"sync"
+	"context"
 
-	dbmodel "github.com/asgardeo/thunder/internal/system/database/model"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/healthcheck/model"
-	"github.com/asgardeo/thunder/internal/system/log"
-)
-
-var (
-	instance *HealthCheckService
-	once     sync.Once
+	"github.com/thunder-id/thunderid/internal/system/config"
+	dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/healthcheck/model"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // HealthCheckServiceInterface defines the interface for the health check service.
@@ -40,17 +36,17 @@ type HealthCheckServiceInterface interface {
 
 // HealthCheckService is the default implementation of the HealthCheckServiceInterface.
 type HealthCheckService struct {
-	DBProvider provider.DBProviderInterface
+	DBProvider    provider.DBProviderInterface
+	RedisProvider provider.RedisProviderInterface
 }
 
-// GetHealthCheckService returns a singleton instance of HealthCheckService.
-func GetHealthCheckService() HealthCheckServiceInterface {
-	once.Do(func() {
-		instance = &HealthCheckService{
-			DBProvider: provider.GetDBProvider(),
-		}
-	})
-	return instance
+// Initialize creates a new instance of HealthCheckService with the provided dependencies.
+func Initialize(dbProvider provider.DBProviderInterface,
+	redisProvider provider.RedisProviderInterface) HealthCheckServiceInterface {
+	return &HealthCheckService{
+		DBProvider:    dbProvider,
+		RedisProvider: redisProvider,
+	}
 }
 
 // CheckReadiness checks the readiness of the server and its dependencies.
@@ -94,8 +90,25 @@ func (hcs *HealthCheckService) checkConfigDatabaseStatus(query dbmodel.DBQuery) 
 
 // checkRuntimeDatabaseStatus checks the status of the runtime database with the specified query.
 func (hcs *HealthCheckService) checkRuntimeDatabaseStatus(query dbmodel.DBQuery) model.Status {
+	if config.GetServerRuntime().Config.Database.Runtime.Type == provider.DataSourceTypeRedis {
+		return hcs.checkRedisRuntimeStatus()
+	}
 	dbClient, err := hcs.DBProvider.GetRuntimeDBClient()
 	return hcs.executeDatabaseHealthCheck("RuntimeDB", dbClient, err, query)
+}
+
+// checkRedisRuntimeStatus checks the health of the Redis runtime store via Ping.
+func (hcs *HealthCheckService) checkRedisRuntimeStatus() model.Status {
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "HealthCheckService"))
+	if hcs.RedisProvider == nil {
+		logger.Error("Redis runtime provider is not initialized")
+		return model.StatusDown
+	}
+	if err := hcs.RedisProvider.GetRedisClient().Ping(context.Background()).Err(); err != nil {
+		logger.Error("Failed to ping Redis runtime store", log.Error(err))
+		return model.StatusDown
+	}
+	return model.StatusUp
 }
 
 // checkUserDatabaseStatus checks the status of the runtime database with the specified query.

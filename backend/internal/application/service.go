@@ -23,26 +23,24 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
-	"github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/cert"
-	"github.com/asgardeo/thunder/internal/consent"
-	layoutmgt "github.com/asgardeo/thunder/internal/design/layout/mgt"
-	thememgt "github.com/asgardeo/thunder/internal/design/theme/mgt"
-	flowcommon "github.com/asgardeo/thunder/internal/flow/common"
-	flowmgt "github.com/asgardeo/thunder/internal/flow/mgt"
-	oauth2const "github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	oauthutils "github.com/asgardeo/thunder/internal/oauth/oauth2/utils"
-	"github.com/asgardeo/thunder/internal/system/config"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/crypto/hash"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/security"
-	"github.com/asgardeo/thunder/internal/system/transaction"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
-	"github.com/asgardeo/thunder/internal/userschema"
+	"encoding/json"
+
+	"github.com/thunder-id/thunderid/internal/application/model"
+	"github.com/thunder-id/thunderid/internal/cert"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/inboundclient"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	oauthutils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // ApplicationServiceInterface defines the interface for the application service.
@@ -50,10 +48,10 @@ type ApplicationServiceInterface interface {
 	CreateApplication(
 		ctx context.Context, app *model.ApplicationDTO) (*model.ApplicationDTO, *serviceerror.ServiceError)
 	ValidateApplication(ctx context.Context, app *model.ApplicationDTO) (
-		*model.ApplicationProcessedDTO, *model.InboundAuthConfigDTO, *serviceerror.ServiceError)
+		*model.ApplicationProcessedDTO, *inboundmodel.InboundAuthConfigWithSecret, *serviceerror.ServiceError)
 	GetApplicationList(ctx context.Context) (*model.ApplicationListResponse, *serviceerror.ServiceError)
 	GetOAuthApplication(
-		ctx context.Context, clientID string) (*model.OAuthAppConfigProcessedDTO, *serviceerror.ServiceError)
+		ctx context.Context, clientID string) (*inboundmodel.OAuthClient, *serviceerror.ServiceError)
 	GetApplication(ctx context.Context, appID string) (*model.Application, *serviceerror.ServiceError)
 	UpdateApplication(
 		ctx context.Context, appID string, app *model.ApplicationDTO) (
@@ -63,43 +61,39 @@ type ApplicationServiceInterface interface {
 
 // ApplicationService is the default implementation of the ApplicationServiceInterface.
 type applicationService struct {
-	appStore          applicationStoreInterface
-	certService       cert.CertificateServiceInterface
-	flowMgtService    flowmgt.FlowMgtServiceInterface
-	themeMgtService   thememgt.ThemeMgtServiceInterface
-	layoutMgtService  layoutmgt.LayoutMgtServiceInterface
-	userSchemaService userschema.UserSchemaServiceInterface
-	consentService    consent.ConsentServiceInterface
-	transactioner     transaction.Transactioner
+	logger               *log.Logger
+	inboundClientService inboundclient.InboundClientServiceInterface
+	entityProvider       entityprovider.EntityProviderInterface
+	ouService            oupkg.OrganizationUnitServiceInterface
+	i18nService          i18nmgt.I18nServiceInterface
 }
 
 // newApplicationService creates a new instance of ApplicationService.
 func newApplicationService(
-	appStore applicationStoreInterface,
-	certService cert.CertificateServiceInterface,
-	flowMgtService flowmgt.FlowMgtServiceInterface,
-	themeMgtService thememgt.ThemeMgtServiceInterface,
-	layoutMgtService layoutmgt.LayoutMgtServiceInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
-	consentService consent.ConsentServiceInterface,
-	transactioner transaction.Transactioner,
+	inboundClientSvc inboundclient.InboundClientServiceInterface,
+	entityProvider entityprovider.EntityProviderInterface,
+	ouService oupkg.OrganizationUnitServiceInterface,
+	i18nService i18nmgt.I18nServiceInterface,
 ) ApplicationServiceInterface {
 	return &applicationService{
-		appStore:          appStore,
-		certService:       certService,
-		flowMgtService:    flowMgtService,
-		themeMgtService:   themeMgtService,
-		layoutMgtService:  layoutMgtService,
-		userSchemaService: userSchemaService,
-		consentService:    consentService,
-		transactioner:     transactioner,
+		logger:               log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService")),
+		inboundClientService: inboundClientSvc,
+		entityProvider:       entityProvider,
+		ouService:            ouService,
+		i18nService:          i18nService,
+	}
+}
+
+func (as *applicationService) deleteEntityCompensation(appID string) {
+	if delErr := as.entityProvider.DeleteEntity(appID); delErr != nil {
+		as.logger.Error("Failed to delete entity during compensation", log.Error(delErr),
+			log.String("appID", appID))
 	}
 }
 
 // CreateApplication creates the application.
 func (as *applicationService) CreateApplication(ctx context.Context, app *model.ApplicationDTO) (*model.ApplicationDTO,
 	*serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
 	if app == nil {
 		return nil, &ErrorApplicationNil
 	}
@@ -109,10 +103,8 @@ func (as *applicationService) CreateApplication(ctx context.Context, app *model.
 	}
 
 	// Check if an application with the same ID exists and is declarative (in composite mode)
-	if app.ID != "" {
-		if as.appStore.IsApplicationDeclarative(ctx, app.ID) {
-			return nil, &ErrorCannotModifyDeclarativeResource
-		}
+	if app.ID != "" && as.inboundClientService.IsDeclarative(ctx, app.ID) {
+		return nil, &ErrorCannotModifyDeclarativeResource
 	}
 
 	processedDTO, inboundAuthConfig, svcErr := as.ValidateApplication(ctx, app)
@@ -121,141 +113,87 @@ func (as *applicationService) CreateApplication(ctx context.Context, app *model.
 	}
 
 	appID := processedDTO.ID
-	assertion := processedDTO.Assertion
 
-	// Validate and prepare the certificate if provided.
-	appCert, svcErr := as.getValidatedCertificateForCreate(appID, app.Certificate,
-		cert.CertificateReferenceTypeApplication)
-	if svcErr != nil {
-		return nil, svcErr
+	inboundClient := toInboundClient(processedDTO)
+	oauthProfile := toOAuthProfile(processedDTO)
+
+	// Create entity.
+	var clientID string
+	var clientSecret string
+	if inboundAuthConfig != nil && inboundAuthConfig.OAuthConfig != nil {
+		clientID = inboundAuthConfig.OAuthConfig.ClientID
+		clientSecret = inboundAuthConfig.OAuthConfig.ClientSecret
 	}
 
-	// Validate and prepare the OAuth certificate if provided.
-	var oAuthCert *cert.Certificate
-	if inboundAuthConfig != nil && inboundAuthConfig.OAuthAppConfig != nil {
-		oAuthCert, svcErr = as.getValidatedCertificateForCreate(inboundAuthConfig.OAuthAppConfig.ClientID,
-			inboundAuthConfig.OAuthAppConfig.Certificate, cert.CertificateReferenceTypeOAuthApp)
-		if svcErr != nil {
+	appEntity, sysCredsJSON, buildErr := buildAppEntity(appID, app, clientID, clientSecret)
+	if buildErr != nil {
+		as.logger.Error("Failed to build entity for create", log.Error(buildErr))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	_, epErr := as.entityProvider.CreateEntity(appEntity, sysCredsJSON)
+	if epErr != nil {
+		if svcErr := mapEntityProviderError(epErr); svcErr != nil {
 			return nil, svcErr
 		}
+		as.logger.Error("Failed to create application entity", log.String("appID", appID), log.Error(epErr))
+		return nil, &serviceerror.InternalServerError
 	}
 
-	// Create certificates, application, and consent purpose atomically within a transaction.
-	var returnCert *model.ApplicationCertificate
-	var returnOAuthCert *model.ApplicationCertificate
-	var innerSvcErr *serviceerror.ServiceError
-	err := as.transactioner.Transact(ctx, func(txCtx context.Context) error {
-		var certErr *serviceerror.ServiceError
-		returnCert, certErr = as.createApplicationCertificate(txCtx, appCert)
-		if certErr != nil {
-			innerSvcErr = certErr
-			return fmt.Errorf("certificate creation failed")
+	// Create config (with compensation if it fails).
+	if err := as.inboundClientService.CreateInboundClient(ctx, &inboundClient, app.Certificate, oauthProfile,
+		clientSecret != "", app.Name); err != nil {
+		// Compensate: delete entity since config creation failed.
+		as.deleteEntityCompensation(appID)
+		if svcErr := as.translateInboundClientError(err); svcErr != nil {
+			return nil, svcErr
 		}
-
-		if inboundAuthConfig != nil && inboundAuthConfig.OAuthAppConfig != nil {
-			returnOAuthCert, certErr = as.createApplicationCertificate(txCtx, oAuthCert)
-			if certErr != nil {
-				innerSvcErr = certErr
-				return fmt.Errorf("OAuth certificate creation failed")
-			}
-		}
-
-		createErr := as.appStore.CreateApplication(txCtx, *processedDTO)
-		if createErr != nil {
-			return createErr
-		}
-
-		// Sync consent purpose for the application creation.
-		if as.consentService.IsEnabled() {
-			if svcErr := as.syncConsentPurposeOnCreate(txCtx, processedDTO); svcErr != nil {
-				innerSvcErr = svcErr
-				return fmt.Errorf("consent sync failed")
-			}
-		}
-
-		return nil
-	})
-
-	if innerSvcErr != nil {
-		return nil, innerSvcErr
+		as.logger.Error("Failed to create application", log.Error(err), log.String("appID", appID))
+		return nil, &serviceerror.InternalServerError
 	}
 
-	if err != nil {
-		logger.Error("Failed to create application", log.Error(err), log.String("appID", appID))
-		return nil, &ErrorInternalServerError
+	appForReturn := *app
+	appForReturn.AuthFlowID = inboundClient.AuthFlowID
+	appForReturn.RegistrationFlowID = inboundClient.RegistrationFlowID
+	appForReturn.RecoveryFlowID = inboundClient.RecoveryFlowID
+	if app.Certificate == nil || app.Certificate.Type == "" {
+		appForReturn.Certificate = nil
 	}
-
-	returnApp := &model.ApplicationDTO{
-		ID:                        appID,
-		Name:                      app.Name,
-		Description:               app.Description,
-		AuthFlowID:                app.AuthFlowID,
-		RegistrationFlowID:        app.RegistrationFlowID,
-		IsRegistrationFlowEnabled: app.IsRegistrationFlowEnabled,
-		ThemeID:                   app.ThemeID,
-		LayoutID:                  app.LayoutID,
-		Template:                  app.Template,
-		URL:                       app.URL,
-		LogoURL:                   app.LogoURL,
-		Assertion:                 assertion,
-		Certificate:               returnCert,
-		TosURI:                    app.TosURI,
-		PolicyURI:                 app.PolicyURI,
-		Contacts:                  app.Contacts,
-		AllowedUserTypes:          app.AllowedUserTypes,
-		LoginConsent:              app.LoginConsent,
-		Metadata:                  processedDTO.Metadata,
-	}
-	if inboundAuthConfig != nil && len(processedDTO.InboundAuthConfig) > 0 {
-		processedTokenConfig := processedDTO.InboundAuthConfig[0].OAuthAppConfig.Token
-
-		returnInboundAuthConfig := model.InboundAuthConfigDTO{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigDTO{
-				AppID:                   appID,
-				ClientID:                inboundAuthConfig.OAuthAppConfig.ClientID,
-				ClientSecret:            inboundAuthConfig.OAuthAppConfig.ClientSecret,
-				RedirectURIs:            inboundAuthConfig.OAuthAppConfig.RedirectURIs,
-				GrantTypes:              inboundAuthConfig.OAuthAppConfig.GrantTypes,
-				ResponseTypes:           inboundAuthConfig.OAuthAppConfig.ResponseTypes,
-				TokenEndpointAuthMethod: inboundAuthConfig.OAuthAppConfig.TokenEndpointAuthMethod,
-				PKCERequired:            inboundAuthConfig.OAuthAppConfig.PKCERequired,
-				PublicClient:            inboundAuthConfig.OAuthAppConfig.PublicClient,
-				Token:                   processedTokenConfig,
-				Scopes:                  inboundAuthConfig.OAuthAppConfig.Scopes,
-				UserInfo:                processedDTO.InboundAuthConfig[0].OAuthAppConfig.UserInfo,
-				ScopeClaims:             processedDTO.InboundAuthConfig[0].OAuthAppConfig.ScopeClaims,
-				Certificate:             returnOAuthCert,
-			},
+	var oauthToken *inboundmodel.OAuthTokenConfig
+	var userInfo *inboundmodel.UserInfoConfig
+	var scopeClaims map[string][]string
+	if inboundAuthConfig != nil && oauthProfile != nil {
+		oauthToken = oauthProfile.Token
+		userInfo = oauthProfile.UserInfo
+		scopeClaims = oauthProfile.ScopeClaims
+		oauthCfg := inboundAuthConfig.OAuthConfig
+		if oauthCfg != nil &&
+			(oauthCfg.Certificate == nil || oauthCfg.Certificate.Type == "") {
+			oauthCfg.Certificate = nil
 		}
-		returnApp.InboundAuthConfig = []model.InboundAuthConfigDTO{returnInboundAuthConfig}
 	}
-
-	return returnApp, nil
+	return buildReturnApplicationDTO(appID, &appForReturn, inboundClient.Assertion, processedDTO.Metadata,
+		inboundAuthConfig, oauthToken, userInfo, scopeClaims), nil
 }
 
 // ValidateApplication validates the application data transfer object.
 func (as *applicationService) ValidateApplication(ctx context.Context, app *model.ApplicationDTO) (
-	*model.ApplicationProcessedDTO, *model.InboundAuthConfigDTO, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
+	*model.ApplicationProcessedDTO, *inboundmodel.InboundAuthConfigWithSecret, *serviceerror.ServiceError) {
 	if app == nil {
 		return nil, nil, &ErrorApplicationNil
 	}
 	if app.Name == "" {
 		return nil, nil, &ErrorInvalidApplicationName
 	}
-	existingApp, appCheckErr := as.appStore.GetApplicationByName(ctx, app.Name)
-	if appCheckErr != nil && !errors.Is(appCheckErr, model.ApplicationNotFoundError) {
-		logger.Error("Failed to check existing application by name", log.Error(appCheckErr),
-			log.String("appName", app.Name))
-		return nil, nil, &ErrorInternalServerError
+	nameExists, nameCheckErr := as.isIdentifierTaken(fieldName, app.Name, app.ID)
+	if nameCheckErr != nil {
+		return nil, nil, nameCheckErr
 	}
-	if existingApp != nil {
+	if nameExists {
 		return nil, nil, &ErrorApplicationAlreadyExistsWithName
 	}
 
-	inboundAuthConfig, svcErr := as.processInboundAuthConfig(ctx, app, nil)
+	inboundAuthConfig, svcErr := as.processInboundAuthConfig(app, nil)
 	if svcErr != nil {
 		return nil, nil, svcErr
 	}
@@ -269,69 +207,670 @@ func (as *applicationService) ValidateApplication(ctx context.Context, app *mode
 		var err error
 		appID, err = sysutils.GenerateUUIDv7()
 		if err != nil {
-			logger.Error("Failed to generate UUID", log.Error(err))
+			as.logger.Error("Failed to generate UUID", log.Error(err))
 			return nil, nil, &serviceerror.InternalServerError
 		}
 	}
-	assertion, finalOAuthAccessToken, finalOAuthIDToken := processTokenConfiguration(app)
-	userInfo := processUserInfoConfiguration(app, finalOAuthIDToken)
-	scopeClaims := processScopeClaimsConfiguration(app)
-
-	processedDTO := &model.ApplicationProcessedDTO{
-		ID:                        appID,
-		Name:                      app.Name,
-		Description:               app.Description,
-		AuthFlowID:                app.AuthFlowID,
-		RegistrationFlowID:        app.RegistrationFlowID,
-		IsRegistrationFlowEnabled: app.IsRegistrationFlowEnabled,
-		ThemeID:                   app.ThemeID,
-		LayoutID:                  app.LayoutID,
-		Template:                  app.Template,
-		URL:                       app.URL,
-		LogoURL:                   app.LogoURL,
-		Assertion:                 assertion,
-		TosURI:                    app.TosURI,
-		PolicyURI:                 app.PolicyURI,
-		Contacts:                  app.Contacts,
-		AllowedUserTypes:          app.AllowedUserTypes,
-		LoginConsent:              app.LoginConsent,
-		Metadata:                  app.Metadata,
-	}
+	processedDTO := buildBaseApplicationProcessedDTO(appID, app, app.Assertion)
 	if inboundAuthConfig != nil {
-		// Construct the return DTO with processed token configuration
-		returnTokenConfig := &model.OAuthTokenConfig{
-			AccessToken: finalOAuthAccessToken,
-			IDToken:     finalOAuthIDToken,
+		oa := inboundAuthConfig.OAuthConfig
+		processedInboundAuthConfig := buildOAuthInboundAuthConfigProcessedDTO(
+			appID, inboundAuthConfig, oa.Token, oa.UserInfo, oa.ScopeClaims, oa.Certificate,
+		)
+		processedDTO.InboundAuthConfig = []inboundmodel.InboundAuthConfigProcessed{processedInboundAuthConfig}
+	}
+
+	// Validate FK constraints (flow, theme, layout, user-type) and OAuth profile.
+	// This runs the same checks as Create/Update so declarative resources are validated consistently.
+	inboundClient := toInboundClient(processedDTO)
+	oauthProfile := toOAuthProfile(processedDTO)
+	var hasClientSecret bool
+	if inboundAuthConfig != nil && inboundAuthConfig.OAuthConfig != nil {
+		hasClientSecret = inboundAuthConfig.OAuthConfig.ClientSecret != ""
+	}
+	if err := as.inboundClientService.Validate(ctx, &inboundClient, oauthProfile, hasClientSecret); err != nil {
+		if svcErr := as.translateInboundClientError(err); svcErr != nil {
+			return nil, nil, svcErr
+		}
+		as.logger.Error("Inbound client validation failed", log.Error(err))
+		return nil, nil, &serviceerror.InternalServerError
+	}
+	processedDTO.AuthFlowID = inboundClient.AuthFlowID
+	processedDTO.RegistrationFlowID = inboundClient.RegistrationFlowID
+	processedDTO.RecoveryFlowID = inboundClient.RecoveryFlowID
+
+	return processedDTO, inboundAuthConfig, nil
+}
+
+// GetApplicationList list the applications.
+func (as *applicationService) GetApplicationList(
+	ctx context.Context) (*model.ApplicationListResponse, *serviceerror.ServiceError) {
+	totalResults, epErr := as.entityProvider.GetEntityListCount(entityprovider.EntityCategoryApp, nil)
+	if epErr != nil {
+		as.logger.Error("Failed to count application entities", log.Error(epErr))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	entities, epErr := as.entityProvider.GetEntityList(
+		entityprovider.EntityCategoryApp, serverconst.MaxCompositeStoreRecords, 0, nil)
+	if epErr != nil {
+		as.logger.Error("Failed to list application entities", log.Error(epErr))
+		return nil, &serviceerror.InternalServerError
+	}
+	if len(entities) == 0 {
+		return &model.ApplicationListResponse{
+			TotalResults: totalResults,
+			Count:        0,
+			Applications: []model.BasicApplicationResponse{},
+		}, nil
+	}
+
+	// Get all inbound clients and filter to app entities.
+	configs, err := as.inboundClientService.GetInboundClientList(ctx)
+	if err != nil {
+		if errors.Is(err, inboundclient.ErrCompositeResultLimitExceeded) {
+			return nil, &ErrorResultLimitExceeded
+		}
+		as.logger.Error("Failed to list inbound clients", log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	appIDs := make(map[string]struct{}, len(entities))
+	for i := range entities {
+		appIDs[entities[i].ID] = struct{}{}
+	}
+	configMap := make(map[string]*inboundmodel.InboundClient, len(entities))
+	for i := range configs {
+		if _, ok := appIDs[configs[i].ID]; ok {
+			configMap[configs[i].ID] = &configs[i]
+		}
+	}
+
+	applicationList := make([]model.BasicApplicationResponse, 0, len(entities))
+	for i := range entities {
+		cfg := configMap[entities[i].ID]
+		if cfg == nil {
+			as.logger.Warn("Application entity has no inbound-client row; skipping in list",
+				log.String("appID", entities[i].ID))
+			continue
+		}
+		applicationList = append(applicationList, buildBasicApplicationResponse(*cfg, &entities[i]))
+	}
+
+	return &model.ApplicationListResponse{
+		TotalResults: totalResults,
+		Count:        len(applicationList),
+		Applications: applicationList,
+	}, nil
+}
+
+// GetOAuthApplication retrieves the OAuth application based on the client id.
+func (as *applicationService) GetOAuthApplication(
+	ctx context.Context, clientID string) (*inboundmodel.OAuthClient, *serviceerror.ServiceError) {
+	if clientID == "" {
+		return nil, &ErrorInvalidClientID
+	}
+
+	client, err := as.inboundClientService.GetOAuthClientByClientID(ctx, clientID)
+	if err != nil {
+		as.logger.Error("Failed to retrieve OAuth client", log.Error(err),
+			log.MaskedString("clientID", clientID))
+		return nil, &serviceerror.InternalServerError
+	}
+	if client == nil {
+		return nil, &ErrorApplicationNotFound
+	}
+
+	entity, epErr := as.entityProvider.GetEntity(client.ID)
+	if epErr != nil && epErr.Code != entityprovider.ErrorCodeEntityNotFound {
+		as.logger.Error("Failed to load entity for OAuth client",
+			log.String("entityID", client.ID), log.Error(epErr))
+		return nil, &serviceerror.InternalServerError
+	}
+	if entity == nil || entity.Category != entityprovider.EntityCategoryApp {
+		return nil, &ErrorApplicationNotFound
+	}
+	return client, nil
+}
+
+// GetApplication get the application for given app id.
+func (as *applicationService) GetApplication(ctx context.Context, appID string) (*model.Application,
+	*serviceerror.ServiceError) {
+	if appID == "" {
+		return nil, &ErrorInvalidApplicationID
+	}
+
+	fullApp, svcErr := as.getApplication(ctx, appID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	return as.enrichApplicationWithCertificate(ctx, buildApplicationResponse(fullApp))
+}
+
+// UpdateApplication update the application for given app id.
+func (as *applicationService) UpdateApplication(ctx context.Context, appID string, app *model.ApplicationDTO) (
+	*model.ApplicationDTO, *serviceerror.ServiceError) {
+	if appID == "" {
+		return nil, &ErrorInvalidApplicationID
+	}
+	if as.inboundClientService.IsDeclarative(ctx, appID) {
+		return nil, &ErrorCannotModifyDeclarativeResource
+	}
+	existingApp, inboundAuthConfig, svcErr := as.validateApplicationForUpdate(ctx, appID, app)
+
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	processedDTO := as.buildProcessedDTOForUpdate(appID, app, inboundAuthConfig)
+
+	inboundClient := toInboundClient(processedDTO)
+	oauthProfile := toOAuthProfile(processedDTO)
+
+	var newOAuthClientID string
+	if inboundAuthConfig != nil && inboundAuthConfig.OAuthConfig != nil {
+		newOAuthClientID = inboundAuthConfig.OAuthConfig.ClientID
+	}
+	oauthSecretSupplied := inboundAuthConfig != nil &&
+		inboundAuthConfig.OAuthConfig != nil &&
+		inboundAuthConfig.OAuthConfig.ClientSecret != ""
+	// Update config first, while entity attributes still hold the previous client_id so the
+	// inbound client service can clean up the old OAuth-app cert.
+	if err := as.inboundClientService.UpdateInboundClient(
+		ctx, &inboundClient, app.Certificate, oauthProfile, oauthSecretSupplied, newOAuthClientID, app.Name,
+	); err != nil {
+		if svcErr := as.translateInboundClientError(err); svcErr != nil {
+			return nil, svcErr
+		}
+		as.logger.Error("Failed to update application", log.Error(err), log.String("appID", appID))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	if svcErr := as.updateEntityDataForApplicationUpdate(appID, app, inboundAuthConfig); svcErr != nil {
+		return nil, svcErr
+	}
+
+	if svcErr := as.cleanupStaleI18nKeys(ctx, appID, existingApp, app); svcErr != nil {
+		return nil, svcErr
+	}
+
+	appForReturn := *app
+	appForReturn.AuthFlowID = inboundClient.AuthFlowID
+	appForReturn.RegistrationFlowID = inboundClient.RegistrationFlowID
+	appForReturn.RecoveryFlowID = inboundClient.RecoveryFlowID
+	if app.Certificate == nil || app.Certificate.Type == "" {
+		appForReturn.Certificate = nil
+	}
+	var oauthToken *inboundmodel.OAuthTokenConfig
+	var userInfo *inboundmodel.UserInfoConfig
+	var scopeClaims map[string][]string
+	if oauthProfile != nil {
+		oauthToken = oauthProfile.Token
+		userInfo = oauthProfile.UserInfo
+		scopeClaims = oauthProfile.ScopeClaims
+	}
+	if inboundAuthConfig != nil && inboundAuthConfig.OAuthConfig != nil {
+		c := inboundAuthConfig.OAuthConfig.Certificate
+		if c == nil || c.Type == "" {
+			inboundAuthConfig.OAuthConfig.Certificate = nil
+		}
+	}
+	return buildReturnApplicationDTO(appID, &appForReturn, inboundClient.Assertion, processedDTO.Metadata,
+		inboundAuthConfig, oauthToken, userInfo, scopeClaims), nil
+}
+
+func (as *applicationService) updateEntityDataForApplicationUpdate(
+	appID string,
+	app *model.ApplicationDTO,
+	inboundAuthConfig *inboundmodel.InboundAuthConfigWithSecret,
+) *serviceerror.ServiceError {
+	var clientID string
+	if inboundAuthConfig != nil && inboundAuthConfig.OAuthConfig != nil {
+		clientID = inboundAuthConfig.OAuthConfig.ClientID
+	}
+
+	sysAttrsJSON, marshalErr := buildSystemAttributes(app, clientID)
+	if marshalErr != nil {
+		as.logger.Error("Failed to build entity system attributes for update", log.Error(marshalErr))
+		return &serviceerror.InternalServerError
+	}
+
+	if epErr := as.entityProvider.UpdateSystemAttributes(appID, sysAttrsJSON); epErr != nil {
+		if svcErr := mapEntityProviderError(epErr); svcErr != nil {
+			return svcErr
+		}
+		as.logger.Error("Failed to update entity system attributes", log.String("appID", appID), log.Error(epErr))
+		return &serviceerror.InternalServerError
+	}
+
+	// Decide credential disposition:
+	// - No OAuth config, or OAuth method that doesn't use a client secret → clear stored credentials.
+	// - OAuth method requires a secret + new secret supplied → store the new secret.
+	// - OAuth method requires a secret + no new secret supplied → leave existing secret intact (no rotation).
+	if inboundAuthConfig == nil || inboundAuthConfig.OAuthConfig == nil ||
+		!appRequiresClientSecret(inboundAuthConfig.OAuthConfig) {
+		if epErr := as.entityProvider.UpdateSystemCredentials(appID, nil); epErr != nil {
+			if svcErr := mapEntityProviderError(epErr); svcErr != nil {
+				return svcErr
+			}
+			as.logger.Error("Failed to clear entity system credentials",
+				log.String("appID", appID), log.Error(epErr))
+			return &serviceerror.InternalServerError
+		}
+		return nil
+	}
+	if inboundAuthConfig.OAuthConfig.ClientSecret == "" {
+		return nil
+	}
+
+	sysCredsJSON, marshalErr := buildSystemCredentials(inboundAuthConfig.OAuthConfig.ClientSecret)
+	if marshalErr != nil {
+		as.logger.Error("Failed to build entity system credentials for update", log.Error(marshalErr))
+		return &serviceerror.InternalServerError
+	}
+
+	if epErr := as.entityProvider.UpdateSystemCredentials(appID, sysCredsJSON); epErr != nil {
+		if svcErr := mapEntityProviderError(epErr); svcErr != nil {
+			return svcErr
+		}
+		as.logger.Error("Failed to update entity system credentials", log.String("appID", appID), log.Error(epErr))
+		return &serviceerror.InternalServerError
+	}
+
+	return nil
+}
+
+// appRequiresClientSecret reports whether the OAuth config implies a confidential client requiring a secret.
+func appRequiresClientSecret(cfg *inboundmodel.OAuthConfigWithSecret) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.PublicClient {
+		return false
+	}
+	switch cfg.TokenEndpointAuthMethod {
+	case oauth2const.TokenEndpointAuthMethodClientSecretBasic,
+		oauth2const.TokenEndpointAuthMethodClientSecretPost:
+		return true
+	case oauth2const.TokenEndpointAuthMethodNone,
+		oauth2const.TokenEndpointAuthMethodPrivateKeyJWT:
+		return false
+	}
+	// Default to requiring a secret when method is unspecified.
+	return true
+}
+
+// DeleteApplication delete the application for given app id.
+func (as *applicationService) DeleteApplication(ctx context.Context, appID string) *serviceerror.ServiceError {
+	if appID == "" {
+		return &ErrorInvalidApplicationID
+	}
+
+	if existing, epErr := as.entityProvider.GetEntity(appID); epErr != nil {
+		if epErr.Code != entityprovider.ErrorCodeEntityNotFound {
+			as.logger.Error("Failed to load entity before delete", log.String("appID", appID), log.Error(epErr))
+			return &serviceerror.InternalServerError
+		}
+	} else if existing != nil && existing.Category != entityprovider.EntityCategoryApp {
+		return &ErrorApplicationNotFound
+	}
+
+	// Delete config.
+	if appErr := as.inboundClientService.DeleteInboundClient(ctx, appID); appErr != nil {
+		if errors.Is(appErr, inboundclient.ErrInboundClientNotFound) {
+			return nil
+		}
+		if svcErr := as.translateInboundClientError(appErr); svcErr != nil {
+			return svcErr
+		}
+		as.logger.Error("Failed to delete application", log.Error(appErr), log.String("appID", appID))
+		return &serviceerror.InternalServerError
+	}
+
+	// Delete entity.
+	if epErr := as.entityProvider.DeleteEntity(appID); epErr != nil {
+		if svcErr := mapEntityProviderError(epErr); svcErr != nil {
+			return svcErr
+		}
+		as.logger.Error("Failed to delete application entity", log.String("appID", appID), log.Error(epErr))
+		return &serviceerror.InternalServerError
+	}
+
+	return as.deleteLocalizedVariants(ctx, appID)
+}
+
+// isIdentifierTaken checks if an entity with the given identifier already exists.
+// If excludeID is non-empty, the entity with that ID is excluded from the check
+// (used during declarative loading and updates where the entity already exists).
+func (as *applicationService) isIdentifierTaken(key, value, excludeID string) (bool, *serviceerror.ServiceError) {
+	entityID, epErr := as.entityProvider.IdentifyEntity(map[string]interface{}{key: value})
+	if epErr != nil {
+		if epErr.Code == entityprovider.ErrorCodeEntityNotFound {
+			return false, nil
+		}
+		as.logger.Error("Failed to check identifier availability",
+			log.String("key", key), log.String("value", value), log.Error(epErr))
+		return false, &serviceerror.InternalServerError
+	}
+	if entityID == nil {
+		return false, nil
+	}
+	if excludeID != "" && *entityID == excludeID {
+		return false, nil
+	}
+	return true, nil
+}
+
+// getApplication loads entity + config + OAuth config and merges into ApplicationProcessedDTO.
+func (as *applicationService) getApplication(
+	ctx context.Context, appID string,
+) (*model.ApplicationProcessedDTO, *serviceerror.ServiceError) {
+	inboundClient, err := as.inboundClientService.GetInboundClientByEntityID(ctx, appID)
+	if err != nil {
+		return nil, as.mapStoreError(err)
+	}
+	if inboundClient == nil {
+		return nil, &ErrorApplicationNotFound
+	}
+
+	entity, epErr := as.entityProvider.GetEntity(appID)
+	if epErr != nil {
+		if epErr.Code == entityprovider.ErrorCodeEntityNotFound {
+			entity = nil
+		} else {
+			as.logger.Error("Failed to get entity for application", log.String("appID", appID), log.Error(epErr))
+			return nil, &serviceerror.InternalServerError
+		}
+	}
+
+	if entity != nil && entity.Category != entityprovider.EntityCategoryApp {
+		return nil, &ErrorApplicationNotFound
+	}
+
+	oauthProfile, err := as.inboundClientService.GetOAuthProfileByEntityID(ctx, appID)
+	if err != nil && !errors.Is(err, inboundclient.ErrInboundClientNotFound) {
+		as.logger.Error("Failed to get OAuth profile for application", log.String("appID", appID), log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	dto := toProcessedDTO(entity, inboundClient, oauthProfile)
+	return dto, nil
+}
+
+// mapEntityProviderError maps entity provider error codes to application service errors.
+func mapEntityProviderError(epErr *entityprovider.EntityProviderError) *serviceerror.ServiceError {
+	if epErr == nil {
+		return nil
+	}
+	switch epErr.Code {
+	case entityprovider.ErrorCodeEntityNotFound:
+		return &ErrorApplicationNotFound
+	default:
+		return nil
+	}
+}
+
+// toInboundClient extracts gateway config fields from a full ApplicationProcessedDTO.
+func toInboundClient(dto *model.ApplicationProcessedDTO) inboundmodel.InboundClient {
+	dao := inboundmodel.InboundClient{
+		ID:                        dto.ID,
+		AuthFlowID:                dto.AuthFlowID,
+		RegistrationFlowID:        dto.RegistrationFlowID,
+		IsRegistrationFlowEnabled: dto.IsRegistrationFlowEnabled,
+		RecoveryFlowID:            dto.RecoveryFlowID,
+		IsRecoveryFlowEnabled:     dto.IsRecoveryFlowEnabled,
+		ThemeID:                   dto.ThemeID,
+		LayoutID:                  dto.LayoutID,
+		Assertion:                 dto.Assertion,
+		LoginConsent:              dto.LoginConsent,
+		AllowedUserTypes:          dto.AllowedUserTypes,
+	}
+
+	// Pack remaining fields into Properties.
+	props := make(map[string]interface{})
+	if dto.URL != "" {
+		props[propURL] = dto.URL
+	}
+	if dto.LogoURL != "" {
+		props[propLogoURL] = dto.LogoURL
+	}
+	if dto.TosURI != "" {
+		props[propTosURI] = dto.TosURI
+	}
+	if dto.PolicyURI != "" {
+		props[propPolicyURI] = dto.PolicyURI
+	}
+	if len(dto.Contacts) > 0 {
+		props[propContacts] = dto.Contacts
+	}
+	if dto.Template != "" {
+		props[propTemplate] = dto.Template
+	}
+	if dto.Metadata != nil {
+		props[propMetadata] = dto.Metadata
+	}
+	if len(props) > 0 {
+		dao.Properties = props
+	}
+
+	return dao
+}
+
+// toProcessedDTO merges entity identity data with store config into a full
+// ApplicationProcessedDTO.
+func toProcessedDTO(
+	e *entityprovider.Entity, dao *inboundmodel.InboundClient, oauthProfile *inboundmodel.OAuthProfile,
+) *model.ApplicationProcessedDTO {
+	dto := &model.ApplicationProcessedDTO{
+		ID: dao.ID,
+		InboundAuthProfile: inboundmodel.InboundAuthProfile{
+			AuthFlowID:                dao.AuthFlowID,
+			RegistrationFlowID:        dao.RegistrationFlowID,
+			IsRegistrationFlowEnabled: dao.IsRegistrationFlowEnabled,
+			RecoveryFlowID:            dao.RecoveryFlowID,
+			IsRecoveryFlowEnabled:     dao.IsRecoveryFlowEnabled,
+			ThemeID:                   dao.ThemeID,
+			LayoutID:                  dao.LayoutID,
+			Assertion:                 dao.Assertion,
+			LoginConsent:              dao.LoginConsent,
+			AllowedUserTypes:          dao.AllowedUserTypes,
+		},
+	}
+
+	// Extract identity fields from entity system attributes.
+	if e != nil {
+		dto.OUID = e.OUID
+		var sysAttrs map[string]interface{}
+		if len(e.SystemAttributes) > 0 {
+			_ = json.Unmarshal(e.SystemAttributes, &sysAttrs)
+		}
+		if sysAttrs != nil {
+			if name, ok := sysAttrs[fieldName].(string); ok {
+				dto.Name = name
+			}
+			if desc, ok := sysAttrs[fieldDescription].(string); ok {
+				dto.Description = desc
+			}
+		}
+	}
+
+	// Extract remaining fields from Properties.
+	if dao.Properties != nil {
+		if url, ok := dao.Properties[propURL].(string); ok {
+			dto.URL = url
+		}
+		if logoURL, ok := dao.Properties[propLogoURL].(string); ok {
+			dto.LogoURL = logoURL
+		}
+		if tosURI, ok := dao.Properties[propTosURI].(string); ok {
+			dto.TosURI = tosURI
+		}
+		if policyURI, ok := dao.Properties[propPolicyURI].(string); ok {
+			dto.PolicyURI = policyURI
+		}
+		switch contacts := dao.Properties[propContacts].(type) {
+		case []string:
+			dto.Contacts = append(dto.Contacts, contacts...)
+		case []interface{}:
+			for _, c := range contacts {
+				if s, ok := c.(string); ok {
+					dto.Contacts = append(dto.Contacts, s)
+				}
+			}
+		}
+		if template, ok := dao.Properties[propTemplate].(string); ok {
+			dto.Template = template
+		}
+		if metadata, ok := dao.Properties[propMetadata].(map[string]interface{}); ok {
+			dto.Metadata = metadata
+		}
+	}
+
+	// Merge OAuth profile if present.
+	if oauthProfile != nil {
+		var clientID string
+		if e != nil {
+			var sysAttrs map[string]interface{}
+			if len(e.SystemAttributes) > 0 {
+				_ = json.Unmarshal(e.SystemAttributes, &sysAttrs)
+			}
+			if sysAttrs != nil {
+				if cid, ok := sysAttrs[fieldClientID].(string); ok {
+					clientID = cid
+				}
+			}
 		}
 
-		processedInboundAuthConfig := model.InboundAuthConfigProcessedDTO{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigProcessedDTO{
-				AppID:                   appID,
-				ClientID:                inboundAuthConfig.OAuthAppConfig.ClientID,
-				HashedClientSecret:      getProcessedClientSecret(inboundAuthConfig.OAuthAppConfig),
-				RedirectURIs:            inboundAuthConfig.OAuthAppConfig.RedirectURIs,
-				GrantTypes:              inboundAuthConfig.OAuthAppConfig.GrantTypes,
-				ResponseTypes:           inboundAuthConfig.OAuthAppConfig.ResponseTypes,
-				TokenEndpointAuthMethod: inboundAuthConfig.OAuthAppConfig.TokenEndpointAuthMethod,
-				PKCERequired:            inboundAuthConfig.OAuthAppConfig.PKCERequired,
-				PublicClient:            inboundAuthConfig.OAuthAppConfig.PublicClient,
-				Token:                   returnTokenConfig,
-				Scopes:                  inboundAuthConfig.OAuthAppConfig.Scopes,
-				UserInfo:                userInfo,
-				ScopeClaims:             scopeClaims,
-			},
+		var ouID string
+		if e != nil {
+			ouID = e.OUID
 		}
-		processedDTO.InboundAuthConfig = []model.InboundAuthConfigProcessedDTO{processedInboundAuthConfig}
+		oauthProcessed := inboundclient.BuildOAuthClient(dao.ID, clientID, ouID, oauthProfile)
+		dto.InboundAuthConfig = []inboundmodel.InboundAuthConfigProcessed{
+			{Type: inboundmodel.OAuthInboundAuthType, OAuthConfig: oauthProcessed},
+		}
 	}
-	return processedDTO, inboundAuthConfig, nil
+
+	return dto
+}
+
+// toOAuthProfile builds the typed OAuth config from a processed DTO for store persistence.
+// Returns nil when no OAuth inbound config is present.
+func toOAuthProfile(processedDTO *model.ApplicationProcessedDTO) *inboundmodel.OAuthProfile {
+	oauthProcessed := getOAuthInboundAuthConfigProcessedDTO(processedDTO.InboundAuthConfig)
+	if oauthProcessed == nil || oauthProcessed.OAuthConfig == nil {
+		return nil
+	}
+	return buildOAuthProfileFromProcessed(*oauthProcessed)
+}
+
+// buildOAuthProfileFromProcessed builds a typed OAuthProfile from an InboundAuthConfigProcessed.
+// Returns nil if the inbound auth config has no OAuth application config.
+func buildOAuthProfileFromProcessed(inboundAuth inboundmodel.InboundAuthConfigProcessed) *inboundmodel.OAuthProfile {
+	if inboundAuth.OAuthConfig == nil {
+		return nil
+	}
+	oa := inboundAuth.OAuthConfig
+	return &inboundmodel.OAuthProfile{
+		RedirectURIs:                       oa.RedirectURIs,
+		GrantTypes:                         sysutils.ConvertToStringSlice(oa.GrantTypes),
+		ResponseTypes:                      sysutils.ConvertToStringSlice(oa.ResponseTypes),
+		TokenEndpointAuthMethod:            string(oa.TokenEndpointAuthMethod),
+		PKCERequired:                       oa.PKCERequired,
+		PublicClient:                       oa.PublicClient,
+		RequirePushedAuthorizationRequests: oa.RequirePushedAuthorizationRequests,
+		DPoPBoundAccessTokens:              oa.DPoPBoundAccessTokens,
+		Scopes:                             oa.Scopes,
+		ScopeClaims:                        oa.ScopeClaims,
+		Token:                              oa.Token,
+		UserInfo:                           oa.UserInfo,
+		Certificate:                        oa.Certificate,
+		AcrValues:                          oa.AcrValues,
+	}
+}
+
+// buildSystemAttributes builds the system attributes JSON for the entity.
+func buildSystemAttributes(app *model.ApplicationDTO, clientID string) (json.RawMessage, error) {
+	sysAttrs := map[string]interface{}{
+		fieldName: app.Name,
+	}
+	if app.Description != "" {
+		sysAttrs[fieldDescription] = app.Description
+	}
+	if clientID != "" {
+		sysAttrs[fieldClientID] = clientID
+	}
+	return json.Marshal(sysAttrs)
+}
+
+// buildAppEntity constructs an entity and system credentials for entity creation.
+func buildAppEntity(appID string, app *model.ApplicationDTO, clientID string, plaintextSecret string) (
+	*entityprovider.Entity, json.RawMessage, error) {
+	sysAttrsJSON, err := buildSystemAttributes(app, clientID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build entity system attributes: %w", err)
+	}
+
+	sysCredsJSON, err := buildSystemCredentials(plaintextSecret)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build entity system credentials: %w", err)
+	}
+
+	e := &entityprovider.Entity{
+		ID:               appID,
+		Category:         entityprovider.EntityCategoryApp,
+		Type:             "application",
+		State:            entityprovider.EntityStateActive,
+		OUID:             app.OUID,
+		SystemAttributes: sysAttrsJSON,
+	}
+	return e, sysCredsJSON, nil
+}
+
+// buildSystemCredentials builds the system credentials JSON for the entity.
+func buildSystemCredentials(clientSecret string) (json.RawMessage, error) {
+	if clientSecret == "" {
+		return nil, nil
+	}
+
+	return json.Marshal(map[string]interface{}{
+		fieldClientSecret: clientSecret,
+	})
+}
+
+// getOAuthInboundAuthConfigDTO returns the single OAuth InboundAuthConfigDTO.
+// It returns an error if multiple OAuth configs are found, nil if none exist.
+func getOAuthInboundAuthConfigDTO(
+	configs []inboundmodel.InboundAuthConfigWithSecret,
+) (*inboundmodel.InboundAuthConfigWithSecret, *serviceerror.ServiceError) {
+	var cfg *inboundmodel.InboundAuthConfigWithSecret
+	for i := range configs {
+		if configs[i].Type == inboundmodel.OAuthInboundAuthType {
+			if cfg != nil {
+				return nil, &ErrorInvalidInboundAuthConfig
+			}
+			cfg = &configs[i]
+		}
+	}
+	return cfg, nil
+}
+
+// getOAuthInboundAuthConfigProcessedDTO returns the first OAuth InboundAuthConfigProcessedDTO, or nil.
+func getOAuthInboundAuthConfigProcessedDTO(
+	configs []inboundmodel.InboundAuthConfigProcessed,
+) *inboundmodel.InboundAuthConfigProcessed {
+	for i := range configs {
+		if configs[i].Type == inboundmodel.OAuthInboundAuthType {
+			return &configs[i]
+		}
+	}
+	return nil
 }
 
 func (as *applicationService) validateApplicationForUpdate(
 	ctx context.Context, appID string, app *model.ApplicationDTO) (
-	*model.ApplicationProcessedDTO, *model.InboundAuthConfigDTO, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
+	*model.ApplicationProcessedDTO, *inboundmodel.InboundAuthConfigWithSecret, *serviceerror.ServiceError) {
 	if appID == "" {
 		return nil, nil, &ErrorInvalidApplicationID
 	}
@@ -342,33 +881,18 @@ func (as *applicationService) validateApplicationForUpdate(
 		return nil, nil, &ErrorInvalidApplicationName
 	}
 
-	// Check if the application is declarative (read-only)
-	if as.appStore.IsApplicationDeclarative(ctx, appID) {
-		return nil, nil, &ErrorCannotModifyDeclarativeResource
-	}
-
-	existingApp, appCheckErr := as.appStore.GetApplicationByID(ctx, appID)
-	if appCheckErr != nil {
-		if errors.Is(appCheckErr, model.ApplicationNotFoundError) {
-			return nil, nil, &ErrorApplicationNotFound
-		}
-		logger.Debug("Failed to get existing application", log.Error(appCheckErr), log.String("appID", appID))
-		return nil, nil, &ErrorInternalServerError
-	}
-	if existingApp == nil {
-		logger.Debug("Application not found for update", log.String("appID", appID))
-		return nil, nil, &ErrorApplicationNotFound
+	existingApp, existingAppErr := as.getApplication(ctx, appID)
+	if existingAppErr != nil {
+		return nil, nil, existingAppErr
 	}
 
 	// If the application name is changed, check if an application with the new name already exists.
 	if existingApp.Name != app.Name {
-		existingAppWithName, appCheckErr := as.appStore.GetApplicationByName(ctx, app.Name)
-		if appCheckErr != nil && !errors.Is(appCheckErr, model.ApplicationNotFoundError) {
-			logger.Debug("Failed to check existing application by name", log.Error(appCheckErr),
-				log.String("appName", app.Name))
-			return nil, nil, &ErrorInternalServerError
+		nameExists, nameCheckErr := as.isIdentifierTaken(fieldName, app.Name, appID)
+		if nameCheckErr != nil {
+			return nil, nil, nameCheckErr
 		}
-		if existingAppWithName != nil {
+		if nameExists {
 			return nil, nil, &ErrorApplicationAlreadyExistsWithName
 		}
 	}
@@ -377,7 +901,7 @@ func (as *applicationService) validateApplicationForUpdate(
 		return nil, nil, svcErr
 	}
 
-	inboundAuthConfig, svcErr := as.processInboundAuthConfig(ctx, app, existingApp)
+	inboundAuthConfig, svcErr := as.processInboundAuthConfig(app, existingApp)
 	if svcErr != nil {
 		return nil, nil, svcErr
 	}
@@ -385,621 +909,59 @@ func (as *applicationService) validateApplicationForUpdate(
 	return existingApp, inboundAuthConfig, nil
 }
 
-// GetApplicationList list the applications.
-func (as *applicationService) GetApplicationList(
-	ctx context.Context) (*model.ApplicationListResponse, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	totalCount, err := as.appStore.GetTotalApplicationCount(ctx)
-	if err != nil {
-		logger.Error("Failed to retrieve total application count", log.Error(err))
-		return nil, &ErrorInternalServerError
-	}
-
-	applications, err := as.appStore.GetApplicationList(ctx)
-	if err != nil {
-		// Check for composite limit exceeded
-		if errors.Is(err, errResultLimitExceededInCompositeMode) {
-			return nil, &ErrorResultLimitExceeded
-		}
-		logger.Error("Failed to retrieve application list", log.Error(err))
-		return nil, &ErrorInternalServerError
-	}
-
-	applicationList := make([]model.BasicApplicationResponse, 0, len(applications))
-	for _, app := range applications {
-		applicationList = append(applicationList, buildBasicApplicationResponse(app))
-	}
-
-	response := &model.ApplicationListResponse{
-		TotalResults: totalCount,
-		Count:        len(applications),
-		Applications: applicationList,
-	}
-
-	return response, nil
-}
-
-// buildBasicApplicationResponse builds a basic application response from the processed application DTO.
-func buildBasicApplicationResponse(app model.BasicApplicationDTO) model.BasicApplicationResponse {
-	return model.BasicApplicationResponse{
-		ID:                        app.ID,
-		Name:                      app.Name,
-		Description:               app.Description,
-		ClientID:                  app.ClientID,
-		LogoURL:                   app.LogoURL,
-		AuthFlowID:                app.AuthFlowID,
-		RegistrationFlowID:        app.RegistrationFlowID,
-		IsRegistrationFlowEnabled: app.IsRegistrationFlowEnabled,
-		ThemeID:                   app.ThemeID,
-		LayoutID:                  app.LayoutID,
-		Template:                  app.Template,
-		IsReadOnly:                app.IsReadOnly,
-	}
-}
-
-// GetOAuthApplication retrieves the OAuth application based on the client id.
-func (as *applicationService) GetOAuthApplication(
-	ctx context.Context, clientID string) (*model.OAuthAppConfigProcessedDTO, *serviceerror.ServiceError) {
-	if clientID == "" {
-		return nil, &ErrorInvalidClientID
-	}
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	oauthApp, err := as.appStore.GetOAuthApplication(ctx, clientID)
-	if err != nil {
-		if errors.Is(err, model.ApplicationNotFoundError) {
-			return nil, &ErrorApplicationNotFound
-		}
-
-		logger.Error("Failed to retrieve OAuth application", log.Error(err),
-			log.String("clientID", log.MaskString(clientID)))
-		return nil, &ErrorInternalServerError
-	}
-	if oauthApp == nil {
-		return nil, &ErrorApplicationNotFound
-	}
-
-	certificate, certErr := as.getApplicationCertificate(ctx, clientID, cert.CertificateReferenceTypeOAuthApp)
-	if certErr != nil {
-		return nil, certErr
-	}
-
-	oauthApp.Certificate = certificate
-
-	return oauthApp, nil
-}
-
-// GetApplication get the application for given app id.
-func (as *applicationService) GetApplication(ctx context.Context, appID string) (*model.Application,
-	*serviceerror.ServiceError) {
-	if appID == "" {
-		return nil, &ErrorInvalidApplicationID
-	}
-
-	applicationDTO, err := as.appStore.GetApplicationByID(ctx, appID)
-	if err != nil {
-		return nil, as.handleApplicationRetrievalError(err)
-	}
-
-	application := &model.Application{
-		ID:                        applicationDTO.ID,
-		Name:                      applicationDTO.Name,
-		Description:               applicationDTO.Description,
-		AuthFlowID:                applicationDTO.AuthFlowID,
-		RegistrationFlowID:        applicationDTO.RegistrationFlowID,
-		IsRegistrationFlowEnabled: applicationDTO.IsRegistrationFlowEnabled,
-		ThemeID:                   applicationDTO.ThemeID,
-		LayoutID:                  applicationDTO.LayoutID,
-		Template:                  applicationDTO.Template,
-		URL:                       applicationDTO.URL,
-		LogoURL:                   applicationDTO.LogoURL,
-		TosURI:                    applicationDTO.TosURI,
-		PolicyURI:                 applicationDTO.PolicyURI,
-		Assertion:                 applicationDTO.Assertion,
-		Contacts:                  applicationDTO.Contacts,
-		Certificate:               applicationDTO.Certificate,
-		AllowedUserTypes:          applicationDTO.AllowedUserTypes,
-		LoginConsent:              applicationDTO.LoginConsent,
-		Metadata:                  applicationDTO.Metadata,
-	}
-
-	if len(applicationDTO.InboundAuthConfig) > 0 {
-		inboundAuthConfigs := make([]model.InboundAuthConfigComplete, 0, len(applicationDTO.InboundAuthConfig))
-		for _, inboundAuthConfigDTO := range applicationDTO.InboundAuthConfig {
-			if inboundAuthConfigDTO.Type == model.OAuthInboundAuthType && inboundAuthConfigDTO.OAuthAppConfig != nil {
-				oauthAppConfig := inboundAuthConfigDTO.OAuthAppConfig
-				inboundAuthConfigs = append(inboundAuthConfigs, model.InboundAuthConfigComplete{
-					Type: model.OAuthInboundAuthType,
-					OAuthAppConfig: &model.OAuthAppConfigComplete{
-						ClientID:                oauthAppConfig.ClientID,
-						RedirectURIs:            oauthAppConfig.RedirectURIs,
-						GrantTypes:              oauthAppConfig.GrantTypes,
-						ResponseTypes:           oauthAppConfig.ResponseTypes,
-						TokenEndpointAuthMethod: oauthAppConfig.TokenEndpointAuthMethod,
-						PKCERequired:            oauthAppConfig.PKCERequired,
-						PublicClient:            oauthAppConfig.PublicClient,
-						Token:                   oauthAppConfig.Token,
-						Scopes:                  oauthAppConfig.Scopes,
-						UserInfo:                oauthAppConfig.UserInfo,
-						ScopeClaims:             oauthAppConfig.ScopeClaims,
-					},
-				})
-			}
-		}
-		application.InboundAuthConfig = inboundAuthConfigs
-	}
-
-	return as.enrichApplicationWithCertificate(ctx, application)
-}
-
-// handleApplicationRetrievalError handles common error scenarios when retrieving applications from the
-// application store. It maps specific errors, such as ApplicationNotFoundError, to corresponding service errors.
-func (as *applicationService) handleApplicationRetrievalError(err error) *serviceerror.ServiceError {
-	if errors.Is(err, model.ApplicationNotFoundError) {
-		return &ErrorApplicationNotFound
-	}
-	return &ErrorInternalServerError
-}
-
-// enrichApplicationWithCertificate retrieves and adds the certificate to the application.
-func (as *applicationService) enrichApplicationWithCertificate(ctx context.Context, application *model.Application) (
-	*model.Application, *serviceerror.ServiceError) {
-	appCert, certErr := as.getApplicationCertificate(ctx, application.ID, cert.CertificateReferenceTypeApplication)
-	if certErr != nil {
-		return nil, certErr
-	}
-	application.Certificate = appCert
-
-	// Enrich OAuth config certificate for each inbound auth config.
-	for i, inboundAuthConfig := range application.InboundAuthConfig {
-		if inboundAuthConfig.Type == model.OAuthInboundAuthType && inboundAuthConfig.OAuthAppConfig != nil {
-			oauthCert, oauthCertErr := as.getApplicationCertificate(ctx, inboundAuthConfig.OAuthAppConfig.ClientID,
-				cert.CertificateReferenceTypeOAuthApp)
-			if oauthCertErr != nil {
-				return nil, oauthCertErr
-			}
-			application.InboundAuthConfig[i].OAuthAppConfig.Certificate = oauthCert
-		}
-	}
-
-	return application, nil
-}
-
-// UpdateApplication update the application for given app id.
-func (as *applicationService) UpdateApplication(ctx context.Context, appID string, app *model.ApplicationDTO) (
-	*model.ApplicationDTO, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	existingApp, inboundAuthConfig, svcErr := as.validateApplicationForUpdate(ctx, appID, app)
-
-	if svcErr != nil {
-		return nil, svcErr
-	}
-
-	// Process token configuration
-	assertion, finalOAuthAccessToken, finalOAuthIDToken := processTokenConfiguration(app)
-	userInfo := processUserInfoConfiguration(app, finalOAuthIDToken)
-	scopeClaims := processScopeClaimsConfiguration(app)
-
-	processedDTO := as.buildProcessedDTOForUpdate(
-		appID, app,
-		inboundAuthConfig, existingApp,
-		assertion, finalOAuthAccessToken, finalOAuthIDToken,
-		userInfo, scopeClaims,
-	)
-
-	var returnCert, returnOAuthCert *model.ApplicationCertificate
-	var innerSvcErr *serviceerror.ServiceError
-	err := as.transactioner.Transact(ctx, func(txCtx context.Context) error {
-		var certErr *serviceerror.ServiceError
-		returnCert, certErr = as.updateApplicationCertificate(txCtx, appID,
-			app.Certificate, cert.CertificateReferenceTypeApplication)
-		if certErr != nil {
-			innerSvcErr = certErr
-			return fmt.Errorf("application certificate update failed")
-		}
-
-		if inboundAuthConfig != nil {
-			returnOAuthCert, certErr = as.updateApplicationCertificate(
-				txCtx, inboundAuthConfig.OAuthAppConfig.ClientID, inboundAuthConfig.OAuthAppConfig.Certificate,
-				cert.CertificateReferenceTypeOAuthApp)
-			if certErr != nil {
-				innerSvcErr = certErr
-				return fmt.Errorf("OAuth certificate update failed")
-			}
-		}
-
-		storeErr := as.appStore.UpdateApplication(txCtx, existingApp, processedDTO)
-		if storeErr != nil {
-			return storeErr
-		}
-
-		// Sync consent purpose for the application update
-		if as.consentService.IsEnabled() {
-			if svcErr := as.syncConsentPurposeOnUpdate(txCtx, existingApp, processedDTO); svcErr != nil {
-				innerSvcErr = svcErr
-				return fmt.Errorf("consent sync failed")
-			}
-		}
-
-		return nil
-	})
-
-	if innerSvcErr != nil {
-		return nil, innerSvcErr
-	}
-	if err != nil {
-		logger.Error("Failed to update application", log.Error(err), log.String("appID", appID))
-		return nil, &ErrorInternalServerError
-	}
-
-	return as.buildReturnDTOForUpdate(
-		appID, app,
-		inboundAuthConfig, processedDTO,
-		assertion, finalOAuthAccessToken, finalOAuthIDToken,
-		userInfo, scopeClaims, returnCert, returnOAuthCert,
-	), nil
-}
-
-// buildProcessedDTOForUpdate constructs the ApplicationProcessedDTO for an application update operation.
-func (as *applicationService) buildProcessedDTOForUpdate(appID string, app *model.ApplicationDTO,
-	inboundAuthConfig *model.InboundAuthConfigDTO, existingApp *model.ApplicationProcessedDTO,
-	assertion *model.AssertionConfig, finalOAuthAccessToken *model.AccessTokenConfig,
-	finalOAuthIDToken *model.IDTokenConfig, userInfo *model.UserInfoConfig,
-	scopeClaims map[string][]string) *model.ApplicationProcessedDTO {
-	processedDTO := &model.ApplicationProcessedDTO{
-		ID:                        appID,
-		Name:                      app.Name,
-		Description:               app.Description,
-		AuthFlowID:                app.AuthFlowID,
-		RegistrationFlowID:        app.RegistrationFlowID,
-		IsRegistrationFlowEnabled: app.IsRegistrationFlowEnabled,
-		ThemeID:                   app.ThemeID,
-		LayoutID:                  app.LayoutID,
-		Template:                  app.Template,
-		URL:                       app.URL,
-		LogoURL:                   app.LogoURL,
-		Assertion:                 assertion,
-		TosURI:                    app.TosURI,
-		PolicyURI:                 app.PolicyURI,
-		Contacts:                  app.Contacts,
-		AllowedUserTypes:          app.AllowedUserTypes,
-		LoginConsent:              app.LoginConsent,
-		Metadata:                  app.Metadata,
-	}
-
-	if inboundAuthConfig != nil {
-		// Wrap the finalOAuthAccessToken and finalOAuthIDToken in OAuthTokenConfig structure
-		oAuthTokenConfig := &model.OAuthTokenConfig{
-			AccessToken: finalOAuthAccessToken,
-			IDToken:     finalOAuthIDToken,
-		}
-
-		var existingOAuthConfig *model.OAuthAppConfigProcessedDTO
-		if len(existingApp.InboundAuthConfig) > 0 {
-			existingOAuthConfig = existingApp.InboundAuthConfig[0].OAuthAppConfig
-		}
-
-		processedInboundAuthConfig := model.InboundAuthConfigProcessedDTO{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigProcessedDTO{
-				AppID:    appID,
-				ClientID: inboundAuthConfig.OAuthAppConfig.ClientID,
-				HashedClientSecret: getProcessedClientSecretForUpdate(
-					inboundAuthConfig.OAuthAppConfig, existingOAuthConfig),
-				RedirectURIs:            inboundAuthConfig.OAuthAppConfig.RedirectURIs,
-				GrantTypes:              inboundAuthConfig.OAuthAppConfig.GrantTypes,
-				ResponseTypes:           inboundAuthConfig.OAuthAppConfig.ResponseTypes,
-				TokenEndpointAuthMethod: inboundAuthConfig.OAuthAppConfig.TokenEndpointAuthMethod,
-				PKCERequired:            inboundAuthConfig.OAuthAppConfig.PKCERequired,
-				PublicClient:            inboundAuthConfig.OAuthAppConfig.PublicClient,
-				Token:                   oAuthTokenConfig,
-				Scopes:                  inboundAuthConfig.OAuthAppConfig.Scopes,
-				UserInfo:                userInfo,
-				ScopeClaims:             scopeClaims,
-				Certificate:             inboundAuthConfig.OAuthAppConfig.Certificate,
-			},
-		}
-		processedDTO.InboundAuthConfig = []model.InboundAuthConfigProcessedDTO{processedInboundAuthConfig}
-	}
-
-	return processedDTO
-}
-
-// buildReturnDTOForUpdate constructs the ApplicationDTO to return from an application update operation.
-func (as *applicationService) buildReturnDTOForUpdate(appID string, app *model.ApplicationDTO,
-	inboundAuthConfig *model.InboundAuthConfigDTO, processedDTO *model.ApplicationProcessedDTO,
-	assertion *model.AssertionConfig, finalOAuthAccessToken *model.AccessTokenConfig,
-	finalOAuthIDToken *model.IDTokenConfig, userInfo *model.UserInfoConfig, scopeClaims map[string][]string,
-	returnCert *model.ApplicationCertificate, returnOAuthCert *model.ApplicationCertificate) *model.ApplicationDTO {
-	returnApp := &model.ApplicationDTO{
-		ID:                        appID,
-		Name:                      app.Name,
-		Description:               app.Description,
-		AuthFlowID:                app.AuthFlowID,
-		RegistrationFlowID:        app.RegistrationFlowID,
-		IsRegistrationFlowEnabled: app.IsRegistrationFlowEnabled,
-		ThemeID:                   app.ThemeID,
-		LayoutID:                  app.LayoutID,
-		Template:                  app.Template,
-		URL:                       app.URL,
-		LogoURL:                   app.LogoURL,
-		Assertion:                 assertion,
-		Certificate:               returnCert,
-		TosURI:                    app.TosURI,
-		PolicyURI:                 app.PolicyURI,
-		Contacts:                  app.Contacts,
-		AllowedUserTypes:          app.AllowedUserTypes,
-		LoginConsent:              app.LoginConsent,
-		Metadata:                  processedDTO.Metadata,
-	}
-	if inboundAuthConfig != nil {
-		// Construct the return DTO with processed token configuration
-		returnTokenConfig := &model.OAuthTokenConfig{
-			AccessToken: finalOAuthAccessToken,
-			IDToken:     finalOAuthIDToken,
-		}
-
-		returnInboundAuthConfig := model.InboundAuthConfigDTO{
-			Type: model.OAuthInboundAuthType,
-			OAuthAppConfig: &model.OAuthAppConfigDTO{
-				AppID:                   appID,
-				ClientID:                inboundAuthConfig.OAuthAppConfig.ClientID,
-				ClientSecret:            inboundAuthConfig.OAuthAppConfig.ClientSecret,
-				RedirectURIs:            inboundAuthConfig.OAuthAppConfig.RedirectURIs,
-				GrantTypes:              inboundAuthConfig.OAuthAppConfig.GrantTypes,
-				ResponseTypes:           inboundAuthConfig.OAuthAppConfig.ResponseTypes,
-				TokenEndpointAuthMethod: inboundAuthConfig.OAuthAppConfig.TokenEndpointAuthMethod,
-				PKCERequired:            inboundAuthConfig.OAuthAppConfig.PKCERequired,
-				PublicClient:            inboundAuthConfig.OAuthAppConfig.PublicClient,
-				Token:                   returnTokenConfig,
-				Scopes:                  inboundAuthConfig.OAuthAppConfig.Scopes,
-				UserInfo:                userInfo,
-				ScopeClaims:             scopeClaims,
-				Certificate:             returnOAuthCert,
-			},
-		}
-		returnApp.InboundAuthConfig = []model.InboundAuthConfigDTO{returnInboundAuthConfig}
-	}
-
-	return returnApp
-}
-
-// DeleteApplication delete the application for given app id.
-func (as *applicationService) DeleteApplication(ctx context.Context, appID string) *serviceerror.ServiceError {
-	if appID == "" {
-		return &ErrorInvalidApplicationID
-	}
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	// Check if the application is declarative (read-only)
-	if as.appStore.IsApplicationDeclarative(ctx, appID) {
-		return &ErrorCannotModifyDeclarativeResource
-	}
-
-	var appNotFound bool
-	var transactionSvcErr *serviceerror.ServiceError
-	err := as.transactioner.Transact(ctx, func(txCtx context.Context) error {
-		existingApp, fetchErr := as.appStore.GetApplicationByID(txCtx, appID)
-		if fetchErr != nil {
-			if errors.Is(fetchErr, model.ApplicationNotFoundError) {
-				appNotFound = true
-				return nil
-			}
-			return fetchErr
-		}
-
-		appErr := as.appStore.DeleteApplication(txCtx, appID)
-		if appErr != nil {
-			if errors.Is(appErr, model.ApplicationNotFoundError) {
-				logger.Debug("Application not found for the deletion", log.String("appID", appID))
-				appNotFound = true
-				return nil
-			}
-			return appErr
-		}
-
-		if as.consentService.IsEnabled() {
-			if svcErr := as.deleteConsentPurposes(txCtx, appID); svcErr != nil {
-				transactionSvcErr = svcErr
-				return fmt.Errorf("consent deletion failed")
-			}
-		}
-
-		if svcErr := as.deleteApplicationCertificate(txCtx, appID); svcErr != nil {
-			transactionSvcErr = svcErr
-			return fmt.Errorf("application certificate deletion failed")
-		}
-
-		for _, inboundConfig := range existingApp.InboundAuthConfig {
-			if inboundConfig.OAuthAppConfig != nil && inboundConfig.OAuthAppConfig.ClientID != "" {
-				if svcErr := as.deleteOAuthAppCertificate(txCtx, inboundConfig.OAuthAppConfig.ClientID); svcErr != nil {
-					transactionSvcErr = svcErr
-					return fmt.Errorf("OAuth app certificate deletion failed")
-				}
-			}
-		}
-
-		return nil
-	})
-
-	if appNotFound {
-		return nil
-	}
-
-	if transactionSvcErr != nil {
-		return transactionSvcErr
-	}
-	if err != nil {
-		logger.Error("Failed to delete application", log.Error(err), log.String("appID", appID))
-		return &ErrorInternalServerError
-	}
-
-	return nil
-}
-
-// validateAuthFlowID validates the auth flow ID for the application.
-// If the flow ID is not provided, it sets the default authentication flow ID.
-func (as *applicationService) validateAuthFlowID(
+// validateApplicationFields validates application fields that are common to both create and update operations.
+func (as *applicationService) validateApplicationFields(
 	ctx context.Context, app *model.ApplicationDTO) *serviceerror.ServiceError {
-	if app.AuthFlowID != "" {
-		valid, svcErr := as.flowMgtService.IsValidFlow(ctx, app.AuthFlowID, flowcommon.FlowTypeAuthentication)
+	// Resolve ou_handle to an ID when the direct ID is absent.
+	// If both are provided, ou_id wins and a warning is logged.
+	if app.OUID != "" && app.OUHandle != "" {
+		as.logger.Warn("Both ou_id and ou_handle provided for application; ou_handle ignored",
+			log.String("appID", app.ID), log.String("name", app.Name))
+	} else if app.OUID == "" && app.OUHandle != "" {
+		ou, svcErr := as.ouService.GetOrganizationUnitByPath(ctx, app.OUHandle)
 		if svcErr != nil {
-			return svcErr
+			return &ErrorInvalidRequestFormat
 		}
-		if !valid {
-			return &ErrorInvalidAuthFlowID
-		}
-	} else {
-		defaultFlowID, svcErr := as.getDefaultAuthFlowID(ctx)
-		if svcErr != nil {
-			return svcErr
-		}
-		app.AuthFlowID = defaultFlowID
+		app.OUID = ou.ID
+	}
+	// Resolve flow handles to IDs when the direct IDs are absent.
+	if err := as.inboundClientService.ResolveInboundAuthProfileHandles(ctx, &app.InboundAuthProfile); err != nil {
+		return &ErrorInvalidRequestFormat
+	}
+	// Validate organization unit ID.
+	if app.OUID == "" {
+		return &ErrorInvalidRequestFormat
+	}
+	if exists, err := as.ouService.IsOrganizationUnitExists(ctx, app.OUID); err != nil || !exists {
+		return &ErrorInvalidRequestFormat
 	}
 
-	return nil
-}
-
-// validateRegistrationFlowID validates the registration flow ID for the application.
-// If the ID is not provided, it attempts to infer it from the equivalent auth flow ID.
-func (as *applicationService) validateRegistrationFlowID(
-	ctx context.Context, app *model.ApplicationDTO) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	if app.RegistrationFlowID != "" {
-		valid, svcErr := as.flowMgtService.IsValidFlow(ctx, app.RegistrationFlowID, flowcommon.FlowTypeRegistration)
-		if svcErr != nil {
-			return svcErr
-		}
-		if !valid {
-			return &ErrorInvalidRegistrationFlowID
-		}
-	} else {
-		// Try to get the equivalent registration flow for the auth flow
-		authFlow, svcErr := as.flowMgtService.GetFlow(ctx, app.AuthFlowID)
-		if svcErr != nil {
-			if svcErr.Type == serviceerror.ServerErrorType {
-				logger.Error("Error while retrieving auth flow definition",
-					log.String("flowID", app.AuthFlowID), log.Any("error", svcErr))
-				return &serviceerror.InternalServerError
-			}
-			return &ErrorWhileRetrievingFlowDefinition
-		}
-
-		registrationFlow, svcErr := as.flowMgtService.GetFlowByHandle(
-			ctx, authFlow.Handle, flowcommon.FlowTypeRegistration)
-		if svcErr != nil {
-			if svcErr.Type == serviceerror.ServerErrorType {
-				logger.Error("Error while retrieving registration flow definition by handle",
-					log.String("flowHandle", authFlow.Handle), log.Any("error", svcErr))
-				return &serviceerror.InternalServerError
-			}
-			return &ErrorWhileRetrievingFlowDefinition
-		}
-
-		app.RegistrationFlowID = registrationFlow.ID
+	if app.URL != "" && !sysutils.IsValidURI(app.URL) {
+		return &ErrorInvalidApplicationURL
 	}
-
-	return nil
-}
-
-// validateThemeID validates the theme ID for the application.
-func (as *applicationService) validateThemeID(themeID string) *serviceerror.ServiceError {
-	if themeID == "" {
-		return nil
+	if app.LogoURL != "" && !sysutils.IsValidLogoURI(app.LogoURL) {
+		return &ErrorInvalidLogoURL
 	}
-
-	exists, svcErr := as.themeMgtService.IsThemeExist(themeID)
-	if svcErr != nil {
-		return svcErr
-	}
-	if !exists {
-		return &ErrorThemeNotFound
-	}
-
-	return nil
-}
-
-// validateLayoutID validates the layout ID for the application.
-func (as *applicationService) validateLayoutID(layoutID string) *serviceerror.ServiceError {
-	if layoutID == "" {
-		return nil
-	}
-
-	exists, svcErr := as.layoutMgtService.IsLayoutExist(layoutID)
-	if svcErr != nil {
-		return svcErr
-	}
-	if !exists {
-		return &ErrorLayoutNotFound
-	}
-
-	return nil
-}
-
-// validateAllowedUserTypes validates that all user types in allowed_user_types exist in the system.
-// TODO: Refine validation logic from user schema service.
-func (as *applicationService) validateAllowedUserTypes(
-	ctx context.Context, allowedUserTypes []string) *serviceerror.ServiceError {
-	if len(allowedUserTypes) == 0 {
-		return nil
-	}
-
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	// Get all user schemas to check if the provided user types exist
-	existingUserTypes := make(map[string]bool)
-	limit := serverconst.MaxPageSize
-	offset := 0
-
-	for {
-		// Runtime context is used to avoid authorization checks when fetching user schemas.
-		userSchemaList, svcErr := as.userSchemaService.GetUserSchemaList(
-			security.WithRuntimeContext(ctx), limit, offset)
-		if svcErr != nil {
-			logger.Error("Failed to retrieve user schema list for validation",
-				log.String("error", svcErr.Error), log.String("code", svcErr.Code))
-			return &ErrorInternalServerError
-		}
-
-		for _, schema := range userSchemaList.Schemas {
-			existingUserTypes[schema.Name] = true
-		}
-
-		if len(userSchemaList.Schemas) == 0 || offset+len(userSchemaList.Schemas) >= userSchemaList.TotalResults {
-			break
-		}
-
-		offset += limit
-	}
-
-	// Check each provided user type
-	var invalidUserTypes []string
-	for _, userType := range allowedUserTypes {
-		if userType == "" {
-			// Empty strings are invalid user types
-			invalidUserTypes = append(invalidUserTypes, userType)
+	// Reject requests with more than one OAuth-typed inbound auth entry — at most one
+	// inbound auth config per protocol per application is allowed.
+	isOAuthConfig := false
+	for i := range app.InboundAuthConfig {
+		if app.InboundAuthConfig[i].Type != inboundmodel.OAuthInboundAuthType {
 			continue
 		}
-		if !existingUserTypes[userType] {
-			invalidUserTypes = append(invalidUserTypes, userType)
+		if isOAuthConfig {
+			return &ErrorMultipleOAuthConfigs
 		}
+		isOAuthConfig = true
 	}
-
-	if len(invalidUserTypes) > 0 {
-		logger.Info("Invalid user types found", log.Any("invalidTypes", invalidUserTypes))
-		return &ErrorInvalidUserType
-	}
-
+	as.validateConsentConfig(app)
 	return nil
 }
 
 // validateConsentConfig validates the consent configuration for the application.
 func (as *applicationService) validateConsentConfig(appDTO *model.ApplicationDTO) {
 	if appDTO.LoginConsent == nil {
-		appDTO.LoginConsent = &model.LoginConsentConfig{
+		appDTO.LoginConsent = &inboundmodel.LoginConsentConfig{
 			ValidityPeriod: 0,
 		}
 
@@ -1011,53 +973,26 @@ func (as *applicationService) validateConsentConfig(appDTO *model.ApplicationDTO
 	}
 }
 
-// validateApplicationFields validates application fields that are common to both create and update operations.
-func (as *applicationService) validateApplicationFields(
-	ctx context.Context, app *model.ApplicationDTO) *serviceerror.ServiceError {
-	if svcErr := as.validateAuthFlowID(ctx, app); svcErr != nil {
-		return svcErr
-	}
-	if svcErr := as.validateRegistrationFlowID(ctx, app); svcErr != nil {
-		return svcErr
-	}
-	if svcErr := as.validateThemeID(app.ThemeID); svcErr != nil {
-		return svcErr
-	}
-	if svcErr := as.validateLayoutID(app.LayoutID); svcErr != nil {
-		return svcErr
-	}
-	if app.URL != "" && !sysutils.IsValidURI(app.URL) {
-		return &ErrorInvalidApplicationURL
-	}
-	if app.LogoURL != "" && !sysutils.IsValidLogoURI(app.LogoURL) {
-		return &ErrorInvalidLogoURL
-	}
-	if svcErr := as.validateAllowedUserTypes(ctx, app.AllowedUserTypes); svcErr != nil {
-		return svcErr
-	}
-	as.validateConsentConfig(app)
-	return nil
-}
-
 // validateOAuthParamsForCreateAndUpdate validates the OAuth parameters for creating or updating an application.
-func validateOAuthParamsForCreateAndUpdate(app *model.ApplicationDTO) (*model.InboundAuthConfigDTO,
+func validateOAuthParamsForCreateAndUpdate(app *model.ApplicationDTO) (*inboundmodel.InboundAuthConfigWithSecret,
 	*serviceerror.ServiceError) {
 	if len(app.InboundAuthConfig) == 0 {
 		return nil, nil
 	}
 
-	// TODO: Need to refactor when supporting other/multiple inbound auth types.
-	if app.InboundAuthConfig[0].Type != model.OAuthInboundAuthType {
+	inboundAuthConfig, svcErr := getOAuthInboundAuthConfigDTO(app.InboundAuthConfig)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if inboundAuthConfig == nil {
 		return nil, &ErrorInvalidInboundAuthConfig
 	}
-	inboundAuthConfig := app.InboundAuthConfig[0]
-	if inboundAuthConfig.OAuthAppConfig == nil {
+	if inboundAuthConfig.OAuthConfig == nil {
 		return nil, &ErrorInvalidInboundAuthConfig
 	}
 
-	oauthAppConfig := inboundAuthConfig.OAuthAppConfig
+	oauthAppConfig := inboundAuthConfig.OAuthConfig
 
-	// Apply defaults for OAuth configuration if not specified.
 	if len(oauthAppConfig.GrantTypes) == 0 {
 		oauthAppConfig.GrantTypes = []oauth2const.GrantType{oauth2const.GrantTypeAuthorizationCode}
 	}
@@ -1070,37 +1005,386 @@ func validateOAuthParamsForCreateAndUpdate(app *model.ApplicationDTO) (*model.In
 		oauthAppConfig.TokenEndpointAuthMethod = oauth2const.TokenEndpointAuthMethodClientSecretBasic
 	}
 
-	// Validate redirect URIs
-	if err := validateRedirectURIs(oauthAppConfig); err != nil {
+	if err := validateAcrValues(oauthAppConfig.AcrValues); err != nil {
 		return nil, err
 	}
 
-	// Validate grant types and response types
-	if err := validateGrantTypesAndResponseTypes(oauthAppConfig); err != nil {
-		return nil, err
-	}
-
-	// Validate token endpoint authentication method
-	if err := validateTokenEndpointAuthMethod(oauthAppConfig); err != nil {
-		return nil, err
-	}
-
-	// Validate public client configurations
-	if oauthAppConfig.PublicClient {
-		if err := validatePublicClientConfiguration(oauthAppConfig); err != nil {
-			return nil, err
-		}
-	}
-
-	return &inboundAuthConfig, nil
+	return inboundAuthConfig, nil
 }
 
-// processInboundAuthConfig validates and processes inbound auth configuration for
-// creating or updating an application.
-func (as *applicationService) processInboundAuthConfig(ctx context.Context, app *model.ApplicationDTO,
+// isValidACR reports whether acr is present in the deployment config ACR-AMR mapping.
+func isValidACR(acr string) bool {
+	mapping := config.GetServerRuntime().Config.OAuth.AuthClass
+	_, ok := mapping.AcrAMR[acr]
+	return ok
+}
+
+// validateAcrValues rejects acr values not registered in the ACR-AMR mapping.
+func validateAcrValues(acrValues []string) *serviceerror.ServiceError {
+	for _, acr := range acrValues {
+		if !isValidACR(acr) {
+			return serviceerror.CustomServiceError(ErrorInvalidAcrValues, core.I18nMessage{
+				Key:          "error.applicationservice.invalid_acr_values_unrecognized",
+				DefaultValue: fmt.Sprintf("ACR value %q is not recognized by the system", acr),
+			})
+		}
+	}
+	return nil
+}
+
+// translateInboundClientError maps inbound-client sentinel errors and typed wrappers to
+// application-service errors. Returns nil when the input does not correspond to a known
+// inbound-client error, allowing the caller to log and fall back to InternalServerError.
+func (as *applicationService) translateInboundClientError(err error) *serviceerror.ServiceError {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, inboundclient.ErrCannotModifyDeclarative) {
+		return &ErrorCannotModifyDeclarativeResource
+	}
+	if svcErr := translateInboundClientFKError(err); svcErr != nil {
+		return svcErr
+	}
+	if svcErr := translateOAuthValidationError(err); svcErr != nil {
+		return svcErr
+	}
+	if svcErr := translateUserInfoValidationError(err); svcErr != nil {
+		return svcErr
+	}
+	if svcErr := translateIDTokenValidationError(err); svcErr != nil {
+		return svcErr
+	}
+	if svcErr := translateCertValidationError(err); svcErr != nil {
+		return svcErr
+	}
+	var opErr *inboundclient.CertOperationError
+	if errors.As(err, &opErr) {
+		return as.translateCertOperationError(opErr)
+	}
+	var consentErr *inboundclient.ConsentSyncError
+	if errors.As(err, &consentErr) {
+		return translateConsentSyncError(consentErr)
+	}
+	return nil
+}
+
+// translateOAuthValidationError maps OAuth redirect URI, grant/response type, token endpoint
+// auth method, and public client validation sentinels to application-service errors.
+func translateOAuthValidationError(err error) *serviceerror.ServiceError {
+	switch {
+	// OAuth: redirect URI
+	case errors.Is(err, inboundclient.ErrOAuthInvalidRedirectURI):
+		return &ErrorInvalidRedirectURI
+	case errors.Is(err, inboundclient.ErrOAuthRedirectURIFragmentNotAllowed):
+		return serviceerror.CustomServiceError(ErrorInvalidRedirectURI, core.I18nMessage{
+			Key:          "error.applicationservice.redirect_uri_fragment_not_allowed_description",
+			DefaultValue: "Redirect URIs must not contain a fragment component",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthAuthCodeRequiresRedirectURIs):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.auth_code_requires_redirect_uris_description",
+			DefaultValue: "authorization_code grant type requires redirect URIs",
+		})
+
+	// OAuth: grant + response type
+	case errors.Is(err, inboundclient.ErrOAuthInvalidGrantType):
+		return &ErrorInvalidGrantType
+	case errors.Is(err, inboundclient.ErrOAuthInvalidResponseType):
+		return &ErrorInvalidResponseType
+	case errors.Is(err, inboundclient.ErrOAuthClientCredentialsCannotUseResponseTypes):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.client_credentials_cannot_use_response_types_description",
+			DefaultValue: "client_credentials grant type cannot be used with response types",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthAuthCodeRequiresCodeResponseType):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.auth_code_requires_code_response_type_description",
+			DefaultValue: "authorization_code grant type requires 'code' response type",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthRefreshTokenCannotBeSoleGrant):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.refresh_token_cannot_be_sole_grant_description",
+			DefaultValue: "refresh_token grant type cannot be used without another grant type",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthPKCERequiresAuthCode):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.pkce_requires_authorization_code_description",
+			DefaultValue: "PKCE can only be enabled when the authorization_code grant type is selected",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthResponseTypesRequireAuthCode):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.response_types_require_authorization_code_description",
+			DefaultValue: "Response types can only be configured with the authorization_code grant type",
+		})
+
+	// OAuth: token endpoint auth method
+	case errors.Is(err, inboundclient.ErrOAuthInvalidTokenEndpointAuthMethod):
+		return &ErrorInvalidTokenEndpointAuthMethod
+	case errors.Is(err, inboundclient.ErrOAuthPrivateKeyJWTRequiresCertificate):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.private_key_jwt_requires_certificate_description",
+			DefaultValue: "private_key_jwt authentication method requires a certificate",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthPrivateKeyJWTCannotHaveClientSecret):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.private_key_jwt_cannot_have_client_secret_description",
+			DefaultValue: "private_key_jwt authentication method cannot have a client secret",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthClientSecretCannotHaveCertificate):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.client_secret_cannot_have_certificate_description",
+			DefaultValue: "client_secret authentication methods cannot have a certificate",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthNoneAuthRequiresPublicClient):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.none_auth_method_requires_public_client_description",
+			DefaultValue: "'none' authentication method requires the client to be a public client",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthNoneAuthCannotHaveCertOrSecret):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.none_auth_method_cannot_have_cert_or_secret_description",
+			DefaultValue: "'none' authentication method cannot have a certificate or client secret",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthClientCredentialsCannotUseNoneAuth):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.client_credentials_cannot_use_none_auth_description",
+			DefaultValue: "client_credentials grant type cannot use 'none' authentication method",
+		})
+
+	// OAuth: public client
+	case errors.Is(err, inboundclient.ErrOAuthPublicClientMustUseNoneAuth):
+		return serviceerror.CustomServiceError(ErrorInvalidPublicClientConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.public_client_must_use_none_auth_description",
+			DefaultValue: "Public clients must use 'none' as token endpoint authentication method",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthPublicClientMustHavePKCE):
+		return serviceerror.CustomServiceError(ErrorInvalidPublicClientConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.public_client_must_have_pkce_description",
+			DefaultValue: "Public clients must have PKCE required set to true",
+		})
+	}
+	return nil
+}
+
+// translateUserInfoValidationError maps OAuth userinfo validation sentinels to
+// application-service errors.
+func translateUserInfoValidationError(err error) *serviceerror.ServiceError {
+	switch {
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoUnsupportedSigningAlg):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_unsupported_signing_alg_description",
+			DefaultValue: "userinfo signing algorithm is not supported",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoUnsupportedEncryptionAlg):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_unsupported_encryption_alg_description",
+			DefaultValue: "userinfo encryption algorithm is not supported",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoUnsupportedEncryptionEnc):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_unsupported_encryption_enc_description",
+			DefaultValue: "userinfo content-encryption algorithm is not supported",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoEncryptionAlgRequiresEnc):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_encryption_alg_requires_enc_description",
+			DefaultValue: "userinfo encryptionEnc is required when encryptionAlg is set",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoEncryptionEncRequiresAlg):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_encryption_enc_requires_alg_description",
+			DefaultValue: "userinfo encryptionAlg is required when encryptionEnc is set",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoEncryptionRequiresCertificate):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_encryption_requires_certificate_description",
+			DefaultValue: "a certificate (JWKS or JWKS_URI) is required when userinfo encryption is configured",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoJWKSURINotSSRFSafe):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_jwks_uri_not_ssrf_safe_description",
+			DefaultValue: "userinfo JWKS URI must be a publicly reachable HTTPS URL",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoUnsupportedResponseType):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_unsupported_response_type_description",
+			DefaultValue: "userinfo responseType is not supported",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoJWSRequiresSigningAlg):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_jws_requires_signing_alg_description",
+			DefaultValue: "signingAlg is required when userinfo responseType is JWS",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoJWERequiresEncryption):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_jwe_requires_encryption_description",
+			DefaultValue: "encryptionAlg and encryptionEnc are required when userinfo responseType is JWE",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoNestedJWTRequiresAll):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key: "error.applicationservice.userinfo_nested_jwt_requires_all_description",
+			DefaultValue: "signingAlg, encryptionAlg, and encryptionEnc are required " +
+				"when userinfo responseType is NESTED_JWT",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthUserInfoAlgRequiresResponseType):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.userinfo_alg_requires_response_type_description",
+			DefaultValue: "userinfo responseType is required when signingAlg or encryptionAlg is set",
+		})
+	}
+	return nil
+}
+
+// translateIDTokenValidationError maps OAuth ID token validation sentinels to
+// application-service errors.
+func translateIDTokenValidationError(err error) *serviceerror.ServiceError {
+	switch {
+	case errors.Is(err, inboundclient.ErrOAuthIDTokenEncryptionFieldsNotAllowed):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.idtoken_encryption_fields_not_allowed_description",
+			DefaultValue: "idToken encryptionAlg and encryptionEnc must not be set when responseType is JWT",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthIDTokenUnsupportedResponseType):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.idtoken_unsupported_response_type_description",
+			DefaultValue: "ID token responseType is not supported",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthIDTokenUnsupportedEncryptionAlg):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.idtoken_unsupported_encryption_alg_description",
+			DefaultValue: "ID token encryption algorithm is not supported",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthIDTokenUnsupportedEncryptionEnc):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.idtoken_unsupported_encryption_enc_description",
+			DefaultValue: "ID token content-encryption algorithm is not supported",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthIDTokenEncryptionAlgRequiresEnc):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.idtoken_encryption_alg_requires_enc_description",
+			DefaultValue: "idToken encryptionEnc is required when encryptionAlg is set",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthIDTokenEncryptionEncRequiresAlg):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.idtoken_encryption_enc_requires_alg_description",
+			DefaultValue: "idToken encryptionAlg is required when encryptionEnc is set",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthIDTokenEncryptionRequiresCertificate):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.idtoken_encryption_requires_certificate_description",
+			DefaultValue: "a certificate (JWKS or JWKS_URI) is required when ID token encryption is configured",
+		})
+	case errors.Is(err, inboundclient.ErrOAuthIDTokenJWKSURINotSSRFSafe):
+		return serviceerror.CustomServiceError(ErrorInvalidOAuthConfiguration, core.I18nMessage{
+			Key:          "error.applicationservice.idtoken_jwks_uri_not_ssrf_safe_description",
+			DefaultValue: "idToken JWKS URI must be a publicly reachable HTTPS URL",
+		})
+	}
+	return nil
+}
+
+// translateInboundClientFKError maps inbound-client foreign-key sentinel errors to
+// application-service errors.
+func translateInboundClientFKError(err error) *serviceerror.ServiceError {
+	switch {
+	case errors.Is(err, inboundclient.ErrFKInvalidAuthFlow):
+		return &ErrorInvalidAuthFlowID
+	case errors.Is(err, inboundclient.ErrFKInvalidRegistrationFlow):
+		return &ErrorInvalidRegistrationFlowID
+	case errors.Is(err, inboundclient.ErrFKInvalidRecoveryFlow):
+		return &ErrorInvalidRecoveryFlowID
+	case errors.Is(err, inboundclient.ErrFKFlowDefinitionRetrievalFailed):
+		return &ErrorWhileRetrievingFlowDefinition
+	case errors.Is(err, inboundclient.ErrFKFlowServerError):
+		return &serviceerror.InternalServerError
+	case errors.Is(err, inboundclient.ErrFKThemeNotFound):
+		return &ErrorThemeNotFound
+	case errors.Is(err, inboundclient.ErrFKLayoutNotFound):
+		return &ErrorLayoutNotFound
+	case errors.Is(err, inboundclient.ErrFKInvalidUserType):
+		return &ErrorInvalidUserType
+	case errors.Is(err, inboundclient.ErrUserSchemaLookupFailed):
+		return &serviceerror.InternalServerError
+	case errors.Is(err, inboundclient.ErrInvalidUserAttribute):
+		return &ErrorInvalidUserAttribute
+	}
+	return nil
+}
+
+// translateCertValidationError maps inbound-client certificate validation sentinels to
+// application-service errors.
+func translateCertValidationError(err error) *serviceerror.ServiceError {
+	switch {
+	case errors.Is(err, inboundclient.ErrCertValueRequired):
+		return &ErrorInvalidCertificateValue
+	case errors.Is(err, inboundclient.ErrCertInvalidJWKSURI):
+		return &ErrorInvalidJWKSURI
+	case errors.Is(err, inboundclient.ErrCertInvalidType):
+		return &ErrorInvalidCertificateType
+	}
+	return nil
+}
+
+// translateCertOperationError maps a typed cert operation error from the inbound-client layer
+// into an application-service ServiceError. Server-side failures are logged and surfaced as
+// InternalServerError; client-side failures are wrapped in ErrorCertificateClientError with an
+// operation-specific description.
+func (as *applicationService) translateCertOperationError(
+	err *inboundclient.CertOperationError) *serviceerror.ServiceError {
+	if !err.IsClientError() {
+		as.logger.Error("Certificate operation failed",
+			log.Any("operation", err.Operation),
+			log.Any("refType", err.RefType),
+			log.Any("serviceError", err.Underlying))
+		return &serviceerror.InternalServerError
+	}
+	var key, prefix string
+	switch err.Operation {
+	case inboundclient.CertOpCreate:
+		key, prefix = "error.applicationservice.create_certificate_failed_description",
+			"Failed to create application certificate: "
+	case inboundclient.CertOpUpdate:
+		key, prefix = "error.applicationservice.update_certificate_failed_description",
+			"Failed to update application certificate: "
+	case inboundclient.CertOpRetrieve:
+		key, prefix = "error.applicationservice.retrieve_certificate_failed_description",
+			"Failed to retrieve application certificate: "
+	case inboundclient.CertOpDelete:
+		if err.RefType == cert.CertificateReferenceTypeOAuthApp {
+			key, prefix = "error.applicationservice.delete_oauth_certificate_failed_description",
+				"Failed to delete OAuth app certificate: "
+		} else {
+			key, prefix = "error.applicationservice.delete_certificate_failed_description",
+				"Failed to delete application certificate: "
+		}
+	default:
+		return &serviceerror.InternalServerError
+	}
+	return serviceerror.CustomServiceError(ErrorCertificateClientError, core.I18nMessage{
+		Key:          key,
+		DefaultValue: prefix + err.Underlying.ErrorDescription.DefaultValue,
+	})
+}
+
+// translateConsentSyncError maps a typed consent sync error from the inbound-client layer into
+// an application-service ServiceError. Client-side failures are wrapped in ErrorConsentSyncFailed;
+// server-side failures collapse to InternalServerError.
+func translateConsentSyncError(err *inboundclient.ConsentSyncError) *serviceerror.ServiceError {
+	if err.IsClientError() {
+		return serviceerror.CustomServiceError(ErrorConsentSyncFailed, core.I18nMessage{
+			Key: "error.applicationservice.consent_sync_failed_description",
+			DefaultValue: fmt.Sprintf(
+				ErrorConsentSyncFailed.ErrorDescription.DefaultValue+" : code - %s",
+				err.Underlying.Code,
+			),
+		})
+	}
+	return &serviceerror.InternalServerError
+}
+
+func (as *applicationService) processInboundAuthConfig(app *model.ApplicationDTO,
 	existingApp *model.ApplicationProcessedDTO) (
-	*model.InboundAuthConfigDTO, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
+	*inboundmodel.InboundAuthConfigWithSecret, *serviceerror.ServiceError) {
 	inboundAuthConfig, err := validateOAuthParamsForCreateAndUpdate(app)
 	if err != nil {
 		return nil, err
@@ -1110,54 +1394,42 @@ func (as *applicationService) processInboundAuthConfig(ctx context.Context, app 
 		return nil, nil
 	}
 
-	clientID := inboundAuthConfig.OAuthAppConfig.ClientID
+	clientID := inboundAuthConfig.OAuthConfig.ClientID
 
 	// For update operation
-	if existingApp != nil && len(existingApp.InboundAuthConfig) > 0 {
-		existingClientID := existingApp.InboundAuthConfig[0].OAuthAppConfig.ClientID
+	if existingApp != nil {
+		var existingClientID string
+		if existingOAuthConfig := getOAuthInboundAuthConfigProcessedDTO(
+			existingApp.InboundAuthConfig); existingOAuthConfig != nil &&
+			existingOAuthConfig.OAuthConfig != nil {
+			existingClientID = existingOAuthConfig.OAuthConfig.ClientID
+		}
 
 		if clientID == "" {
-			// Generate OAuth 2.0 compliant client ID with proper entropy and URL-safe format
-			generatedClientID, err := oauthutils.GenerateOAuth2ClientID()
-			if err != nil {
-				logger.Error("Failed to generate OAuth client ID", log.Error(err))
-				return nil, &ErrorInternalServerError
+			if svcErr := generateAndAssignClientID(inboundAuthConfig); svcErr != nil {
+				return nil, svcErr
 			}
-			inboundAuthConfig.OAuthAppConfig.ClientID = generatedClientID
 		} else if clientID != existingClientID {
-			existingAppWithClientID, clientCheckErr := as.appStore.GetOAuthApplication(ctx, clientID)
-			if clientCheckErr != nil && !errors.Is(clientCheckErr, model.ApplicationNotFoundError) {
-				logger.Error("Failed to check existing application by client ID", log.Error(clientCheckErr),
-					log.String("clientID", clientID))
-				return nil, &ErrorInternalServerError
-			}
-			if existingAppWithClientID != nil {
+			if taken, svcErr := as.isIdentifierTaken(fieldClientID, clientID, existingApp.ID); svcErr != nil {
+				return nil, svcErr
+			} else if taken {
 				return nil, &ErrorApplicationAlreadyExistsWithClientID
 			}
 		}
 	} else { // For create operation
 		if clientID == "" {
-			// Generate OAuth 2.0 compliant client ID with proper entropy and URL-safe format
-			generatedClientID, err := oauthutils.GenerateOAuth2ClientID()
-			if err != nil {
-				logger.Error("Failed to generate OAuth client ID", log.Error(err))
-				return nil, &ErrorInternalServerError
+			if svcErr := generateAndAssignClientID(inboundAuthConfig); svcErr != nil {
+				return nil, svcErr
 			}
-			inboundAuthConfig.OAuthAppConfig.ClientID = generatedClientID
 		} else {
-			existingAppWithClientID, clientCheckErr := as.appStore.GetOAuthApplication(ctx, clientID)
-			if clientCheckErr != nil && !errors.Is(clientCheckErr, model.ApplicationNotFoundError) {
-				logger.Error("Failed to check existing application by client ID", log.Error(clientCheckErr),
-					log.String("clientID", clientID))
-				return nil, &ErrorInternalServerError
-			}
-			if existingAppWithClientID != nil {
+			if taken, svcErr := as.isIdentifierTaken(fieldClientID, clientID, app.ID); svcErr != nil {
+				return nil, svcErr
+			} else if taken {
 				return nil, &ErrorApplicationAlreadyExistsWithClientID
 			}
 		}
 	}
 
-	// Resolve client secret for confidential clients
 	if svcErr := resolveClientSecret(inboundAuthConfig, existingApp); svcErr != nil {
 		return nil, svcErr
 	}
@@ -1165,918 +1437,386 @@ func (as *applicationService) processInboundAuthConfig(ctx context.Context, app 
 	return inboundAuthConfig, nil
 }
 
-// getDefaultAuthFlowID retrieves the default authentication flow ID from the configuration.
-func (as *applicationService) getDefaultAuthFlowID(ctx context.Context) (string, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	defaultAuthFlowHandle := config.GetThunderRuntime().Config.Flow.DefaultAuthFlowHandle
-	defaultAuthFlow, svcErr := as.flowMgtService.GetFlowByHandle(
-		ctx, defaultAuthFlowHandle, flowcommon.FlowTypeAuthentication)
-
-	if svcErr != nil {
-		if svcErr.Type == serviceerror.ServerErrorType {
-			logger.Error("Error while retrieving default auth flow definition by handle",
-				log.String("flowHandle", defaultAuthFlowHandle), log.Any("error", svcErr))
-			return "", &serviceerror.InternalServerError
-		}
-		return "", &ErrorWhileRetrievingFlowDefinition
-	}
-
-	return defaultAuthFlow.ID, nil
-}
-
-// getValidatedCertificateForCreate validates and returns the certificate for the application during creation.
-func (as *applicationService) getValidatedCertificateForCreate(appID string, certificate *model.ApplicationCertificate,
-	certRefType cert.CertificateReferenceType) (
-	*cert.Certificate, *serviceerror.ServiceError) {
-	if certificate == nil || certificate.Type == "" || certificate.Type == cert.CertificateTypeNone {
-		return nil, nil
-	}
-	return getValidatedCertificateInput(appID, "", certificate, certRefType)
-}
-
-// getValidatedCertificateForUpdate validates and returns the certificate for the application during update.
-func (as *applicationService) getValidatedCertificateForUpdate(appID, certID string,
-	certificate *model.ApplicationCertificate, certRefType cert.CertificateReferenceType) (
-	*cert.Certificate, *serviceerror.ServiceError) {
-	if certificate == nil || certificate.Type == "" || certificate.Type == cert.CertificateTypeNone {
-		return nil, nil
-	}
-	return getValidatedCertificateInput(appID, certID, certificate, certRefType)
-}
-
-// getValidatedCertificateInput is a helper method that validates and returns the certificate.
-func getValidatedCertificateInput(appID, certID string, certificate *model.ApplicationCertificate,
-	certRefType cert.CertificateReferenceType) (*cert.Certificate, *serviceerror.ServiceError) {
-	switch certificate.Type {
-	case cert.CertificateTypeJWKS:
-		if certificate.Value == "" {
-			return nil, &ErrorInvalidCertificateValue
-		}
-		return &cert.Certificate{
-			ID:      certID,
-			RefType: certRefType,
-			RefID:   appID,
-			Type:    cert.CertificateTypeJWKS,
-			Value:   certificate.Value,
-		}, nil
-	case cert.CertificateTypeJWKSURI:
-		if !sysutils.IsValidURI(certificate.Value) {
-			return nil, &ErrorInvalidJWKSURI
-		}
-		return &cert.Certificate{
-			ID:      certID,
-			RefType: certRefType,
-			RefID:   appID,
-			Type:    cert.CertificateTypeJWKSURI,
-			Value:   certificate.Value,
-		}, nil
-	default:
-		return nil, &ErrorInvalidCertificateType
-	}
-}
-
-// createApplicationCertificate creates a certificate for the application.
-func (as *applicationService) createApplicationCertificate(ctx context.Context, certificate *cert.Certificate) (
-	*model.ApplicationCertificate, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	var returnCert *model.ApplicationCertificate
-	if certificate != nil {
-		_, svcErr := as.certService.CreateCertificate(ctx, certificate)
-		if svcErr != nil {
-			if svcErr.Type == serviceerror.ClientErrorType {
-				errorDescription := "Failed to create application certificate: " +
-					svcErr.ErrorDescription
-				return nil, serviceerror.CustomServiceError(
-					ErrorCertificateClientError, errorDescription)
-			}
-			logger.Error("Failed to create application certificate", log.Any("serviceError", svcErr))
-			return nil, &ErrorCertificateServerError
-		}
-
-		returnCert = &model.ApplicationCertificate{
-			Type:  certificate.Type,
-			Value: certificate.Value,
-		}
-	} else {
-		returnCert = &model.ApplicationCertificate{
-			Type:  cert.CertificateTypeNone,
-			Value: "",
-		}
-	}
-
-	return returnCert, nil
-}
-
-// deleteApplicationCertificate deletes the certificate associated with the application.
-func (as *applicationService) deleteApplicationCertificate(
-	ctx context.Context, appID string) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	if certErr := as.certService.DeleteCertificateByReference(
-		ctx, cert.CertificateReferenceTypeApplication, appID); certErr != nil {
-		if certErr.Type == serviceerror.ClientErrorType {
-			errorDescription := "Failed to delete application certificate: " +
-				certErr.ErrorDescription
-			return serviceerror.CustomServiceError(ErrorCertificateClientError, errorDescription)
-		}
-		logger.Error("Failed to delete application certificate", log.String("appID", appID),
-			log.Any("serviceError", certErr))
-		return &ErrorCertificateServerError
-	}
-
-	return nil
-}
-
-// deleteOAuthAppCertificate deletes the certificate associated with an OAuth app (by client ID).
-func (as *applicationService) deleteOAuthAppCertificate(
-	ctx context.Context, clientID string) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	if certErr := as.certService.DeleteCertificateByReference(
-		ctx, cert.CertificateReferenceTypeOAuthApp, clientID); certErr != nil {
-		if certErr.Type == serviceerror.ClientErrorType {
-			errorDescription := "Failed to delete OAuth app certificate: " +
-				certErr.ErrorDescription
-			return serviceerror.CustomServiceError(ErrorCertificateClientError, errorDescription)
-		}
-		logger.Error("Failed to delete OAuth app certificate", log.String("clientID", clientID),
-			log.Any("serviceError", certErr))
-		return &ErrorCertificateServerError
-	}
-
-	return nil
-}
-
-// getApplicationCertificate retrieves the certificate associated with the application based
-// on the reference type (application or OAuth app).
-func (as *applicationService) getApplicationCertificate(ctx context.Context, appID string,
-	refType cert.CertificateReferenceType) (*model.ApplicationCertificate, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	certificate, certErr := as.certService.GetCertificateByReference(
-		ctx, refType, appID)
-
-	if certErr != nil {
-		if certErr.Code == cert.ErrorCertificateNotFound.Code {
-			return &model.ApplicationCertificate{
-				Type:  cert.CertificateTypeNone,
-				Value: "",
-			}, nil
-		}
-
-		if certErr.Type == serviceerror.ClientErrorType {
-			errorDescription := "Failed to retrieve application certificate: " +
-				certErr.ErrorDescription
-			return nil, serviceerror.CustomServiceError(
-				ErrorCertificateClientError, errorDescription)
-		}
-		logger.Error("Failed to retrieve application certificate", log.Any("serviceError", certErr),
-			log.String("appID", appID))
-		return nil, &ErrorCertificateServerError
-	}
-
-	if certificate == nil {
-		return &model.ApplicationCertificate{
-			Type:  cert.CertificateTypeNone,
-			Value: "",
-		}, nil
-	}
-
-	return &model.ApplicationCertificate{
-		Type:  certificate.Type,
-		Value: certificate.Value,
-	}, nil
-}
-
-// updateApplicationCertificate updates the certificate for the application.
-// It returns the updated application certificate details.
-func (as *applicationService) updateApplicationCertificate(ctx context.Context, appID string,
-	certificate *model.ApplicationCertificate, refType cert.CertificateReferenceType) (
-	*model.ApplicationCertificate, *serviceerror.ServiceError) {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	existingCert, certErr := as.certService.GetCertificateByReference(
-		ctx, refType, appID)
-	if certErr != nil && certErr.Code != cert.ErrorCertificateNotFound.Code {
-		if certErr.Type == serviceerror.ClientErrorType {
-			errorDescription := "Failed to retrieve application certificate: " +
-				certErr.ErrorDescription
-			return nil, serviceerror.CustomServiceError(
-				ErrorCertificateClientError, errorDescription)
-		}
-		logger.Error("Failed to retrieve application certificate", log.Any("serviceError", certErr),
-			log.String("appID", appID))
-		return nil, &ErrorCertificateServerError
-	}
-
-	var updatedCert *cert.Certificate
-	var err *serviceerror.ServiceError
-	if existingCert != nil {
-		updatedCert, err = as.getValidatedCertificateForUpdate(appID, existingCert.ID, certificate, refType)
-	} else {
-		updatedCert, err = as.getValidatedCertificateForUpdate(appID, "", certificate, refType)
-	}
+// generateAndAssignClientID generates an OAuth 2.0 compliant client ID and assigns it to the inbound auth config.
+func generateAndAssignClientID(inboundAuthConfig *inboundmodel.InboundAuthConfigWithSecret) *serviceerror.ServiceError {
+	generatedClientID, err := oauthutils.GenerateOAuth2ClientID()
 	if err != nil {
-		return nil, err
+		log.GetLogger().Error("Failed to generate OAuth client ID", log.Error(err))
+		return &serviceerror.InternalServerError
 	}
-
-	// Update the certificate if provided.
-	var returnCert *model.ApplicationCertificate
-	if updatedCert != nil {
-		if existingCert != nil {
-			_, svcErr := as.certService.UpdateCertificateByID(ctx, existingCert.ID, updatedCert)
-			if svcErr != nil {
-				if svcErr.Type == serviceerror.ClientErrorType {
-					errorDescription := "Failed to update application certificate: " +
-						svcErr.ErrorDescription
-					return nil, serviceerror.CustomServiceError(
-						ErrorCertificateClientError, errorDescription)
-				}
-				logger.Error("Failed to update application certificate", log.Any("serviceError", svcErr),
-					log.String("appID", appID))
-				return nil, &ErrorCertificateServerError
-			}
-		} else {
-			_, svcErr := as.certService.CreateCertificate(ctx, updatedCert)
-			if svcErr != nil {
-				if svcErr.Type == serviceerror.ClientErrorType {
-					errorDescription := "Failed to create application certificate: " +
-						svcErr.ErrorDescription
-					return nil, serviceerror.CustomServiceError(ErrorCertificateClientError, errorDescription)
-				}
-				logger.Error("Failed to create application certificate", log.Any("serviceError", svcErr),
-					log.String("appID", appID))
-				return nil, &ErrorCertificateServerError
-			}
-		}
-		returnCert = &model.ApplicationCertificate{
-			Type:  updatedCert.Type,
-			Value: updatedCert.Value,
-		}
-	} else {
-		if existingCert != nil {
-			// If no new certificate is provided, delete the existing certificate.
-			deleteErr := as.certService.DeleteCertificateByReference(
-				ctx, refType, appID)
-			if deleteErr != nil {
-				if deleteErr.Type == serviceerror.ClientErrorType {
-					errorDescription := "Failed to delete application certificate: " + deleteErr.ErrorDescription
-					return nil, serviceerror.CustomServiceError(
-						ErrorCertificateClientError, errorDescription)
-				}
-				logger.Error("Failed to delete application certificate", log.Any("serviceError", deleteErr),
-					log.String("appID", appID))
-				return nil, &ErrorCertificateServerError
-			}
-		}
-
-		returnCert = &model.ApplicationCertificate{
-			Type:  cert.CertificateTypeNone,
-			Value: "",
-		}
-	}
-
-	return returnCert, nil
-}
-
-// getDefaultAssertionConfigFromDeployment creates a default assertion configuration from deployment settings.
-func getDefaultAssertionConfigFromDeployment() *model.AssertionConfig {
-	jwtConfig := config.GetThunderRuntime().Config.JWT
-	assertionConfig := &model.AssertionConfig{
-		ValidityPeriod: jwtConfig.ValidityPeriod,
-	}
-
-	return assertionConfig
-}
-
-// processTokenConfiguration processes token configuration for an application, applying defaults where necessary.
-func processTokenConfiguration(app *model.ApplicationDTO) (
-	*model.AssertionConfig, *model.AccessTokenConfig, *model.IDTokenConfig) {
-	// Resolve root assertion config
-	var assertion *model.AssertionConfig
-	if app.Assertion != nil {
-		assertion = &model.AssertionConfig{
-			ValidityPeriod: app.Assertion.ValidityPeriod,
-			UserAttributes: app.Assertion.UserAttributes,
-		}
-
-		deploymentDefaults := getDefaultAssertionConfigFromDeployment()
-		if assertion.ValidityPeriod == 0 {
-			assertion.ValidityPeriod = deploymentDefaults.ValidityPeriod
-		}
-	} else {
-		assertion = getDefaultAssertionConfigFromDeployment()
-	}
-	if assertion.UserAttributes == nil {
-		assertion.UserAttributes = make([]string, 0)
-	}
-
-	// Resolve OAuth access token config
-	var oauthAccessToken *model.AccessTokenConfig
-	if len(app.InboundAuthConfig) > 0 && app.InboundAuthConfig[0].OAuthAppConfig != nil &&
-		app.InboundAuthConfig[0].OAuthAppConfig.Token != nil &&
-		app.InboundAuthConfig[0].OAuthAppConfig.Token.AccessToken != nil {
-		oauthAccessToken = &model.AccessTokenConfig{
-			ValidityPeriod: app.InboundAuthConfig[0].OAuthAppConfig.Token.AccessToken.ValidityPeriod,
-			UserAttributes: app.InboundAuthConfig[0].OAuthAppConfig.Token.AccessToken.UserAttributes,
-		}
-	}
-
-	if oauthAccessToken != nil {
-		if oauthAccessToken.ValidityPeriod == 0 {
-			oauthAccessToken.ValidityPeriod = assertion.ValidityPeriod
-		}
-		if oauthAccessToken.UserAttributes == nil {
-			oauthAccessToken.UserAttributes = make([]string, 0)
-		}
-	} else {
-		oauthAccessToken = &model.AccessTokenConfig{
-			ValidityPeriod: assertion.ValidityPeriod,
-			UserAttributes: assertion.UserAttributes,
-		}
-	}
-
-	// Resolve OAuth ID token config
-	var oauthIDToken *model.IDTokenConfig
-	if len(app.InboundAuthConfig) > 0 && app.InboundAuthConfig[0].OAuthAppConfig != nil &&
-		app.InboundAuthConfig[0].OAuthAppConfig.Token != nil &&
-		app.InboundAuthConfig[0].OAuthAppConfig.Token.IDToken != nil {
-		oauthIDToken = &model.IDTokenConfig{
-			ValidityPeriod: app.InboundAuthConfig[0].OAuthAppConfig.Token.IDToken.ValidityPeriod,
-			UserAttributes: app.InboundAuthConfig[0].OAuthAppConfig.Token.IDToken.UserAttributes,
-		}
-	}
-
-	if oauthIDToken != nil {
-		if oauthIDToken.ValidityPeriod == 0 {
-			oauthIDToken.ValidityPeriod = assertion.ValidityPeriod
-		}
-		if oauthIDToken.UserAttributes == nil {
-			oauthIDToken.UserAttributes = make([]string, 0)
-		}
-	} else {
-		oauthIDToken = &model.IDTokenConfig{
-			ValidityPeriod: assertion.ValidityPeriod,
-			UserAttributes: assertion.UserAttributes,
-		}
-	}
-
-	return assertion, oauthAccessToken, oauthIDToken
-}
-
-// processUserInfoConfiguration processes user info configuration for an application.
-func processUserInfoConfiguration(app *model.ApplicationDTO,
-	idTokenConfig *model.IDTokenConfig) *model.UserInfoConfig {
-	oauthUserInfo := &model.UserInfoConfig{}
-
-	if len(app.InboundAuthConfig) > 0 && app.InboundAuthConfig[0].OAuthAppConfig != nil &&
-		app.InboundAuthConfig[0].OAuthAppConfig.UserInfo != nil {
-		userInfoConfigInput := app.InboundAuthConfig[0].OAuthAppConfig.UserInfo
-		oauthUserInfo.UserAttributes = userInfoConfigInput.UserAttributes
-		responseType := model.UserInfoResponseType(strings.ToUpper(string(userInfoConfigInput.ResponseType)))
-
-		switch responseType {
-		case model.UserInfoResponseTypeJWS:
-			oauthUserInfo.ResponseType = responseType
-		default:
-			oauthUserInfo.ResponseType = model.UserInfoResponseTypeJSON
-		}
-	}
-	if oauthUserInfo.UserAttributes == nil {
-		oauthUserInfo.UserAttributes = idTokenConfig.UserAttributes
-	}
-	if oauthUserInfo.ResponseType == "" {
-		oauthUserInfo.ResponseType = model.UserInfoResponseTypeJSON
-	}
-
-	return oauthUserInfo
-}
-
-// processScopeClaimsConfiguration processes scope claims configuration for an application.
-func processScopeClaimsConfiguration(app *model.ApplicationDTO) map[string][]string {
-	var scopeClaims map[string][]string
-	if len(app.InboundAuthConfig) > 0 && app.InboundAuthConfig[0].OAuthAppConfig != nil &&
-		app.InboundAuthConfig[0].OAuthAppConfig.ScopeClaims != nil {
-		scopeClaims = app.InboundAuthConfig[0].OAuthAppConfig.ScopeClaims
-	}
-	if scopeClaims == nil {
-		scopeClaims = make(map[string][]string)
-	}
-
-	return scopeClaims
-}
-
-// validateRedirectURIs validates redirect URIs format and requirements.
-func validateRedirectURIs(oauthConfig *model.OAuthAppConfigDTO) *serviceerror.ServiceError {
-	for _, redirectURI := range oauthConfig.RedirectURIs {
-		parsedURI, err := sysutils.ParseURL(redirectURI)
-		if err != nil {
-			return &ErrorInvalidRedirectURI
-		}
-
-		if parsedURI.Scheme == "" || parsedURI.Host == "" {
-			return &ErrorInvalidRedirectURI
-		}
-
-		if parsedURI.Fragment != "" {
-			return serviceerror.CustomServiceError(
-				ErrorInvalidRedirectURI,
-				"Redirect URIs must not contain a fragment component",
-			)
-		}
-	}
-
-	if slices.Contains(oauthConfig.GrantTypes, oauth2const.GrantTypeAuthorizationCode) &&
-		len(oauthConfig.RedirectURIs) == 0 {
-		return serviceerror.CustomServiceError(
-			ErrorInvalidOAuthConfiguration,
-			"authorization_code grant type requires redirect URIs",
-		)
-	}
-
+	inboundAuthConfig.OAuthConfig.ClientID = generatedClientID
 	return nil
 }
 
-// validateGrantTypesAndResponseTypes validates grant types, response types, and their compatibility.
-func validateGrantTypesAndResponseTypes(oauthConfig *model.OAuthAppConfigDTO) *serviceerror.ServiceError {
-	for _, grantType := range oauthConfig.GrantTypes {
-		if !grantType.IsValid() {
-			return &ErrorInvalidGrantType
-		}
-	}
-
-	for _, responseType := range oauthConfig.ResponseTypes {
-		if !responseType.IsValid() {
-			return &ErrorInvalidResponseType
-		}
-	}
-
-	if len(oauthConfig.GrantTypes) == 1 &&
-		slices.Contains(oauthConfig.GrantTypes, oauth2const.GrantTypeClientCredentials) &&
-		len(oauthConfig.ResponseTypes) > 0 {
-		return serviceerror.CustomServiceError(
-			ErrorInvalidOAuthConfiguration,
-			"client_credentials grant type cannot be used with response types",
-		)
-	}
-
-	if slices.Contains(oauthConfig.GrantTypes, oauth2const.GrantTypeAuthorizationCode) {
-		if len(oauthConfig.ResponseTypes) == 0 ||
-			!slices.Contains(oauthConfig.ResponseTypes, oauth2const.ResponseTypeCode) {
-			return serviceerror.CustomServiceError(
-				ErrorInvalidOAuthConfiguration,
-				"authorization_code grant type requires 'code' response type",
-			)
-		}
-	}
-
-	return nil
-}
-
-// validateTokenEndpointAuthMethod validates the token endpoint authentication method
-// and its compatibility with grant types.
-func validateTokenEndpointAuthMethod(oauthConfig *model.OAuthAppConfigDTO) *serviceerror.ServiceError {
-	if !oauthConfig.TokenEndpointAuthMethod.IsValid() {
-		return &ErrorInvalidTokenEndpointAuthMethod
-	}
-
-	hasCert := oauthConfig.Certificate != nil && oauthConfig.Certificate.Type != cert.CertificateTypeNone
-
-	switch oauthConfig.TokenEndpointAuthMethod {
-	case oauth2const.TokenEndpointAuthMethodPrivateKeyJWT:
-		if !hasCert {
-			return serviceerror.CustomServiceError(
-				ErrorInvalidOAuthConfiguration,
-				"private_key_jwt authentication method requires a certificate",
-			)
-		}
-		if oauthConfig.ClientSecret != "" {
-			return serviceerror.CustomServiceError(
-				ErrorInvalidOAuthConfiguration,
-				"private_key_jwt authentication method cannot have a client secret",
-			)
-		}
-	case oauth2const.TokenEndpointAuthMethodClientSecretBasic, oauth2const.TokenEndpointAuthMethodClientSecretPost:
-		if hasCert {
-			return serviceerror.CustomServiceError(
-				ErrorInvalidOAuthConfiguration,
-				"client_secret authentication methods cannot have a certificate",
-			)
-		}
-	case oauth2const.TokenEndpointAuthMethodNone:
-		if hasCert || oauthConfig.ClientSecret != "" {
-			return serviceerror.CustomServiceError(
-				ErrorInvalidOAuthConfiguration,
-				"'none' authentication method cannot have a certificate or client secret",
-			)
-		}
-		if slices.Contains(oauthConfig.GrantTypes, oauth2const.GrantTypeClientCredentials) {
-			return serviceerror.CustomServiceError(
-				ErrorInvalidOAuthConfiguration,
-				"client_credentials grant type cannot use 'none' authentication method",
-			)
-		}
-	}
-
-	return nil
-}
-
-// validatePublicClientConfiguration validates that public client configurations are correct.
-func validatePublicClientConfiguration(oauthConfig *model.OAuthAppConfigDTO) *serviceerror.ServiceError {
-	if oauthConfig.TokenEndpointAuthMethod != oauth2const.TokenEndpointAuthMethodNone {
-		return serviceerror.CustomServiceError(
-			ErrorInvalidPublicClientConfiguration,
-			"Public clients must use 'none' as token endpoint authentication method",
-		)
-	}
-
-	// Public clients must always have PKCE required for security
-	if !oauthConfig.PKCERequired {
-		return serviceerror.CustomServiceError(
-			ErrorInvalidPublicClientConfiguration,
-			"Public clients must have PKCE required set to true",
-		)
-	}
-
-	return nil
-}
-
-// getProcessedClientSecret returns the hashed client secret for confidential clients, empty string for public clients.
-func getProcessedClientSecret(oauthConfig *model.OAuthAppConfigDTO) string {
-	if oauthConfig.TokenEndpointAuthMethod != oauth2const.TokenEndpointAuthMethodClientSecretBasic &&
-		oauthConfig.TokenEndpointAuthMethod != oauth2const.TokenEndpointAuthMethodClientSecretPost {
-		return ""
-	}
-	return hash.GenerateThumbprintFromString(oauthConfig.ClientSecret)
-}
-
-// getProcessedClientSecretForUpdate returns the hashed client secret for update operations.
-// If a new secret is provided, it hashes it. Otherwise, it preserves the existing hashed secret.
-func getProcessedClientSecretForUpdate(
-	newOAuthConfig *model.OAuthAppConfigDTO,
-	existingOAuthConfig *model.OAuthAppConfigProcessedDTO,
-) string {
-	// Public clients don't have secrets
-	if newOAuthConfig.TokenEndpointAuthMethod != oauth2const.TokenEndpointAuthMethodClientSecretBasic &&
-		newOAuthConfig.TokenEndpointAuthMethod != oauth2const.TokenEndpointAuthMethodClientSecretPost {
-		return ""
-	}
-
-	// If a new secret is provided, hash it
-	if newOAuthConfig.ClientSecret != "" {
-		return hash.GenerateThumbprintFromString(newOAuthConfig.ClientSecret)
-	}
-
-	// For updates with no new secret, preserve existing hashed secret
-	if existingOAuthConfig != nil && existingOAuthConfig.HashedClientSecret != "" {
-		return existingOAuthConfig.HashedClientSecret
-	}
-
-	return ""
-}
-
-// resolveClientSecret generates a new client secret for confidential clients if needed.
-// It preserves existing secrets during update operations unless explicitly provided.
 func resolveClientSecret(
-	inboundAuthConfig *model.InboundAuthConfigDTO,
+	inboundAuthConfig *inboundmodel.InboundAuthConfigWithSecret,
 	existingApp *model.ApplicationProcessedDTO,
 ) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	// Only process confidential clients that use client_secret auth method and don't have a secret provided
-	if (inboundAuthConfig.OAuthAppConfig.TokenEndpointAuthMethod !=
+	if (inboundAuthConfig.OAuthConfig.TokenEndpointAuthMethod !=
 		oauth2const.TokenEndpointAuthMethodClientSecretBasic &&
-		inboundAuthConfig.OAuthAppConfig.TokenEndpointAuthMethod !=
+		inboundAuthConfig.OAuthConfig.TokenEndpointAuthMethod !=
 			oauth2const.TokenEndpointAuthMethodClientSecretPost) ||
-		inboundAuthConfig.OAuthAppConfig.ClientSecret != "" {
+		inboundAuthConfig.OAuthConfig.ClientSecret != "" {
 		return nil
 	}
 
-	// Check if we should preserve existing confidential OAuth config secret
-	shouldPreserveSecret := existingApp != nil &&
-		len(existingApp.InboundAuthConfig) > 0 &&
-		existingApp.InboundAuthConfig[0].OAuthAppConfig != nil &&
-		existingApp.InboundAuthConfig[0].OAuthAppConfig.HashedClientSecret != "" &&
-		!existingApp.InboundAuthConfig[0].OAuthAppConfig.PublicClient
-
-	if shouldPreserveSecret {
-		return nil
+	if existingApp != nil {
+		if existingInboundAuth := getOAuthInboundAuthConfigProcessedDTO(
+			existingApp.InboundAuthConfig); existingInboundAuth != nil {
+			existingOAuth := existingInboundAuth.OAuthConfig
+			if existingOAuth != nil && !existingOAuth.PublicClient &&
+				(existingOAuth.TokenEndpointAuthMethod == oauth2const.TokenEndpointAuthMethodClientSecretBasic ||
+					existingOAuth.TokenEndpointAuthMethod == oauth2const.TokenEndpointAuthMethodClientSecretPost) {
+				return nil
+			}
+		}
 	}
 
-	// Generate OAuth 2.0 compliant client secret with high entropy for security
 	generatedClientSecret, err := oauthutils.GenerateOAuth2ClientSecret()
 	if err != nil {
-		logger.Error("Failed to generate OAuth client secret", log.Error(err))
-		return &ErrorInternalServerError
+		log.GetLogger().Error("Failed to generate OAuth client secret", log.Error(err))
+		return &serviceerror.InternalServerError
 	}
 
-	inboundAuthConfig.OAuthAppConfig.ClientSecret = generatedClientSecret
+	inboundAuthConfig.OAuthConfig.ClientSecret = generatedClientSecret
 	return nil
 }
 
-// extractRequestedAttributes collects all unique user attributes requested by the application
-// across various configurations including assertions, token config, and user info.
-func extractRequestedAttributes(app *model.ApplicationProcessedDTO) map[string]bool {
-	if app == nil {
-		return nil
-	}
-
-	attrMap := make(map[string]bool)
-
-	// Extract from assertion configuration
-	if app.Assertion != nil && len(app.Assertion.UserAttributes) > 0 {
-		for _, attr := range app.Assertion.UserAttributes {
-			attrMap[attr] = true
+// enrichApplicationWithCertificate retrieves and adds the certificate to the application.
+func (as *applicationService) enrichApplicationWithCertificate(ctx context.Context, application *model.Application) (
+	*model.Application, *serviceerror.ServiceError) {
+	appCert, opErr := as.inboundClientService.GetCertificate(
+		ctx, cert.CertificateReferenceTypeApplication, application.ID)
+	if opErr != nil {
+		if mapped := as.translateCertOperationError(opErr); mapped != nil {
+			return nil, mapped
 		}
+		return nil, &serviceerror.InternalServerError
 	}
+	application.Certificate = appCert
 
-	// Extract from inbound authentication configurations
-	for _, inbound := range app.InboundAuthConfig {
-		if inbound.Type == model.OAuthInboundAuthType && inbound.OAuthAppConfig != nil {
-			oauthConfig := inbound.OAuthAppConfig
-
-			// Extract from access token
-			if oauthConfig.Token != nil && oauthConfig.Token.AccessToken != nil {
-				for _, attr := range oauthConfig.Token.AccessToken.UserAttributes {
-					attrMap[attr] = true
+	// Enrich OAuth config certificate for each inbound auth config.
+	for i, inboundAuthConfig := range application.InboundAuthConfig {
+		if inboundAuthConfig.Type == inboundmodel.OAuthInboundAuthType && inboundAuthConfig.OAuthConfig != nil {
+			oauthCert, oauthCertOpErr := as.inboundClientService.GetCertificate(ctx,
+				cert.CertificateReferenceTypeOAuthApp, inboundAuthConfig.OAuthConfig.ClientID)
+			if oauthCertOpErr != nil {
+				if mapped := as.translateCertOperationError(oauthCertOpErr); mapped != nil {
+					return nil, mapped
 				}
+				return nil, &serviceerror.InternalServerError
 			}
-
-			// Extract from ID token
-			if oauthConfig.Token != nil && oauthConfig.Token.IDToken != nil {
-				for _, attr := range oauthConfig.Token.IDToken.UserAttributes {
-					attrMap[attr] = true
-				}
-			}
-
-			// Extract from user info
-			if oauthConfig.UserInfo != nil {
-				for _, attr := range oauthConfig.UserInfo.UserAttributes {
-					attrMap[attr] = true
-				}
-			}
+			application.InboundAuthConfig[i].OAuthConfig.Certificate = oauthCert
 		}
 	}
 
-	return attrMap
+	return application, nil
 }
 
-// syncConsentPurposeOnCreate creates a consent purpose for the application create.
-func (as *applicationService) syncConsentPurposeOnCreate(
-	ctx context.Context, appDTO *model.ApplicationProcessedDTO) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	// TODO: Replace with application's actual OU when OU support is added
-	const ouID = "default"
-
-	logger.Debug("Attempting to synchronize consent purpose for the newly created application",
-		log.String("appID", appDTO.ID))
-
-	attributesMap := extractRequestedAttributes(appDTO)
-
-	// Skip consent purpose creation if there are no user attributes requested by the application
-	if len(attributesMap) == 0 {
-		logger.Debug("No user attributes requested by the application, skipping consent purpose creation",
-			log.String("appID", appDTO.ID))
-		return nil
+// buildApplicationResponse maps an ApplicationProcessedDTO to an Application response.
+// The returned application's Certificate field is populated separately by enrichApplicationWithCertificate.
+func buildApplicationResponse(dto *model.ApplicationProcessedDTO) *model.Application {
+	application := &model.Application{
+		ID:          dto.ID,
+		OUID:        dto.OUID,
+		Name:        dto.Name,
+		Description: dto.Description,
+		InboundAuthProfile: inboundmodel.InboundAuthProfile{
+			AuthFlowID:                dto.AuthFlowID,
+			RegistrationFlowID:        dto.RegistrationFlowID,
+			IsRegistrationFlowEnabled: dto.IsRegistrationFlowEnabled,
+			RecoveryFlowID:            dto.RecoveryFlowID,
+			IsRecoveryFlowEnabled:     dto.IsRecoveryFlowEnabled,
+			ThemeID:                   dto.ThemeID,
+			LayoutID:                  dto.LayoutID,
+			Assertion:                 dto.Assertion,
+			AllowedUserTypes:          dto.AllowedUserTypes,
+			LoginConsent:              dto.LoginConsent,
+		},
+		Template:  dto.Template,
+		URL:       dto.URL,
+		LogoURL:   dto.LogoURL,
+		TosURI:    dto.TosURI,
+		PolicyURI: dto.PolicyURI,
+		Contacts:  dto.Contacts,
+		Metadata:  dto.Metadata,
 	}
-
-	attributes := make([]string, 0, len(attributesMap))
-	for attr := range attributesMap {
-		attributes = append(attributes, attr)
-	}
-
-	// Create missing consent elements in case they're not created during user type creation
-	// or by another application. This is to ensure that all required consent elements exist
-	// before creating the consent purpose.
-	if err := as.createMissingConsentElements(ctx, ouID, attributes); err != nil {
-		return err
-	}
-
-	logger.Debug("Creating consent purpose for the newly created application", log.String("appID", appDTO.ID),
-		log.Int("attributesCount", len(attributes)))
-
-	purpose := consent.ConsentPurposeInput{
-		Name:        appDTO.Name,
-		Description: "Consent purpose for application " + appDTO.Name,
-		GroupID:     appDTO.ID,
-		Elements:    attributesToPurposeElements(attributesMap),
-	}
-	if _, err := as.consentService.CreateConsentPurpose(ctx, ouID, &purpose); err != nil {
-		return wrapConsentServiceError(err)
-	}
-
-	return nil
-}
-
-// // syncConsentPurposeOnUpdate synchronizes the consent purpose when an application is updated.
-// // It updates the existing consent purpose to match the updated application configuration or
-// // deletes it if all attributes are removed.
-func (as *applicationService) syncConsentPurposeOnUpdate(ctx context.Context,
-	existingAppDTO, updatedAppDTO *model.ApplicationProcessedDTO) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	// TODO: Replace with application's actual OU when OU support is added
-	const ouID = "default"
-
-	logger.Debug("Attempting to synchronize consent purpose for the updated application",
-		log.String("appID", existingAppDTO.ID))
-
-	// Find out the attributes that need to be part of the consent purpose based on the updated application
-	newAttributes := extractRequestedAttributes(updatedAppDTO)
-
-	// We need to ensure that consent elements exist for all requested attributes
-	// regardless of what existed in the old application configuration because the consent
-	// purpose might not have been created previously if consent was disabled.
-	requiredAttributes := make([]string, 0, len(newAttributes))
-	for attr := range newAttributes {
-		requiredAttributes = append(requiredAttributes, attr)
-	}
-
-	if len(requiredAttributes) > 0 {
-		logger.Debug("Ensuring consent elements exist for all requested attributes",
-			log.String("appID", existingAppDTO.ID), log.Int("requiredAttributesCount", len(requiredAttributes)))
-
-		if err := as.createMissingConsentElements(ctx, ouID, requiredAttributes); err != nil {
-			return err
-		}
-	}
-
-	// Retrieve the existing consent purposes for the application
-	existingPurposes, err := as.consentService.ListConsentPurposes(ctx, ouID, existingAppDTO.ID)
-	if err != nil {
-		return wrapConsentServiceError(err)
-	}
-
-	// If there are no existing purposes handle separately
-	if len(existingPurposes) == 0 {
-		logger.Debug("No existing consent purpose found for the application", log.String("appID", existingAppDTO.ID))
-
-		// If attributes exists in the updated payload, create a new consent purpose
-		if len(newAttributes) > 0 {
-			logger.Debug("Creating new consent purpose for the application", log.String("appID", existingAppDTO.ID))
-
-			purpose := consent.ConsentPurposeInput{
-				Name:        updatedAppDTO.Name,
-				Description: "Consent purpose for application " + updatedAppDTO.Name,
-				GroupID:     existingAppDTO.ID,
-				Elements:    attributesToPurposeElements(newAttributes),
-			}
-			if _, err := as.consentService.CreateConsentPurpose(ctx, ouID, &purpose); err != nil {
-				return wrapConsentServiceError(err)
-			}
-		}
-
-		return nil
-	}
-
-	// If all attributes are removed, and a purpose exists, delete it
-	if len(newAttributes) == 0 {
-		logger.Debug("All user attributes removed from the application", log.String("appID", existingAppDTO.ID))
-		if err := as.deleteConsentPurposes(ctx, existingAppDTO.ID); err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	logger.Debug("Existing consent purpose found for the application, updating it with the specified attributes",
-		log.String("appID", existingAppDTO.ID))
-
-	// Update existing purpose with the application changes.
-	// We assume there is only one consent purpose per application
-	updated := consent.ConsentPurposeInput{
-		Name:        updatedAppDTO.Name,
-		Description: "Consent purpose for application " + updatedAppDTO.Name,
-		GroupID:     existingAppDTO.ID,
-		Elements:    attributesToPurposeElements(newAttributes),
-	}
-	if _, err := as.consentService.UpdateConsentPurpose(ctx, ouID,
-		existingPurposes[0].ID, &updated); err != nil {
-		return wrapConsentServiceError(err)
-	}
-
-	return nil
-}
-
-// deleteConsentPurposes removes all consent purposes associated with an application.
-func (as *applicationService) deleteConsentPurposes(ctx context.Context, appID string) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	// TODO: Replace with application's actual OU when OU support is added
-	const ouID = "default"
-
-	logger.Debug("Attempting to delete consent purposes for the application", log.String("appID", appID))
-
-	purposes, err := as.consentService.ListConsentPurposes(ctx, ouID, appID)
-	if err != nil {
-		return wrapConsentServiceError(err)
-	}
-
-	// If there are no purposes, return early
-	if len(purposes) == 0 {
-		logger.Debug("No consent purposes found for the application", log.String("appID", appID))
-		return nil
-	}
-
-	// We assume there is only one consent purpose per application
-	logger.Debug("Deleting consent purpose for the application", log.String("appID", appID),
-		log.Int("purposesCount", len(purposes)))
-	if err := as.consentService.DeleteConsentPurpose(ctx, ouID, purposes[0].ID); err != nil {
-		// TODO: Default consent service implementation doesn't allow deleting consent purposes with existing consents.
-		//  We need to handle this case gracefully until the consent service supports force delete or cascade delete
-		// for consent purposes.
-		if err.Code == consent.ErrorDeletingConsentPurposeWithAssociatedRecords.Code {
-			logger.Warn("Cannot delete consent purpose due to existing consents. Consent service doesn't support "+
-				"deleting consent purposes with existing consents",
-				log.String("appID", appID), log.Int("purposesCount", len(purposes)))
-			return nil
-		}
-
-		return wrapConsentServiceError(err)
-	}
-
-	return nil
-}
-
-// createMissingConsentElements validates a list of consent element names and creates only the missing ones.
-// nolint:unparam // ouID is always "default" in current usage but kept for future flexibility
-func (as *applicationService) createMissingConsentElements(ctx context.Context,
-	ouID string, names []string) *serviceerror.ServiceError {
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	if len(names) == 0 {
-		logger.Debug("No consent elements to create", log.String("ouID", ouID))
-		return nil
-	}
-
-	validNames, err := as.consentService.ValidateConsentElements(ctx, ouID, names)
-	if err != nil {
-		return wrapConsentServiceError(err)
-	}
-
-	// Create a map of existing elements for fast lookup
-	existingMap := make(map[string]bool, len(validNames))
-	for _, name := range validNames {
-		existingMap[name] = true
-	}
-
-	// Filter out the existing elements
-	var elementsToCreate []consent.ConsentElementInput
-	for _, name := range names {
-		if !existingMap[name] {
-			elementsToCreate = append(elementsToCreate, consent.ConsentElementInput{
-				Name:      name,
-				Namespace: consent.NamespaceAttribute,
+	inboundAuthConfigs := make([]inboundmodel.InboundAuthConfigWithSecret, 0, len(dto.InboundAuthConfig))
+	for _, config := range dto.InboundAuthConfig {
+		if config.Type == inboundmodel.OAuthInboundAuthType && config.OAuthConfig != nil {
+			oauthAppConfig := config.OAuthConfig
+			inboundAuthConfigs = append(inboundAuthConfigs, inboundmodel.InboundAuthConfigWithSecret{
+				Type: inboundmodel.OAuthInboundAuthType,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+					ClientID:                           oauthAppConfig.ClientID,
+					RedirectURIs:                       oauthAppConfig.RedirectURIs,
+					GrantTypes:                         oauthAppConfig.GrantTypes,
+					ResponseTypes:                      oauthAppConfig.ResponseTypes,
+					TokenEndpointAuthMethod:            oauthAppConfig.TokenEndpointAuthMethod,
+					PKCERequired:                       oauthAppConfig.PKCERequired,
+					PublicClient:                       oauthAppConfig.PublicClient,
+					RequirePushedAuthorizationRequests: oauthAppConfig.RequirePushedAuthorizationRequests,
+					DPoPBoundAccessTokens:              oauthAppConfig.DPoPBoundAccessTokens,
+					Token:                              oauthAppConfig.Token,
+					Scopes:                             oauthAppConfig.Scopes,
+					UserInfo:                           oauthAppConfig.UserInfo,
+					ScopeClaims:                        oauthAppConfig.ScopeClaims,
+					AcrValues:                          oauthAppConfig.AcrValues,
+				},
 			})
 		}
 	}
+	application.InboundAuthConfig = inboundAuthConfigs
+	return application
+}
 
-	if len(elementsToCreate) > 0 {
-		logger.Debug("Creating missing consent elements", log.String("ouID", ouID),
-			log.Int("totalRequested", len(names)), log.Int("toCreate", len(elementsToCreate)))
-
-		if _, err := as.consentService.CreateConsentElements(ctx, ouID, elementsToCreate); err != nil {
-			return wrapConsentServiceError(err)
+// buildBasicApplicationResponse builds a BasicApplicationResponse by merging config + entity data.
+func buildBasicApplicationResponse(
+	cfg inboundmodel.InboundClient, e *entityprovider.Entity,
+) model.BasicApplicationResponse {
+	resp := model.BasicApplicationResponse{
+		ID:                        cfg.ID,
+		AuthFlowID:                cfg.AuthFlowID,
+		RegistrationFlowID:        cfg.RegistrationFlowID,
+		IsRegistrationFlowEnabled: cfg.IsRegistrationFlowEnabled,
+		RecoveryFlowID:            cfg.RecoveryFlowID,
+		IsRecoveryFlowEnabled:     cfg.IsRecoveryFlowEnabled,
+		ThemeID:                   cfg.ThemeID,
+		LayoutID:                  cfg.LayoutID,
+		IsReadOnly:                cfg.IsReadOnly,
+	}
+	if cfg.Properties != nil {
+		if t, ok := cfg.Properties[propTemplate].(string); ok {
+			resp.Template = t
+		}
+		if logoURL, ok := cfg.Properties[propLogoURL].(string); ok {
+			resp.LogoURL = logoURL
 		}
 	}
+	// Enrich from entity system attributes.
+	if e != nil {
+		var sysAttrs map[string]interface{}
+		if len(e.SystemAttributes) > 0 {
+			_ = json.Unmarshal(e.SystemAttributes, &sysAttrs)
+		}
+		if sysAttrs != nil {
+			if name, ok := sysAttrs[fieldName].(string); ok {
+				resp.Name = name
+			}
+			if desc, ok := sysAttrs[fieldDescription].(string); ok {
+				resp.Description = desc
+			}
+			if clientID, ok := sysAttrs[fieldClientID].(string); ok {
+				resp.ClientID = clientID
+			}
+		}
+	}
+	return resp
+}
 
+// buildBaseApplicationProcessedDTO constructs an ApplicationProcessedDTO with the common base fields.
+// Callers are responsible for setting InboundAuthConfig on the returned DTO.
+func buildBaseApplicationProcessedDTO(appID string, app *model.ApplicationDTO,
+	assertion *inboundmodel.AssertionConfig) *model.ApplicationProcessedDTO {
+	return &model.ApplicationProcessedDTO{
+		ID:          appID,
+		OUID:        app.OUID,
+		Name:        app.Name,
+		Description: app.Description,
+		InboundAuthProfile: inboundmodel.InboundAuthProfile{
+			AuthFlowID:                app.AuthFlowID,
+			RegistrationFlowID:        app.RegistrationFlowID,
+			IsRegistrationFlowEnabled: app.IsRegistrationFlowEnabled,
+			RecoveryFlowID:            app.RecoveryFlowID,
+			IsRecoveryFlowEnabled:     app.IsRecoveryFlowEnabled,
+			ThemeID:                   app.ThemeID,
+			LayoutID:                  app.LayoutID,
+			Assertion:                 assertion,
+			AllowedUserTypes:          app.AllowedUserTypes,
+			LoginConsent:              app.LoginConsent,
+		},
+		Template:  app.Template,
+		URL:       app.URL,
+		LogoURL:   app.LogoURL,
+		TosURI:    app.TosURI,
+		PolicyURI: app.PolicyURI,
+		Contacts:  app.Contacts,
+		Metadata:  app.Metadata,
+	}
+}
+
+// buildProcessedDTOForUpdate constructs the ApplicationProcessedDTO for an application
+// update operation.
+func (as *applicationService) buildProcessedDTOForUpdate(appID string, app *model.ApplicationDTO,
+	inboundAuthConfig *inboundmodel.InboundAuthConfigWithSecret) *model.ApplicationProcessedDTO {
+	processedDTO := buildBaseApplicationProcessedDTO(appID, app, app.Assertion)
+
+	if inboundAuthConfig != nil {
+		oa := inboundAuthConfig.OAuthConfig
+		processedInboundAuthConfig := buildOAuthInboundAuthConfigProcessedDTO(
+			appID, inboundAuthConfig, oa.Token, oa.UserInfo, oa.ScopeClaims, oa.Certificate,
+		)
+		processedDTO.InboundAuthConfig = []inboundmodel.InboundAuthConfigProcessed{processedInboundAuthConfig}
+	}
+
+	return processedDTO
+}
+
+// buildOAuthInboundAuthConfigProcessedDTO constructs the InboundAuthConfigProcessedDTO for an OAuth application.
+func buildOAuthInboundAuthConfigProcessedDTO(
+	appID string, inboundAuthConfig *inboundmodel.InboundAuthConfigWithSecret,
+	oauthToken *inboundmodel.OAuthTokenConfig, userInfo *inboundmodel.UserInfoConfig,
+	scopeClaims map[string][]string, certificate *inboundmodel.Certificate,
+) inboundmodel.InboundAuthConfigProcessed {
+	return inboundmodel.InboundAuthConfigProcessed{
+		Type: inboundmodel.OAuthInboundAuthType,
+		OAuthConfig: &inboundmodel.OAuthClient{
+			ID:                                 appID,
+			ClientID:                           inboundAuthConfig.OAuthConfig.ClientID,
+			RedirectURIs:                       inboundAuthConfig.OAuthConfig.RedirectURIs,
+			GrantTypes:                         inboundAuthConfig.OAuthConfig.GrantTypes,
+			ResponseTypes:                      inboundAuthConfig.OAuthConfig.ResponseTypes,
+			TokenEndpointAuthMethod:            inboundAuthConfig.OAuthConfig.TokenEndpointAuthMethod,
+			PKCERequired:                       inboundAuthConfig.OAuthConfig.PKCERequired,
+			PublicClient:                       inboundAuthConfig.OAuthConfig.PublicClient,
+			RequirePushedAuthorizationRequests: inboundAuthConfig.OAuthConfig.RequirePushedAuthorizationRequests,
+			DPoPBoundAccessTokens:              inboundAuthConfig.OAuthConfig.DPoPBoundAccessTokens,
+			Token:                              oauthToken,
+			Scopes:                             inboundAuthConfig.OAuthConfig.Scopes,
+			UserInfo:                           userInfo,
+			ScopeClaims:                        scopeClaims,
+			Certificate:                        certificate,
+			AcrValues:                          inboundAuthConfig.OAuthConfig.AcrValues,
+		},
+	}
+}
+
+// buildReturnApplicationDTO constructs the ApplicationDTO returned from create and update operations.
+func buildReturnApplicationDTO(
+	appID string, app *model.ApplicationDTO, assertion *inboundmodel.AssertionConfig,
+	metadata map[string]any, inboundAuthConfig *inboundmodel.InboundAuthConfigWithSecret,
+	oauthToken *inboundmodel.OAuthTokenConfig, userInfo *inboundmodel.UserInfoConfig,
+	scopeClaims map[string][]string) *model.ApplicationDTO {
+	returnApp := &model.ApplicationDTO{
+		ID:          appID,
+		OUID:        app.OUID,
+		Name:        app.Name,
+		Description: app.Description,
+		InboundAuthProfile: inboundmodel.InboundAuthProfile{
+			AuthFlowID:                app.AuthFlowID,
+			RegistrationFlowID:        app.RegistrationFlowID,
+			IsRegistrationFlowEnabled: app.IsRegistrationFlowEnabled,
+			RecoveryFlowID:            app.RecoveryFlowID,
+			IsRecoveryFlowEnabled:     app.IsRecoveryFlowEnabled,
+			ThemeID:                   app.ThemeID,
+			LayoutID:                  app.LayoutID,
+			Assertion:                 assertion,
+			Certificate:               app.Certificate,
+			AllowedUserTypes:          app.AllowedUserTypes,
+			LoginConsent:              app.LoginConsent,
+		},
+		Template:  app.Template,
+		URL:       app.URL,
+		LogoURL:   app.LogoURL,
+		TosURI:    app.TosURI,
+		PolicyURI: app.PolicyURI,
+		Contacts:  app.Contacts,
+		Metadata:  metadata,
+	}
+	if inboundAuthConfig != nil {
+		var oauthCert *inboundmodel.Certificate
+		if inboundAuthConfig.OAuthConfig != nil {
+			oauthCert = inboundAuthConfig.OAuthConfig.Certificate
+		}
+		returnInboundAuthConfig := inboundmodel.InboundAuthConfigWithSecret{
+			Type: inboundmodel.OAuthInboundAuthType,
+			OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+				ClientID:                           inboundAuthConfig.OAuthConfig.ClientID,
+				ClientSecret:                       inboundAuthConfig.OAuthConfig.ClientSecret,
+				RedirectURIs:                       inboundAuthConfig.OAuthConfig.RedirectURIs,
+				GrantTypes:                         inboundAuthConfig.OAuthConfig.GrantTypes,
+				ResponseTypes:                      inboundAuthConfig.OAuthConfig.ResponseTypes,
+				TokenEndpointAuthMethod:            inboundAuthConfig.OAuthConfig.TokenEndpointAuthMethod,
+				PKCERequired:                       inboundAuthConfig.OAuthConfig.PKCERequired,
+				PublicClient:                       inboundAuthConfig.OAuthConfig.PublicClient,
+				RequirePushedAuthorizationRequests: inboundAuthConfig.OAuthConfig.RequirePushedAuthorizationRequests,
+				DPoPBoundAccessTokens:              inboundAuthConfig.OAuthConfig.DPoPBoundAccessTokens,
+				Token:                              oauthToken,
+				Scopes:                             inboundAuthConfig.OAuthConfig.Scopes,
+				UserInfo:                           userInfo,
+				ScopeClaims:                        scopeClaims,
+				Certificate:                        oauthCert,
+				AcrValues:                          inboundAuthConfig.OAuthConfig.AcrValues,
+			},
+		}
+		returnApp.InboundAuthConfig = []inboundmodel.InboundAuthConfigWithSecret{returnInboundAuthConfig}
+	}
+	return returnApp
+}
+
+// mapStoreError maps inbound client store errors to application service errors.
+func (as *applicationService) mapStoreError(err error) *serviceerror.ServiceError {
+	if errors.Is(err, inboundclient.ErrInboundClientNotFound) {
+		return &ErrorApplicationNotFound
+	}
+	as.logger.Error("Failed to retrieve application", log.Error(err))
+	return &serviceerror.InternalServerError
+}
+
+// deleteLocalizedVariants removes all i18n translations for an application's fields.
+// All fields are attempted; returns an internal server error if any deletion fails.
+func (as *applicationService) deleteLocalizedVariants(ctx context.Context, appID string) *serviceerror.ServiceError {
+	if as.i18nService == nil {
+		return nil
+	}
+	var hasErr bool
+	for _, field := range []string{"name", "logo_uri", "tos_uri", "policy_uri"} {
+		if svcErr := as.i18nService.DeleteTranslationsByKey(
+			ctx, AppI18nNamespace(), AppI18nKey(appID, field)); svcErr != nil {
+			as.logger.Error("Failed to delete localized variant on app deletion",
+				log.String("appID", appID),
+				log.String("field", field),
+				log.String("namespace", AppI18nNamespace()))
+			hasErr = true
+		}
+	}
+	if hasErr {
+		return &serviceerror.InternalServerError
+	}
 	return nil
 }
 
-// wrapConsentServiceError converts an I18nServiceError from the consent service into a ServiceError
-// for the application service.
-func wrapConsentServiceError(err *serviceerror.I18nServiceError) *serviceerror.ServiceError {
-	if err == nil {
+// cleanupStaleI18nKeys removes i18n keys for fields that changed from an i18n ref back to plain text.
+// Returns an internal server error if any deletion fails.
+func (as *applicationService) cleanupStaleI18nKeys(
+	ctx context.Context, appID string,
+	existing *model.ApplicationProcessedDTO, updated *model.ApplicationDTO,
+) *serviceerror.ServiceError {
+	if as.i18nService == nil {
 		return nil
 	}
-
-	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ApplicationService"))
-
-	if err.Type == serviceerror.ClientErrorType {
-		logger.Debug("Failed to sync consent purpose for the application changes", log.Any("error", err))
-		return serviceerror.CustomServiceError(ErrorConsentSyncFailed,
-			fmt.Sprintf(ErrorConsentSyncFailed.ErrorDescription+" : code - %s", err.Code))
+	type pair struct{ old, updated, field string }
+	fields := []pair{
+		{existing.Name, updated.Name, "name"},
+		{existing.LogoURL, updated.LogoURL, "logo_uri"},
+		{existing.TosURI, updated.TosURI, "tos_uri"},
+		{existing.PolicyURI, updated.PolicyURI, "policy_uri"},
 	}
-
-	logger.Error("Failed to sync consent purpose for the application changes", log.Any("error", err))
-	return &ErrorInternalServerError
-}
-
-// attributesToPurposeElements converts a list of user attribute names to consent PurposeElements.
-// For the consent purpose, we assume all user attributes are optional. The mandatory attributes are
-// handled in the runtime when generating the consent form.
-func attributesToPurposeElements(attributes map[string]bool) []consent.PurposeElement {
-	elements := make([]consent.PurposeElement, 0, len(attributes))
-	for attr := range attributes {
-		elements = append(elements, consent.PurposeElement{
-			Name:        attr,
-			Namespace:   consent.NamespaceAttribute,
-			IsMandatory: false,
-		})
+	var hasErr bool
+	for _, f := range fields {
+		if isI18nRef(f.old) && !isI18nRef(f.updated) {
+			if svcErr := as.i18nService.DeleteTranslationsByKey(
+				ctx, AppI18nNamespace(), AppI18nKey(appID, f.field)); svcErr != nil {
+				as.logger.Error("Failed to delete stale i18n key",
+					log.String("appID", appID),
+					log.String("field", f.field),
+					log.String("namespace", AppI18nNamespace()))
+				hasErr = true
+			}
+		}
 	}
-
-	return elements
+	if hasErr {
+		return &serviceerror.InternalServerError
+	}
+	return nil
 }

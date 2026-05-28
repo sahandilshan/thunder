@@ -18,39 +18,96 @@
 
 package userinfo
 
-import "github.com/asgardeo/thunder/internal/system/error/serviceerror"
+import (
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+)
 
 // UserInfo standard service error constants
 var (
 	// errorInvalidAccessToken is returned when the access token is invalid, expired, or malformed
 	errorInvalidAccessToken = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "invalid_token",
-		Error:            "Invalid access token",
-		ErrorDescription: "The access token is invalid, expired, or malformed",
+		Type: serviceerror.ClientErrorType,
+		Code: "invalid_token",
+		Error: core.I18nMessage{
+			Key:          "error.userinfoservice.invalid_access_token",
+			DefaultValue: "Invalid access token",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.userinfoservice.invalid_access_token_description",
+			DefaultValue: "The access token is invalid, expired, or malformed",
+		},
 	}
 
 	// errorMissingSubClaim is returned when the access token is missing or has an invalid 'sub' claim
 	errorMissingSubClaim = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "invalid_token",
-		Error:            "Invalid access token",
-		ErrorDescription: "The access token is missing or has an invalid 'sub' claim",
+		Type: serviceerror.ClientErrorType,
+		Code: "invalid_token",
+		Error: core.I18nMessage{
+			Key:          "error.userinfoservice.missing_sub_claim",
+			DefaultValue: "Invalid access token",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.userinfoservice.missing_sub_claim_description",
+			DefaultValue: "The access token is missing or has an invalid 'sub' claim",
+		},
 	}
 
 	// errorClientCredentialsNotSupported is returned when the access token was issued using client_credentials grant
 	errorClientCredentialsNotSupported = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "invalid_token",
-		Error:            "Invalid access token",
-		ErrorDescription: "UserInfo endpoint is not applicable for client_credentials grant type",
+		Type: serviceerror.ClientErrorType,
+		Code: "invalid_token",
+		Error: core.I18nMessage{
+			Key:          "error.userinfoservice.client_credentials_not_supported",
+			DefaultValue: "Invalid access token",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.userinfoservice.client_credentials_not_supported_description",
+			DefaultValue: "UserInfo endpoint is not applicable for client_credentials grant type",
+		},
 	}
 
 	// errorInsufficientScope is returned when the access token lacks the required 'openid' scope
 	errorInsufficientScope = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "insufficient_scope",
-		Error:            "Insufficient scope",
-		ErrorDescription: "The 'openid' scope is required for this request",
+		Type: serviceerror.ClientErrorType,
+		Code: "insufficient_scope",
+		Error: core.I18nMessage{
+			Key:          "error.userinfoservice.insufficient_scope",
+			DefaultValue: "Insufficient scope",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.userinfoservice.insufficient_scope_description",
+			DefaultValue: "The 'openid' scope is required for this request",
+		},
+	}
+
+	// errorBearerDowngrade is returned when a DPoP-bound access token is presented
+	// under the Bearer scheme.
+	errorBearerDowngrade = serviceerror.ServiceError{
+		Type: serviceerror.ClientErrorType,
+		Code: "invalid_token",
+		Error: core.I18nMessage{
+			Key:          "error.userinfoservice.dpop_bound_token_bearer_scheme",
+			DefaultValue: "Invalid access token",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.userinfoservice.dpop_bound_token_bearer_scheme_description",
+			DefaultValue: "DPoP-bound token must use DPoP scheme",
+		},
+	}
+
+	// errorDPoPProofInvalid is returned when the DPoP-scheme request fails to bind:
+	// access token not DPoP-bound, or proof verification fails.
+	errorDPoPProofInvalid = serviceerror.ServiceError{
+		Type: serviceerror.ClientErrorType,
+		Code: "invalid_token",
+		Error: core.I18nMessage{
+			Key:          "error.userinfoservice.invalid_dpop_proof",
+			DefaultValue: "Invalid access token",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.userinfoservice.invalid_dpop_proof_description",
+			DefaultValue: "DPoP proof verification failed",
+		},
 	}
 )

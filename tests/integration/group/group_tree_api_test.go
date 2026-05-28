@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -156,7 +156,7 @@ func (suite *GroupTreeAPITestSuite) TestGetGroupsByInvalidPath() {
 	suite.Require().NoError(err)
 
 	suite.Equal("GRP-1003", errorResp.Code)
-	suite.Equal("Group not found", errorResp.Message)
+	suite.Equal("Group not found", errorResp.Message.DefaultValue)
 }
 
 // TestGetGroupsByPathWithPagination tests retrieving groups by path with pagination parameters
@@ -272,7 +272,7 @@ func (suite *GroupTreeAPITestSuite) TestCreateGroupByInvalidPath() {
 	suite.Require().NoError(err)
 
 	suite.Equal("GRP-1003", errorResp.Code)
-	suite.Equal("Group not found", errorResp.Message)
+	suite.Equal("Group not found", errorResp.Message.DefaultValue)
 }
 
 // TestCreateGroupByPathWithInvalidData tests creating a group by path with invalid data
@@ -315,7 +315,7 @@ func (suite *GroupTreeAPITestSuite) TestCreateGroupByPathWithInvalidData() {
 	suite.Require().NoError(err)
 
 	suite.Equal("GRP-1001", errorResp.Code)
-	suite.Equal("Invalid request format", errorResp.Message)
+	suite.Equal("Invalid request format", errorResp.Message.DefaultValue)
 }
 
 // TestCreateGroupByPathWithInvalidMemberType tests creating a group by path with invalid member type

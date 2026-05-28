@@ -73,7 +73,7 @@ func withSecuritySkipped(ctx context.Context) context.Context {
 }
 
 // IsSecuritySkipped returns true if security enforcement was skipped for this context.
-// Consumers such as sysauthz use this to bypass authorization when THUNDER_SKIP_SECURITY is enabled.
+// Consumers such as sysauthz use this to bypass authorization when SKIP_SECURITY is enabled.
 func IsSecuritySkipped(ctx context.Context) bool {
 	if ctx == nil {
 		return false

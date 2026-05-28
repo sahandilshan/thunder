@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -56,6 +56,7 @@ func (suite *ValidationTestSuite) SetupSuite() {
 	rsReq := CreateResourceServerRequest{
 		Name:               "validation-test-server",
 		Description:        "Resource server for validation testing",
+		Handle:            "validation-test",
 		OUID: ouID,
 	}
 	rsID, err := createResourceServer(rsReq)
@@ -100,6 +101,7 @@ func (suite *ValidationTestSuite) TestUpdateResourceServerMissingName() {
 	// Create a resource server first
 	createReq := CreateResourceServerRequest{
 		Name:               "update-validation-server",
+		Handle:            "update-validation",
 		OUID: suite.ouID,
 	}
 	rsID, err := createResourceServer(createReq)
@@ -121,6 +123,7 @@ func (suite *ValidationTestSuite) TestDeleteResourceServerWithDependencies() {
 	// Create resource server
 	rsReq := CreateResourceServerRequest{
 		Name:               "server-with-dependencies",
+		Handle:            "server-with-deps",
 		OUID: suite.ouID,
 	}
 	rsID, err := createResourceServer(rsReq)
@@ -147,6 +150,7 @@ func (suite *ValidationTestSuite) TestDeleteResourceServerWithActions() {
 	// Create resource server
 	rsReq := CreateResourceServerRequest{
 		Name:               "server-with-actions",
+		Handle:            "server-with-actions",
 		OUID: suite.ouID,
 	}
 	rsID, err := createResourceServer(rsReq)
@@ -310,6 +314,7 @@ func (suite *ValidationTestSuite) TestCreateResourceInDifferentResourceServer() 
 	// Create second resource server
 	rsReq := CreateResourceServerRequest{
 		Name:               "second-server",
+		Handle:            "second-server",
 		OUID: suite.ouID,
 	}
 	rs2ID, err := createResourceServer(rsReq)
@@ -341,6 +346,7 @@ func (suite *ValidationTestSuite) TestGetResourceFromWrongResourceServer() {
 	// Create second resource server
 	rsReq := CreateResourceServerRequest{
 		Name:               "wrong-server",
+		Handle:            "wrong-server",
 		OUID: suite.ouID,
 	}
 	rs2ID, err := createResourceServer(rsReq)
@@ -386,6 +392,7 @@ func (suite *ValidationTestSuite) TestInvalidContentType() {
 
 	req := CreateResourceServerRequest{
 		Name:               "test-server",
+		Handle:            "test-server",
 		OUID: suite.ouID,
 	}
 	body, _ := json.Marshal(req)
@@ -412,6 +419,7 @@ func (suite *ValidationTestSuite) TestCreateResourceHandleContainsDelimiter() {
 	// First create a resource server to get its delimiter
 	rsReq := CreateResourceServerRequest{
 		Name:               "delimiter-test-server",
+		Handle:            "delimiter-test",
 		OUID: suite.ouID,
 	}
 	rsID, err := createResourceServer(rsReq)
@@ -438,6 +446,7 @@ func (suite *ValidationTestSuite) TestCreateActionHandleContainsDelimiter() {
 	// First create a resource server to get its delimiter
 	rsReq := CreateResourceServerRequest{
 		Name:               "action-delimiter-test-server",
+		Handle:            "action-delim-test",
 		OUID: suite.ouID,
 	}
 	rsID, err := createResourceServer(rsReq)

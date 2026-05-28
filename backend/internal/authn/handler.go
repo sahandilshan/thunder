@@ -21,14 +21,12 @@ package authn
 import (
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/authn/credentials"
-	"github.com/asgardeo/thunder/internal/authn/otp"
-	"github.com/asgardeo/thunder/internal/idp"
-	notifcommon "github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/idp"
+	notifcommon "github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // authenticationHandler defines the handler for managing authentication API requests.
@@ -330,7 +328,7 @@ func (ah *authenticationHandler) handleServiceError(w http.ResponseWriter, svcEr
 	status := http.StatusInternalServerError
 	if svcErr.Type == serviceerror.ClientErrorType {
 		switch svcErr.Code {
-		case credentials.ErrorInvalidCredentials.Code, otp.ErrorIncorrectOTP.Code:
+		case ErrorInvalidCredentials.Code, ErrorOTPAuthenticationFailed.Code:
 			status = http.StatusUnauthorized
 		case common.ErrorUserNotFound.Code:
 			status = http.StatusNotFound

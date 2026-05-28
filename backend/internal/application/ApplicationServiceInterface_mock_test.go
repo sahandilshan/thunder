@@ -7,9 +7,10 @@ package application
 import (
 	"context"
 
-	"github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/application/model"
+	model0 "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // NewApplicationServiceInterfaceMock creates a new instance of ApplicationServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -303,23 +304,23 @@ func (_c *ApplicationServiceInterfaceMock_GetApplicationList_Call) RunAndReturn(
 }
 
 // GetOAuthApplication provides a mock function for the type ApplicationServiceInterfaceMock
-func (_mock *ApplicationServiceInterfaceMock) GetOAuthApplication(ctx context.Context, clientID string) (*model.OAuthAppConfigProcessedDTO, *serviceerror.ServiceError) {
+func (_mock *ApplicationServiceInterfaceMock) GetOAuthApplication(ctx context.Context, clientID string) (*model0.OAuthClient, *serviceerror.ServiceError) {
 	ret := _mock.Called(ctx, clientID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetOAuthApplication")
 	}
 
-	var r0 *model.OAuthAppConfigProcessedDTO
+	var r0 *model0.OAuthClient
 	var r1 *serviceerror.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*model.OAuthAppConfigProcessedDTO, *serviceerror.ServiceError)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*model0.OAuthClient, *serviceerror.ServiceError)); ok {
 		return returnFunc(ctx, clientID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *model.OAuthAppConfigProcessedDTO); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *model0.OAuthClient); ok {
 		r0 = returnFunc(ctx, clientID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.OAuthAppConfigProcessedDTO)
+			r0 = ret.Get(0).(*model0.OAuthClient)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) *serviceerror.ServiceError); ok {
@@ -362,12 +363,12 @@ func (_c *ApplicationServiceInterfaceMock_GetOAuthApplication_Call) Run(run func
 	return _c
 }
 
-func (_c *ApplicationServiceInterfaceMock_GetOAuthApplication_Call) Return(oAuthAppConfigProcessedDTO *model.OAuthAppConfigProcessedDTO, serviceError *serviceerror.ServiceError) *ApplicationServiceInterfaceMock_GetOAuthApplication_Call {
-	_c.Call.Return(oAuthAppConfigProcessedDTO, serviceError)
+func (_c *ApplicationServiceInterfaceMock_GetOAuthApplication_Call) Return(oAuthClient *model0.OAuthClient, serviceError *serviceerror.ServiceError) *ApplicationServiceInterfaceMock_GetOAuthApplication_Call {
+	_c.Call.Return(oAuthClient, serviceError)
 	return _c
 }
 
-func (_c *ApplicationServiceInterfaceMock_GetOAuthApplication_Call) RunAndReturn(run func(ctx context.Context, clientID string) (*model.OAuthAppConfigProcessedDTO, *serviceerror.ServiceError)) *ApplicationServiceInterfaceMock_GetOAuthApplication_Call {
+func (_c *ApplicationServiceInterfaceMock_GetOAuthApplication_Call) RunAndReturn(run func(ctx context.Context, clientID string) (*model0.OAuthClient, *serviceerror.ServiceError)) *ApplicationServiceInterfaceMock_GetOAuthApplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -449,7 +450,7 @@ func (_c *ApplicationServiceInterfaceMock_UpdateApplication_Call) RunAndReturn(r
 }
 
 // ValidateApplication provides a mock function for the type ApplicationServiceInterfaceMock
-func (_mock *ApplicationServiceInterfaceMock) ValidateApplication(ctx context.Context, app *model.ApplicationDTO) (*model.ApplicationProcessedDTO, *model.InboundAuthConfigDTO, *serviceerror.ServiceError) {
+func (_mock *ApplicationServiceInterfaceMock) ValidateApplication(ctx context.Context, app *model.ApplicationDTO) (*model.ApplicationProcessedDTO, *model0.InboundAuthConfigWithSecret, *serviceerror.ServiceError) {
 	ret := _mock.Called(ctx, app)
 
 	if len(ret) == 0 {
@@ -457,9 +458,9 @@ func (_mock *ApplicationServiceInterfaceMock) ValidateApplication(ctx context.Co
 	}
 
 	var r0 *model.ApplicationProcessedDTO
-	var r1 *model.InboundAuthConfigDTO
+	var r1 *model0.InboundAuthConfigWithSecret
 	var r2 *serviceerror.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *model.ApplicationDTO) (*model.ApplicationProcessedDTO, *model.InboundAuthConfigDTO, *serviceerror.ServiceError)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *model.ApplicationDTO) (*model.ApplicationProcessedDTO, *model0.InboundAuthConfigWithSecret, *serviceerror.ServiceError)); ok {
 		return returnFunc(ctx, app)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, *model.ApplicationDTO) *model.ApplicationProcessedDTO); ok {
@@ -469,11 +470,11 @@ func (_mock *ApplicationServiceInterfaceMock) ValidateApplication(ctx context.Co
 			r0 = ret.Get(0).(*model.ApplicationProcessedDTO)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *model.ApplicationDTO) *model.InboundAuthConfigDTO); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *model.ApplicationDTO) *model0.InboundAuthConfigWithSecret); ok {
 		r1 = returnFunc(ctx, app)
 	} else {
 		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*model.InboundAuthConfigDTO)
+			r1 = ret.Get(1).(*model0.InboundAuthConfigWithSecret)
 		}
 	}
 	if returnFunc, ok := ret.Get(2).(func(context.Context, *model.ApplicationDTO) *serviceerror.ServiceError); ok {
@@ -516,12 +517,12 @@ func (_c *ApplicationServiceInterfaceMock_ValidateApplication_Call) Run(run func
 	return _c
 }
 
-func (_c *ApplicationServiceInterfaceMock_ValidateApplication_Call) Return(applicationProcessedDTO *model.ApplicationProcessedDTO, inboundAuthConfigDTO *model.InboundAuthConfigDTO, serviceError *serviceerror.ServiceError) *ApplicationServiceInterfaceMock_ValidateApplication_Call {
-	_c.Call.Return(applicationProcessedDTO, inboundAuthConfigDTO, serviceError)
+func (_c *ApplicationServiceInterfaceMock_ValidateApplication_Call) Return(applicationProcessedDTO *model.ApplicationProcessedDTO, inboundAuthConfigWithSecret *model0.InboundAuthConfigWithSecret, serviceError *serviceerror.ServiceError) *ApplicationServiceInterfaceMock_ValidateApplication_Call {
+	_c.Call.Return(applicationProcessedDTO, inboundAuthConfigWithSecret, serviceError)
 	return _c
 }
 
-func (_c *ApplicationServiceInterfaceMock_ValidateApplication_Call) RunAndReturn(run func(ctx context.Context, app *model.ApplicationDTO) (*model.ApplicationProcessedDTO, *model.InboundAuthConfigDTO, *serviceerror.ServiceError)) *ApplicationServiceInterfaceMock_ValidateApplication_Call {
+func (_c *ApplicationServiceInterfaceMock_ValidateApplication_Call) RunAndReturn(run func(ctx context.Context, app *model.ApplicationDTO) (*model.ApplicationProcessedDTO, *model0.InboundAuthConfigWithSecret, *serviceerror.ServiceError)) *ApplicationServiceInterfaceMock_ValidateApplication_Call {
 	_c.Call.Return(run)
 	return _c
 }

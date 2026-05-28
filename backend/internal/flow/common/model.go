@@ -19,18 +19,58 @@
 package common
 
 import (
+	"fmt"
+	"regexp"
 	"slices"
 
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
 )
 
 // Input represents the inputs required for a node
 type Input struct {
-	Ref        string   `json:"ref,omitempty"`
-	Identifier string   `json:"identifier"`
-	Type       string   `json:"type"`
-	Required   bool     `json:"required"`
-	Options    []string `json:"options,omitempty"`
+	Ref         string           `json:"ref,omitempty"`
+	Identifier  string           `json:"identifier"`
+	Type        string           `json:"type"`
+	Required    bool             `json:"required"`
+	Options     []string         `json:"options,omitempty"`
+	DisplayName string           `json:"-"`
+	Validation  []ValidationRule `json:"validation,omitempty"`
+}
+
+// ValidationRule defines a single constraint on a flow input. CompiledRegex is
+// populated by PrepareValidationRules at graph-build time and excluded from JSON.
+type ValidationRule struct {
+	Type          ValidationType `json:"type"`
+	Value         interface{}    `json:"value"`
+	Message       string         `json:"message,omitempty"`
+	CompiledRegex *regexp.Regexp `json:"-"`
+}
+
+// PrepareValidationRules compiles the regex pattern of every regex rule in place.
+// An empty or non-string regex value is treated as a no-op.
+func PrepareValidationRules(rules []ValidationRule) error {
+	for i := range rules {
+		if rules[i].Type != ValidationTypeRegex {
+			continue
+		}
+		pattern, ok := rules[i].Value.(string)
+		if !ok || pattern == "" {
+			continue
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return fmt.Errorf("invalid validation regex %q: %w", pattern, err)
+		}
+		rules[i].CompiledRegex = re
+	}
+	return nil
+}
+
+// FieldError represents a single validation rule failure for a specific input field.
+type FieldError struct {
+	Identifier string `json:"identifier"`
+	Message    string `json:"message"`
 }
 
 // IsSensitive checks whether this input's type is considered sensitive.
@@ -41,6 +81,7 @@ func (i Input) IsSensitive() bool {
 // Action represents an action to be executed in a flow step
 type Action struct {
 	Ref      string `json:"ref,omitempty"`
+	Type     string `json:"type,omitempty"`
 	NextNode string `json:"nextNode,omitempty"`
 }
 
@@ -65,6 +106,8 @@ type NodeResponse struct {
 	ForwardedData     map[string]interface{}    `json:"forwardedData,omitempty"`
 	AuthenticatedUser authncm.AuthenticatedUser `json:"authenticatedUser,omitempty"`
 	Assertion         string                    `json:"assertion,omitempty"`
+	FieldErrors       []FieldError              `json:"fieldErrors,omitempty"`
+	AuthUser          authnprovidermgr.AuthUser `json:"-"`
 }
 
 // ExecutorResponse represents the response from an executor
@@ -78,6 +121,7 @@ type ExecutorResponse struct {
 	AuthenticatedUser authncm.AuthenticatedUser `json:"authenticatedUser,omitempty"`
 	Assertion         string                    `json:"assertion,omitempty"`
 	FailureReason     string                    `json:"failureReason,omitempty"`
+	AuthUser          authnprovidermgr.AuthUser `json:"-"`
 }
 
 // NodeExecutionRecord represents a record of a node execution in the flow.

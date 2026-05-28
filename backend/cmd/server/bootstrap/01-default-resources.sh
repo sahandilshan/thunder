@@ -18,7 +18,7 @@
 # ----------------------------------------------------------------------------
 
 # Bootstrap Script: Default Resources Setup
-# Creates default organization unit, user schema, admin user, system resource server, system action, admin role, and CONSOLE application
+# Creates default organization unit, user type, admin user, system resource server, system action, admin role, and CONSOLE application
 
 set -e
 
@@ -40,8 +40,19 @@ done
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]:-$0}")"
 source "${SCRIPT_DIR}/common.sh"
 
-log_info "Creating default Thunder resources..."
+log_info "Creating default ${PRODUCT_NAME} resources..."
 echo ""
+
+# System resource server configuration from environment variables.
+SYSTEM_RS_HANDLE="${SYSTEM_RS_HANDLE:-}"
+SYSTEM_RS_IDENTIFIER="${SYSTEM_RS_IDENTIFIER:-https://localhost:8090/mcp}"
+
+# Derive the system permission root based on the configured handle.
+if [[ -n "$SYSTEM_RS_HANDLE" ]]; then
+    SYSTEM_PERMISSION="${SYSTEM_RS_HANDLE}:system"
+else
+    SYSTEM_PERMISSION="system"
+fi
 
 # ============================================================================
 # Create Default Organization Unit
@@ -49,10 +60,11 @@ echo ""
 
 log_info "Creating default organization unit..."
 
-RESPONSE=$(thunder_api_call POST "/organization-units" '{
+RESPONSE=$(api_call POST "/organization-units" '{
   "handle": "default",
   "name": "Default",
-  "description": "Default organization unit"
+  "description": "Default organization unit",
+  "logoUrl": "emoji:🏛️"
 }')
 
 HTTP_CODE="${RESPONSE: -3}"
@@ -63,14 +75,16 @@ if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
     DEFAULT_OU_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
     if [[ -n "$DEFAULT_OU_ID" ]]; then
         log_info "Default OU ID: $DEFAULT_OU_ID"
+        log_result_success "Created default organization unit"
     else
         log_error "Could not extract OU ID from response"
+        log_result_failure "Failed to create default organization unit"
         exit 1
     fi
 elif [[ "$HTTP_CODE" == "409" ]]; then
     log_warning "Organization unit already exists, retrieving OU ID..."
     # Get existing OU ID by handle to ensure we get the correct "default" OU
-    RESPONSE=$(thunder_api_call GET "/organization-units/tree/default")
+    RESPONSE=$(api_call GET "/organization-units/tree/default")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
@@ -78,82 +92,88 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
         DEFAULT_OU_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
         if [[ -n "$DEFAULT_OU_ID" ]]; then
             log_success "Found OU ID: $DEFAULT_OU_ID"
+            log_result_success "Created default organization unit"
         else
             log_error "Could not find OU ID in response"
+            log_result_failure "Failed to create default organization unit"
             exit 1
         fi
     else
         log_error "Failed to fetch organization unit by handle 'default' (HTTP $HTTP_CODE)"
+        log_result_failure "Failed to create default organization unit"
         exit 1
     fi
 else
     log_error "Failed to create organization unit (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
+    log_result_failure "Failed to create default organization unit"
     exit 1
 fi
 
 echo ""
 
 # ============================================================================
-# Create Default User Schema
+# Create Default User Type
 # ============================================================================
 
-log_info "Creating default user schema (person)..."
+log_info "Creating default user type (person)..."
 
-RESPONSE=$(thunder_api_call POST "/user-schemas" '{
+RESPONSE=$(api_call POST "/user-types" '{
   "name": "Person",
   "ouId": "'${DEFAULT_OU_ID}'",
   "schema": {
     "username": {
       "type": "string",
+      "displayName": "Username",
       "required": true,
       "unique": true
     },
     "email": {
       "type": "string",
+      "displayName": "Email",
       "required": true,
       "unique": true,
       "regex": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
     },
-    "email_verified": {
-      "type": "boolean",
-      "required": false
-    },
     "given_name": {
       "type": "string",
+      "displayName": "First Name",
       "required": false
     },
     "family_name": {
       "type": "string",
+      "displayName": "Last Name",
       "required": false
     },
     "mobileNumber": {
       "type": "string",
+      "displayName": "Mobile Number",
       "required": false
     },
     "phone_number": {
       "type": "string",
-      "required": false
-    },
-    "phone_number_verified": {
-      "type": "boolean",
+      "displayName": "Phone Number",
       "required": false
     },
     "sub": {
       "type": "string",
+      "displayName": "Subject",
       "required": false
     },
     "name": {
       "type": "string",
+      "displayName": "Full Name",
       "required": false
     },
     "picture": {
       "type": "string",
+      "displayName": "Picture",
       "required": false
     },
     "password": {
       "type": "string",
-      "required": true,
+      "displayName": "Password",
+      "required": false,
       "credential": true
     }
   },
@@ -165,13 +185,59 @@ RESPONSE=$(thunder_api_call POST "/user-schemas" '{
 HTTP_CODE="${RESPONSE: -3}"
 
 if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
-    log_success "User schema created successfully"
+    log_success "User type created successfully"
 elif [[ "$HTTP_CODE" == "409" ]]; then
-    log_warning "User schema already exists, skipping"
+    log_warning "User type already exists, skipping"
 else
-    log_error "Failed to create user schema (HTTP $HTTP_CODE)"
+    log_error "Failed to create user type (HTTP $HTTP_CODE)"
+    log_result_failure "Failed to create default user type (Person)"
     exit 1
 fi
+log_result_success "Created default user type (Person)"
+
+echo ""
+
+# ============================================================================
+# Create Default Agent Type
+# ============================================================================
+
+log_info "Creating default agent type..."
+
+RESPONSE=$(api_call POST "/agent-types" '{
+  "name": "default",
+  "ouId": "'${DEFAULT_OU_ID}'",
+  "schema": {
+    "model": {
+      "type": "string",
+      "displayName": "Model",
+      "required": false,
+      "enum": ["claude-opus-4.7", "claude-opus-4.6", "claude-sonnet-4.6", "claude-sonnet-4.5", "claude-haiku-4.5", "openai-gpt-5.4-pro", "openai-gpt-5.4-thinking", "openai-gpt-5.4-mini", "openai-gpt-5.4-nano", "openai-gpt-5.3-instant", "gemini-3.5-flash", "gemini-3.1-pro", "gemini-3-pro", "gemini-3-flash", "llama-4-scout", "llama-4-maverick", "llama-3.3-70b", "mistral-large-3", "mistral-small-4", "mistral-medium-3.5", "mistral-devstral-2", "other"]
+    },
+    "department": {
+      "type": "string",
+      "displayName": "Department",
+      "required": false
+    },
+    "purpose": {
+      "type": "string",
+      "displayName": "Purpose",
+      "required": false
+    }
+  }
+}')
+
+HTTP_CODE="${RESPONSE: -3}"
+
+if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
+    log_success "Agent type created successfully"
+elif [[ "$HTTP_CODE" == "409" ]]; then
+    log_warning "Agent type already exists, skipping"
+else
+    log_error "Failed to create agent type (HTTP $HTTP_CODE)"
+    log_result_failure "Failed to create default agent type"
+    exit 1
+fi
+log_result_success "Created default agent type"
 
 echo ""
 
@@ -179,23 +245,41 @@ echo ""
 # Create Admin User
 # ============================================================================
 
+ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
+
+if [[ "$ADMIN_USERNAME" == "admin" && "$ADMIN_PASSWORD" == "admin" ]]; then
+    log_warning "Using default admin credentials (admin/admin). Set ADMIN_USERNAME and ADMIN_PASSWORD or use --admin-username/--admin-password to override."
+fi
+
 log_info "Creating admin user..."
 
-RESPONSE=$(thunder_api_call POST "/users" '{
+# JSON-escape username and password to safely embed arbitrary characters in the payload.
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+ADMIN_USERNAME_JSON=$(json_escape "$ADMIN_USERNAME")
+ADMIN_PASSWORD_JSON=$(json_escape "$ADMIN_PASSWORD")
+
+RESPONSE=$(api_call POST "/users" '{
   "type": "Person",
   "ouId": "'${DEFAULT_OU_ID}'",
   "attributes": {
-    "username": "admin",
-    "password": "admin",
-    "sub": "admin",
-    "email": "admin@thunder.dev",
-    "email_verified": true,
+    "username": "'"${ADMIN_USERNAME_JSON}"'",
+    "password": "'"${ADMIN_PASSWORD_JSON}"'",
+    "sub": "'"${ADMIN_USERNAME_JSON}"'",
+    "email": "admin@example.com",
     "name": "Administrator",
     "given_name": "Admin",
     "family_name": "User",
     "picture": "https://example.com/avatar.jpg",
-    "phone_number": "+12345678920",
-    "phone_number_verified": true
+    "phone_number": "+12345678920"
   }
 }')
 
@@ -204,8 +288,7 @@ BODY="${RESPONSE%???}"
 
 if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
     log_success "Admin user created successfully"
-    log_info "Username: admin"
-    log_info "Password: admin"
+    log_info "Username: ${ADMIN_USERNAME}"
 
     # Extract admin user ID
     ADMIN_USER_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -218,34 +301,41 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
     log_warning "Admin user already exists, retrieving user ID..."
 
     # Get existing admin user ID
-    RESPONSE=$(thunder_api_call GET "/users")
+    RESPONSE=$(api_call GET "/users")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
     if [[ "$HTTP_CODE" == "200" ]]; then
+        # Escape regex metacharacters so usernames like "admin.test" match literally.
+        ADMIN_USERNAME_REGEX=$(printf '%s' "$ADMIN_USERNAME" | sed 's/[.[*^$()+?{|\\]/\\&/g')
+
         # Parse JSON to find admin user
-        ADMIN_USER_ID=$(echo "$BODY" | grep -o '"id":"[^"]*","[^"]*":"[^"]*","attributes":{[^}]*"username":"admin"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+        ADMIN_USER_ID=$(echo "$BODY" | grep -o "\"id\":\"[^\"]*\",\"[^\"]*\":\"[^\"]*\",\"attributes\":{[^}]*\"username\":\"${ADMIN_USERNAME_REGEX}\"" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
         # Fallback parsing
         if [[ -z "$ADMIN_USER_ID" ]]; then
-            ADMIN_USER_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"username":"admin"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+            ADMIN_USER_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep "\"username\":\"${ADMIN_USERNAME_REGEX}\"" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
         fi
 
         if [[ -n "$ADMIN_USER_ID" ]]; then
             log_success "Found admin user ID: $ADMIN_USER_ID"
         else
             log_error "Could not find admin user in response"
+            log_result_failure "Failed to create admin user"
             exit 1
         fi
     else
         log_error "Failed to fetch users (HTTP $HTTP_CODE)"
+        log_result_failure "Failed to create admin user"
         exit 1
     fi
 else
     log_error "Failed to create admin user (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
+    log_result_failure "Failed to create admin user"
     exit 1
 fi
+log_result_success "Created admin user"
 
 echo ""
 
@@ -257,13 +347,15 @@ log_info "Creating system resource server..."
 
 if [[ -z "$DEFAULT_OU_ID" ]]; then
     log_error "Default OU ID is not available. Cannot create resource server."
+    log_result_failure "Failed to create system resource server"
     exit 1
 fi
 
-RESPONSE=$(thunder_api_call POST "/resource-servers" "{
+RESPONSE=$(api_call POST "/resource-servers" "{
   \"name\": \"System\",
   \"description\": \"System resource server\",
-  \"identifier\": \"system\",
+  \"handle\": \"${SYSTEM_RS_HANDLE}\",
+  \"identifier\": \"${SYSTEM_RS_IDENTIFIER}\",
   \"ouId\": \"${DEFAULT_OU_ID}\"
 }")
 
@@ -275,38 +367,52 @@ if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
     SYSTEM_RS_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
     if [[ -n "$SYSTEM_RS_ID" ]]; then
         log_info "System resource server ID: $SYSTEM_RS_ID"
+        log_result_success "Created system resource server"
     else
         log_error "Could not extract resource server ID from response"
+        log_result_failure "Failed to create system resource server"
         exit 1
     fi
 elif [[ "$HTTP_CODE" == "409" ]]; then
     log_warning "Resource server already exists, retrieving ID..."
     # Get existing resource server ID
-    RESPONSE=$(thunder_api_call GET "/resource-servers")
+    RESPONSE=$(api_call GET "/resource-servers")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
     if [[ "$HTTP_CODE" == "200" ]]; then
         SYSTEM_RS_ID=$(echo "$BODY" | grep -o '"id":"[^"]*","[^"]*":"System"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-        # Fallback parsing
+        # Fallback parsing by name
         if [[ -z "$SYSTEM_RS_ID" ]]; then
-            SYSTEM_RS_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"identifier":"system"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+            SYSTEM_RS_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"name":"System"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
         fi
 
         if [[ -n "$SYSTEM_RS_ID" ]]; then
             log_success "Found resource server ID: $SYSTEM_RS_ID"
+            SYSTEM_LINE=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"name":"System"')
+            EXISTING_HANDLE=$(echo "$SYSTEM_LINE" | grep -o '"handle":"[^"]*"' | head -1 | cut -d'"' -f4)
+            EXISTING_IDENTIFIER=$(echo "$SYSTEM_LINE" | grep -o '"identifier":"[^"]*"' | head -1 | cut -d'"' -f4)
+            if [[ "$EXISTING_HANDLE" != "$SYSTEM_RS_HANDLE" ]] || [[ "$EXISTING_IDENTIFIER" != "$SYSTEM_RS_IDENTIFIER" ]]; then
+                log_error "Existing system resource server has mismatched configuration. Expected handle='${SYSTEM_RS_HANDLE}', identifier='${SYSTEM_RS_IDENTIFIER}' but found handle='${EXISTING_HANDLE}', identifier='${EXISTING_IDENTIFIER}'. Manual migration required."
+                log_result_failure "Failed to create system resource server"
+                exit 1
+            fi
+            log_result_success "Created system resource server"
         else
             log_error "Could not find resource server ID in response"
+            log_result_failure "Failed to create system resource server"
             exit 1
         fi
     else
         log_error "Failed to fetch resource servers (HTTP $HTTP_CODE)"
+        log_result_failure "Failed to create system resource server"
         exit 1
     fi
 else
     log_error "Failed to create resource server (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
+    log_result_failure "Failed to create system resource server"
     exit 1
 fi
 
@@ -325,18 +431,23 @@ echo ""
 #           └── Action handle "view"       → permission "system:user:view"
 #       └── Resource handle "group"        → permission "system:group"
 #           └── Action handle "view"       → permission "system:group:view"
-#       └── Resource handle "userschema"   → permission "system:userschema"
-#           └── Action handle "view"       → permission "system:userschema:view"
+#       └── Resource handle "usertype"      → permission "system:usertype"
+#           └── Action handle "view"       → permission "system:usertype:view"
 # ============================================================================
+
+system_permissions_failed() {
+    log_result_failure "Failed to create system permissions"
+    exit 1
+}
 
 log_info "Creating 'system' resource under the system resource server..."
 
 if [[ -z "$SYSTEM_RS_ID" ]]; then
     log_error "System resource server ID is not available. Cannot create system resource."
-    exit 1
+    system_permissions_failed
 fi
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" '{
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" '{
   "name": "System",
   "description": "System resource",
   "handle": "system"
@@ -352,11 +463,11 @@ if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
         log_info "System resource ID: $SYSTEM_RESOURCE_ID"
     else
         log_error "Could not extract system resource ID from response"
-        exit 1
+        system_permissions_failed
     fi
 elif [[ "$HTTP_CODE" == "409" ]]; then
     log_warning "System resource already exists, retrieving ID..."
-    RESPONSE=$(thunder_api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources")
+    RESPONSE=$(api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
@@ -366,21 +477,21 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
             log_success "Found system resource ID: $SYSTEM_RESOURCE_ID"
         else
             log_error "Could not find system resource in response"
-            exit 1
+            system_permissions_failed
         fi
     else
         log_error "Failed to fetch resources (HTTP $HTTP_CODE)"
-        exit 1
+        system_permissions_failed
     fi
 else
     log_error "Failed to create system resource (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
 
 log_info "Creating 'ou' sub-resource under the 'system' resource..."
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" "{
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" "{
   \"name\": \"Organization Unit\",
   \"description\": \"Organization unit resource\",
   \"handle\": \"ou\",
@@ -397,11 +508,11 @@ if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
         log_info "OU resource ID: $OU_RESOURCE_ID"
     else
         log_error "Could not extract OU resource ID from response"
-        exit 1
+        system_permissions_failed
     fi
 elif [[ "$HTTP_CODE" == "409" ]]; then
     log_warning "OU resource already exists, retrieving ID..."
-    RESPONSE=$(thunder_api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources?parentId=${SYSTEM_RESOURCE_ID}")
+    RESPONSE=$(api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources?parentId=${SYSTEM_RESOURCE_ID}")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
@@ -411,21 +522,21 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
             log_success "Found OU resource ID: $OU_RESOURCE_ID"
         else
             log_error "Could not find OU resource in response"
-            exit 1
+            system_permissions_failed
         fi
     else
         log_error "Failed to fetch resources (HTTP $HTTP_CODE)"
-        exit 1
+        system_permissions_failed
     fi
 else
     log_error "Failed to create OU resource (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
 
 log_info "Creating 'view' action under the 'ou' resource..."
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources/${OU_RESOURCE_ID}/actions" '{
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources/${OU_RESOURCE_ID}/actions" '{
   "name": "View",
   "description": "Read-only access to organization units",
   "handle": "view"
@@ -441,12 +552,12 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
 else
     log_error "Failed to create OU view action (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
 
 log_info "Creating 'user' sub-resource under the 'system' resource..."
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" "{
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" "{
   \"name\": \"User\",
   \"description\": \"User resource\",
   \"handle\": \"user\",
@@ -463,11 +574,11 @@ if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
         log_info "User resource ID: $USER_RESOURCE_ID"
     else
         log_error "Could not extract user resource ID from response"
-        exit 1
+        system_permissions_failed
     fi
 elif [[ "$HTTP_CODE" == "409" ]]; then
     log_warning "User resource already exists, retrieving ID..."
-    RESPONSE=$(thunder_api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources?parentId=${SYSTEM_RESOURCE_ID}")
+    RESPONSE=$(api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources?parentId=${SYSTEM_RESOURCE_ID}")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
@@ -477,21 +588,21 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
             log_success "Found user resource ID: $USER_RESOURCE_ID"
         else
             log_error "Could not find user resource in response"
-            exit 1
+            system_permissions_failed
         fi
     else
         log_error "Failed to fetch resources (HTTP $HTTP_CODE)"
-        exit 1
+        system_permissions_failed
     fi
 else
     log_error "Failed to create user resource (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
 
 log_info "Creating 'view' action under the 'user' resource..."
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources/${USER_RESOURCE_ID}/actions" '{
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources/${USER_RESOURCE_ID}/actions" '{
   "name": "View",
   "description": "Read-only access to users",
   "handle": "view"
@@ -507,15 +618,15 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
 else
     log_error "Failed to create user view action (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
 
-log_info "Creating 'userschema' sub-resource under the 'system' resource..."
+log_info "Creating 'usertype' sub-resource under the 'system' resource..."
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" "{
-  \"name\": \"User Schema\",
-  \"description\": \"User schema resource\",
-  \"handle\": \"userschema\",
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" "{
+  \"name\": \"User Type\",
+  \"description\": \"User type resource\",
+  \"handle\": \"usertype\",
   \"parent\": \"${SYSTEM_RESOURCE_ID}\"
 }")
 
@@ -523,43 +634,43 @@ HTTP_CODE="${RESPONSE: -3}"
 BODY="${RESPONSE%???}"
 
 if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
-    log_success "User schema resource created successfully (permission: system:userschema)"
-    USER_SCHEMA_RESOURCE_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-    if [[ -n "$USER_SCHEMA_RESOURCE_ID" ]]; then
-        log_info "User schema resource ID: $USER_SCHEMA_RESOURCE_ID"
+    log_success "User type resource created successfully (permission: system:usertype)"
+    USER_TYPE_RESOURCE_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+    if [[ -n "$USER_TYPE_RESOURCE_ID" ]]; then
+        log_info "User type resource ID: $USER_TYPE_RESOURCE_ID"
     else
-        log_error "Could not extract user schema resource ID from response"
-        exit 1
+        log_error "Could not extract user type resource ID from response"
+        system_permissions_failed
     fi
 elif [[ "$HTTP_CODE" == "409" ]]; then
-    log_warning "User schema resource already exists, retrieving ID..."
-    RESPONSE=$(thunder_api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources?parentId=${SYSTEM_RESOURCE_ID}")
+    log_warning "User type resource already exists, retrieving ID..."
+    RESPONSE=$(api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources?parentId=${SYSTEM_RESOURCE_ID}")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
     if [[ "$HTTP_CODE" == "200" ]]; then
-        USER_SCHEMA_RESOURCE_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"handle":"userschema"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-        if [[ -n "$USER_SCHEMA_RESOURCE_ID" ]]; then
-            log_success "Found user schema resource ID: $USER_SCHEMA_RESOURCE_ID"
+        USER_TYPE_RESOURCE_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"handle":"usertype"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+        if [[ -n "$USER_TYPE_RESOURCE_ID" ]]; then
+            log_success "Found user type resource ID: $USER_TYPE_RESOURCE_ID"
         else
-            log_error "Could not find user schema resource in response"
-            exit 1
+            log_error "Could not find user type resource in response"
+            system_permissions_failed
         fi
     else
         log_error "Failed to fetch resources (HTTP $HTTP_CODE)"
-        exit 1
+        system_permissions_failed
     fi
 else
-    log_error "Failed to create user schema resource (HTTP $HTTP_CODE)"
+    log_error "Failed to create user type resource (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
 
-log_info "Creating 'view' action under the 'userschema' resource..."
+log_info "Creating 'view' action under the 'usertype' resource..."
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources/${USER_SCHEMA_RESOURCE_ID}/actions" '{
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources/${USER_TYPE_RESOURCE_ID}/actions" '{
   "name": "View",
-  "description": "Read-only access to user schemas",
+  "description": "Read-only access to user types",
   "handle": "view"
 }')
 
@@ -567,20 +678,20 @@ HTTP_CODE="${RESPONSE: -3}"
 BODY="${RESPONSE%???}"
 
 if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
-    log_success "User schema view action created successfully (permission: system:userschema:view)"
+    log_success "User type view action created successfully (permission: system:usertype:view)"
 elif [[ "$HTTP_CODE" == "409" ]]; then
-    log_warning "User schema view action already exists, skipping"
+    log_warning "User type view action already exists, skipping"
 else
-    log_error "Failed to create user schema view action (HTTP $HTTP_CODE)"
+    log_error "Failed to create user type view action (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
 
 echo ""
 
 log_info "Creating 'group' sub-resource under the 'system' resource..."
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" "{
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources" "{
   \"name\": \"Group\",
   \"description\": \"Group resource\",
   \"handle\": \"group\",
@@ -597,11 +708,11 @@ if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
         log_info "Group resource ID: $GROUP_RESOURCE_ID"
     else
         log_error "Could not extract group resource ID from response"
-        exit 1
+        system_permissions_failed
     fi
 elif [[ "$HTTP_CODE" == "409" ]]; then
     log_warning "Group resource already exists, retrieving ID..."
-    RESPONSE=$(thunder_api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources?parentId=${SYSTEM_RESOURCE_ID}")
+    RESPONSE=$(api_call GET "/resource-servers/${SYSTEM_RS_ID}/resources?parentId=${SYSTEM_RESOURCE_ID}")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
@@ -611,21 +722,21 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
             log_success "Found group resource ID: $GROUP_RESOURCE_ID"
         else
             log_error "Could not find group resource in response"
-            exit 1
+            system_permissions_failed
         fi
     else
         log_error "Failed to fetch resources (HTTP $HTTP_CODE)"
-        exit 1
+        system_permissions_failed
     fi
 else
     log_error "Failed to create group resource (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
 
 log_info "Creating 'view' action under the 'group' resource..."
 
-RESPONSE=$(thunder_api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources/${GROUP_RESOURCE_ID}/actions" '{
+RESPONSE=$(api_call POST "/resource-servers/${SYSTEM_RS_ID}/resources/${GROUP_RESOURCE_ID}/actions" '{
   "name": "View",
   "description": "Read-only access to groups",
   "handle": "view"
@@ -641,8 +752,9 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
 else
     log_error "Failed to create group view action (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    system_permissions_failed
 fi
+log_result_success "Created system permissions"
 
 echo ""
 
@@ -654,15 +766,17 @@ log_info "Creating administrator group..."
 
 if [[ -z "$DEFAULT_OU_ID" ]]; then
     log_error "Default OU ID is not available. Cannot create administrator group."
+    log_result_failure "Failed to create Administrators group"
     exit 1
 fi
 
 if [[ -z "$ADMIN_USER_ID" ]]; then
     log_error "Admin user ID is not available. Cannot create administrator group with user membership."
+    log_result_failure "Failed to create Administrators group"
     exit 1
 fi
 
-RESPONSE=$(thunder_api_call POST "/groups" "{
+RESPONSE=$(api_call POST "/groups" "{
   \"name\": \"Administrators\",
   \"description\": \"System administrators group\",
     \"ouId\": \"${DEFAULT_OU_ID}\",
@@ -682,13 +796,15 @@ if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
     ADMIN_GROUP_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
     if [[ -n "$ADMIN_GROUP_ID" ]]; then
         log_info "Administrator group ID: $ADMIN_GROUP_ID"
+        log_result_success "Created Administrators group"
     else
         log_error "Could not extract administrator group ID from response"
+        log_result_failure "Failed to create Administrators group"
         exit 1
     fi
 elif [[ "$HTTP_CODE" == "409" ]]; then
     log_warning "Administrator group already exists, retrieving ID..."
-    RESPONSE=$(thunder_api_call GET "/groups/tree/default?limit=100")
+    RESPONSE=$(api_call GET "/groups/tree/default?limit=100")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
 
@@ -696,17 +812,21 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
         ADMIN_GROUP_ID=$(echo "$BODY" | sed 's/},{/}\n{/g' | grep '"name":"Administrators"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
         if [[ -n "$ADMIN_GROUP_ID" ]]; then
             log_success "Found administrator group ID: $ADMIN_GROUP_ID"
+            log_result_success "Created Administrators group"
         else
             log_error "Could not find administrator group in response"
+            log_result_failure "Failed to create Administrators group"
             exit 1
         fi
     else
         log_error "Failed to fetch groups under default OU (HTTP $HTTP_CODE)"
+        log_result_failure "Failed to create Administrators group"
         exit 1
     fi
 else
     log_error "Failed to create administrator group (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
+    log_result_failure "Failed to create Administrators group"
     exit 1
 fi
 
@@ -716,31 +836,34 @@ echo ""
 # Create Admin Role
 # ============================================================================
 
-log_info "Creating admin role with 'system' permission..."
+log_info "Creating admin role with '${SYSTEM_PERMISSION}' permission..."
 
 if [[ -z "$ADMIN_GROUP_ID" ]]; then
     log_error "Administrator group ID is not available. Cannot create role."
+    log_result_failure "Failed to create Administrator role"
     exit 1
 fi
 
 if [[ -z "$DEFAULT_OU_ID" ]]; then
     log_error "Default OU ID is not available. Cannot create role."
+    log_result_failure "Failed to create Administrator role"
     exit 1
 fi
 
 if [[ -z "$SYSTEM_RS_ID" ]]; then
     log_error "System resource server ID is not available. Cannot create role."
+    log_result_failure "Failed to create Administrator role"
     exit 1
 fi
 
-RESPONSE=$(thunder_api_call POST "/roles" "{
+RESPONSE=$(api_call POST "/roles" "{
   \"name\": \"Administrator\",
   \"description\": \"System administrator role with full permissions\",
   \"ouId\": \"${DEFAULT_OU_ID}\",
   \"permissions\": [
     {
       \"resourceServerId\": \"${SYSTEM_RS_ID}\",
-      \"permissions\": [\"system\"]
+      \"permissions\": [\"${SYSTEM_PERMISSION}\"]
     }
   ],
   \"assignments\": [
@@ -765,8 +888,10 @@ elif [[ "$HTTP_CODE" == "409" ]]; then
 else
     log_error "Failed to create admin role (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
+    log_result_failure "Failed to create Administrator role"
     exit 1
 fi
+log_result_success "Created Administrator role"
 
 echo ""
 
@@ -780,9 +905,10 @@ log_info "Creating default flows..."
 AUTH_FLOWS_DIR="${SCRIPT_DIR}/flows/authentication"
 REG_FLOWS_DIR="${SCRIPT_DIR}/flows/registration"
 USER_ONBOARDING_FLOWS_DIR="${SCRIPT_DIR}/flows/user_onboarding"
+RECOVERY_FLOWS_DIR="${SCRIPT_DIR}/flows/recovery"
 
 # Check if flows directory exists
-if [[ ! -d "$AUTH_FLOWS_DIR" ]] && [[ ! -d "$REG_FLOWS_DIR" ]] && [[ ! -d "$USER_ONBOARDING_FLOWS_DIR" ]]; then
+if [[ ! -d "$AUTH_FLOWS_DIR" ]] && [[ ! -d "$REG_FLOWS_DIR" ]] && [[ ! -d "$USER_ONBOARDING_FLOWS_DIR" ]] && [[ ! -d "$RECOVERY_FLOWS_DIR" ]]; then
     log_warning "Flow definition directories not found, skipping flow creation"
 else
     FLOW_COUNT=0
@@ -799,7 +925,7 @@ else
             log_info "Processing authentication flows..."
             
             # Fetch existing auth flows
-            RESPONSE=$(thunder_api_call GET "/flows?flowType=AUTHENTICATION&limit=200")
+            RESPONSE=$(api_call GET "/flows?flowType=AUTHENTICATION&limit=200")
             HTTP_CODE="${RESPONSE: -3}"
             BODY="${RESPONSE%???}"
 
@@ -862,7 +988,7 @@ else
             log_info "Processing registration flows..."
             
             # Fetch existing registration flows
-            RESPONSE=$(thunder_api_call GET "/flows?flowType=REGISTRATION&limit=200")
+            RESPONSE=$(api_call GET "/flows?flowType=REGISTRATION&limit=200")
             HTTP_CODE="${RESPONSE: -3}"
             BODY="${RESPONSE%???}"
 
@@ -911,6 +1037,16 @@ else
         fi
     fi
 
+    # Template user onboarding flow files with the dynamic system permission.
+    if [[ -d "$USER_ONBOARDING_FLOWS_DIR" ]] && [[ "$SYSTEM_PERMISSION" != "system" ]]; then
+        TEMPLATED_ONBOARDING_DIR=$(mktemp -d)
+        for f in "$USER_ONBOARDING_FLOWS_DIR"/*.json; do
+            [[ ! -f "$f" ]] && continue
+            sed "s/\[\"system\"\]/[\"${SYSTEM_PERMISSION}\"]/g" "$f" > "$TEMPLATED_ONBOARDING_DIR/$(basename "$f")"
+        done
+        USER_ONBOARDING_FLOWS_DIR="$TEMPLATED_ONBOARDING_DIR"
+    fi
+
     # Process user onboarding flows
     if [[ -d "$USER_ONBOARDING_FLOWS_DIR" ]]; then
         shopt -s nullglob
@@ -921,7 +1057,7 @@ else
             log_info "Processing user onboarding flows..."
             
             # Fetch existing user onboarding flows
-            RESPONSE=$(thunder_api_call GET "/flows?flowType=USER_ONBOARDING&limit=200")
+            RESPONSE=$(api_call GET "/flows?flowType=USER_ONBOARDING&limit=200")
             HTTP_CODE="${RESPONSE: -3}"
             BODY="${RESPONSE%???}"
 
@@ -970,6 +1106,65 @@ else
         fi
     fi
 
+    # Process recovery flows
+    if [[ -d "$RECOVERY_FLOWS_DIR" ]]; then
+        shopt -s nullglob
+        RECOVERY_FILES=("$RECOVERY_FLOWS_DIR"/*.json)
+        shopt -u nullglob
+
+        if [[ ${#RECOVERY_FILES[@]} -gt 0 ]]; then
+            log_info "Processing recovery flows..."
+
+            # Fetch existing recovery flows
+            RESPONSE=$(api_call GET "/flows?flowType=RECOVERY&limit=200")
+            HTTP_CODE="${RESPONSE: -3}"
+            BODY="${RESPONSE%???}"
+
+            # Store existing recovery flows as "handle|id" pairs
+            EXISTING_RECOVERY_FLOWS=""
+            if [[ "$HTTP_CODE" == "200" ]]; then
+                while IFS= read -r line; do
+                    FLOW_ID=$(echo "$line" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+                    FLOW_HANDLE=$(echo "$line" | grep -o '"handle":"[^"]*"' | cut -d'"' -f4)
+                    if [[ -n "$FLOW_ID" ]] && [[ -n "$FLOW_HANDLE" ]]; then
+                        EXISTING_RECOVERY_FLOWS="${EXISTING_RECOVERY_FLOWS}${FLOW_HANDLE}|${FLOW_ID}"$'\n'
+                    fi
+                done < <(echo "$BODY" | grep -o '{[^}]*"id":"[^"]*"[^}]*"handle":"[^"]*"[^}]*}')
+            fi
+
+            for FLOW_FILE in "$RECOVERY_FLOWS_DIR"/*.json; do
+                [[ ! -f "$FLOW_FILE" ]] && continue
+
+                FLOW_COUNT=$((FLOW_COUNT + 1))
+                FLOW_HANDLE=$(grep -o '"handle"[[:space:]]*:[[:space:]]*"[^"]*"' "$FLOW_FILE" | head -1 | sed 's/"handle"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+                FLOW_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$FLOW_FILE" | head -1 | sed 's/"name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+
+                # Check if flow exists by handle
+                if echo "$EXISTING_RECOVERY_FLOWS" | grep -q "^${FLOW_HANDLE}|"; then
+                    # Update existing flow
+                    FLOW_ID=$(echo "$EXISTING_RECOVERY_FLOWS" | grep "^${FLOW_HANDLE}|" | cut -d'|' -f2)
+                    log_info "Updating existing recovery flow: $FLOW_NAME (handle: $FLOW_HANDLE)"
+                    update_flow "$FLOW_ID" "$FLOW_FILE"
+                    RESULT=$?
+                    if [[ $RESULT -eq 0 ]]; then
+                        FLOW_SUCCESS=$((FLOW_SUCCESS + 1))
+                    fi
+                else
+                    # Create new flow
+                    create_flow "$FLOW_FILE"
+                    RESULT=$?
+                    if [[ $RESULT -eq 0 ]]; then
+                        FLOW_SUCCESS=$((FLOW_SUCCESS + 1))
+                    elif [[ $RESULT -eq 2 ]]; then
+                        FLOW_SKIPPED=$((FLOW_SKIPPED + 1))
+                    fi
+                fi
+            done
+        else
+            log_debug "No recovery flow files found"
+        fi
+    fi
+
     if [[ $FLOW_COUNT -gt 0 ]]; then
         log_info "Flow creation summary: $FLOW_SUCCESS created/updated, $FLOW_SKIPPED skipped, $((FLOW_COUNT - FLOW_SUCCESS - FLOW_SKIPPED)) failed"
     fi
@@ -985,7 +1180,7 @@ log_info "Creating application-specific flows..."
 
 APPS_FLOWS_DIR="${SCRIPT_DIR}/flows/apps"
 
-# Store application flow IDs as "app_name|auth_flow_id|reg_flow_id" pairs
+# Store application flow IDs as "app_name|auth_flow_id|reg_flow_id|recovery_flow_id" pairs
 APP_FLOW_IDS=""
 
 if [[ -d "$APPS_FLOWS_DIR" ]]; then
@@ -993,7 +1188,7 @@ if [[ -d "$APPS_FLOWS_DIR" ]]; then
     log_info "Fetching existing flows for application flow processing..."
     
     # Get auth flows
-    RESPONSE=$(thunder_api_call GET "/flows?flowType=AUTHENTICATION&limit=200")
+    RESPONSE=$(api_call GET "/flows?flowType=AUTHENTICATION&limit=200")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
     EXISTING_APP_AUTH_FLOWS=""
@@ -1008,7 +1203,7 @@ if [[ -d "$APPS_FLOWS_DIR" ]]; then
     fi
     
     # Get registration flows
-    RESPONSE=$(thunder_api_call GET "/flows?flowType=REGISTRATION&limit=200")
+    RESPONSE=$(api_call GET "/flows?flowType=REGISTRATION&limit=200")
     HTTP_CODE="${RESPONSE: -3}"
     BODY="${RESPONSE%???}"
     EXISTING_APP_REG_FLOWS=""
@@ -1022,26 +1217,42 @@ if [[ -d "$APPS_FLOWS_DIR" ]]; then
         done < <(echo "$BODY" | grep -o '{[^}]*"id":"[^"]*"[^}]*"handle":"[^"]*"[^}]*}')
     fi
 
+    # Get recovery flows
+    RESPONSE=$(api_call GET "/flows?flowType=RECOVERY&limit=200")
+    HTTP_CODE="${RESPONSE: -3}"
+    BODY="${RESPONSE%???}"
+    EXISTING_APP_RECOVERY_FLOWS=""
+    if [[ "$HTTP_CODE" == "200" ]]; then
+        while IFS= read -r line; do
+            FLOW_ID=$(echo "$line" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+            FLOW_HANDLE=$(echo "$line" | grep -o '"handle":"[^"]*"' | cut -d'"' -f4)
+            if [[ -n "$FLOW_ID" ]] && [[ -n "$FLOW_HANDLE" ]]; then
+                EXISTING_APP_RECOVERY_FLOWS="${EXISTING_APP_RECOVERY_FLOWS}${FLOW_HANDLE}|${FLOW_ID}"$'\n'
+            fi
+        done < <(echo "$BODY" | grep -o '{[^}]*"id":"[^"]*"[^}]*"handle":"[^"]*"[^}]*}')
+    fi
+
     # Process each application directory
     for APP_DIR in "$APPS_FLOWS_DIR"/*; do
         [[ ! -d "$APP_DIR" ]] && continue
-        
+
         APP_NAME=$(basename "$APP_DIR")
         APP_AUTH_FLOW_ID=""
         APP_REG_FLOW_ID=""
-        
+        APP_RECOVERY_FLOW_ID=""
+
         log_info "Processing flows for application: $APP_NAME"
-        
+
         # Process authentication flow for app
         shopt -s nullglob
         AUTH_FLOW_FILES=("$APP_DIR"/auth_*.json)
         shopt -u nullglob
-        
+
         if [[ ${#AUTH_FLOW_FILES[@]} -gt 0 ]]; then
             AUTH_FLOW_FILE="${AUTH_FLOW_FILES[0]}"
             FLOW_HANDLE=$(grep -o '"handle"[[:space:]]*:[[:space:]]*"[^"]*"' "$AUTH_FLOW_FILE" | head -1 | sed 's/"handle"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
             FLOW_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$AUTH_FLOW_FILE" | head -1 | sed 's/"name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
-            
+
             # Check if auth flow exists by handle
             if echo "$EXISTING_APP_AUTH_FLOWS" | grep -q "^${FLOW_HANDLE}|"; then
                 # Update existing flow
@@ -1052,10 +1263,10 @@ if [[ -d "$APPS_FLOWS_DIR" ]]; then
                 # Create new flow
                 APP_AUTH_FLOW_ID=$(create_flow "$AUTH_FLOW_FILE")
             fi
-            
+
             # Re-fetch registration flows after creating auth flow
             if [[ -n "$APP_AUTH_FLOW_ID" ]]; then
-                RESPONSE=$(thunder_api_call GET "/flows?flowType=REGISTRATION&limit=200")
+                RESPONSE=$(api_call GET "/flows?flowType=REGISTRATION&limit=200")
                 HTTP_CODE="${RESPONSE: -3}"
                 BODY="${RESPONSE%???}"
                 EXISTING_APP_REG_FLOWS=""
@@ -1077,12 +1288,12 @@ if [[ -d "$APPS_FLOWS_DIR" ]]; then
         shopt -s nullglob
         REG_FLOW_FILES=("$APP_DIR"/registration_*.json)
         shopt -u nullglob
-        
+
         if [[ ${#REG_FLOW_FILES[@]} -gt 0 ]]; then
             REG_FLOW_FILE="${REG_FLOW_FILES[0]}"
             FLOW_HANDLE=$(grep -o '"handle"[[:space:]]*:[[:space:]]*"[^"]*"' "$REG_FLOW_FILE" | head -1 | sed 's/"handle"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
             FLOW_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$REG_FLOW_FILE" | head -1 | sed 's/"name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
-            
+
             # Check if registration flow exists by handle
             if echo "$EXISTING_APP_REG_FLOWS" | grep -q "^${FLOW_HANDLE}|"; then
                 # Update existing flow
@@ -1096,14 +1307,40 @@ if [[ -d "$APPS_FLOWS_DIR" ]]; then
         else
             log_warning "No registration flow file found for app: $APP_NAME"
         fi
-        
+
+        # Process recovery flow for app
+        shopt -s nullglob
+        RECOVERY_FLOW_FILES=("$APP_DIR"/recovery_*.json)
+        shopt -u nullglob
+
+        if [[ ${#RECOVERY_FLOW_FILES[@]} -gt 0 ]]; then
+            RECOVERY_FLOW_FILE="${RECOVERY_FLOW_FILES[0]}"
+            FLOW_HANDLE=$(grep -o '"handle"[[:space:]]*:[[:space:]]*"[^"]*"' "$RECOVERY_FLOW_FILE" | head -1 | sed 's/"handle"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+            FLOW_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$RECOVERY_FLOW_FILE" | head -1 | sed 's/"name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+
+            # Check if recovery flow exists by handle
+            if echo "$EXISTING_APP_RECOVERY_FLOWS" | grep -q "^${FLOW_HANDLE}|"; then
+                # Update existing flow
+                APP_RECOVERY_FLOW_ID=$(echo "$EXISTING_APP_RECOVERY_FLOWS" | grep "^${FLOW_HANDLE}|" | cut -d'|' -f2)
+                log_info "Updating existing recovery flow: $FLOW_NAME (handle: $FLOW_HANDLE)"
+                update_flow "$APP_RECOVERY_FLOW_ID" "$RECOVERY_FLOW_FILE"
+            else
+                # Create new flow
+                APP_RECOVERY_FLOW_ID=$(create_flow "$RECOVERY_FLOW_FILE")
+            fi
+        else
+            log_debug "No recovery flow file found for app: $APP_NAME"
+        fi
+
         # Store the flow IDs for this app
-        log_debug "Storing flow IDs for $APP_NAME: auth=$APP_AUTH_FLOW_ID, reg=$APP_REG_FLOW_ID"
-        APP_FLOW_IDS="${APP_FLOW_IDS}${APP_NAME}|${APP_AUTH_FLOW_ID}|${APP_REG_FLOW_ID}"$'\n'
+        log_debug "Storing flow IDs for $APP_NAME: auth=$APP_AUTH_FLOW_ID, reg=$APP_REG_FLOW_ID, recovery=$APP_RECOVERY_FLOW_ID"
+        APP_FLOW_IDS="${APP_FLOW_IDS}${APP_NAME}|${APP_AUTH_FLOW_ID}|${APP_REG_FLOW_ID}|${APP_RECOVERY_FLOW_ID}"$'\n'
     done
 else
     log_warning "Application flows directory not found at $APPS_FLOWS_DIR"
 fi
+
+log_result_success "Created default flows"
 
 echo ""
 
@@ -1116,20 +1353,26 @@ log_info "Creating CONSOLE application..."
 # Get flow IDs for console app from the APP_FLOW_IDS created/found during flow processing
 CONSOLE_AUTH_FLOW_ID=$(echo "$APP_FLOW_IDS" | grep "^console|" | cut -d'|' -f2)
 CONSOLE_REG_FLOW_ID=$(echo "$APP_FLOW_IDS" | grep "^console|" | cut -d'|' -f3)
-log_debug "Extracted flow IDs: auth=$CONSOLE_AUTH_FLOW_ID, reg=$CONSOLE_REG_FLOW_ID"
+CONSOLE_RECOVERY_FLOW_ID=$(echo "$APP_FLOW_IDS" | grep "^console|" | cut -d'|' -f4)
+log_debug "Extracted flow IDs: auth=$CONSOLE_AUTH_FLOW_ID, reg=$CONSOLE_REG_FLOW_ID, recovery=$CONSOLE_RECOVERY_FLOW_ID"
 
 # Validate that flow IDs are available
 if [[ -z "$CONSOLE_AUTH_FLOW_ID" ]]; then
     log_error "Console authentication flow ID not found, cannot create CONSOLE application"
+    log_result_failure "Failed to create Console application"
     exit 1
 fi
 if [[ -z "$CONSOLE_REG_FLOW_ID" ]]; then
     log_error "Console registration flow ID not found, cannot create CONSOLE application"
+    log_result_failure "Failed to create Console application"
     exit 1
 fi
+if [[ -z "$CONSOLE_RECOVERY_FLOW_ID" ]]; then
+    log_warning "Console recovery flow ID not found, recovery flow will be disabled"
+fi
 
-# Use THUNDER_PUBLIC_URL for redirect URIs, fallback to THUNDER_API_BASE if not set
-PUBLIC_URL="${THUNDER_PUBLIC_URL:-$THUNDER_API_BASE}"
+# Use PUBLIC_URL for redirect URIs, fallback to API_BASE if not set
+PUBLIC_URL="${PUBLIC_URL:-$API_BASE}"
 
 # Build redirect URIs array - default + custom if provided
 REDIRECT_URIS="\"${PUBLIC_URL}/console\""
@@ -1144,14 +1387,24 @@ if [[ -n "$CUSTOM_CONSOLE_REDIRECT_URIS" ]]; then
     done
 fi
 
-RESPONSE=$(thunder_api_call POST "/applications" "{
+PAYLOAD="{
   \"name\": \"Console\",
-  \"description\": \"Management application for Thunder\",
+  \"description\": \"Management application for ${PRODUCT_NAME}\",
+  \"ouId\": \"${DEFAULT_OU_ID}\",
   \"url\": \"${PUBLIC_URL}/console\",
     \"logoUrl\": \"emoji:👨‍💻\",
     \"authFlowId\": \"${CONSOLE_AUTH_FLOW_ID}\",
     \"registrationFlowId\": \"${CONSOLE_REG_FLOW_ID}\",
-    \"isRegistrationFlowEnabled\": false,
+    \"isRegistrationFlowEnabled\": false"
+
+# Add recovery flow fields only if recovery flow ID is provided
+if [[ -n "$CONSOLE_RECOVERY_FLOW_ID" ]]; then
+    PAYLOAD="${PAYLOAD},
+    \"recoveryFlowId\": \"${CONSOLE_RECOVERY_FLOW_ID}\",
+    \"isRecoveryFlowEnabled\": false"
+fi
+
+PAYLOAD="${PAYLOAD},
     \"allowedUserTypes\": [\"Person\"],
   \"user_attributes\": [\"given_name\",\"family_name\",\"email\",\"groups\", \"name\", \"ouId\"],
     \"inboundAuthConfig\": [{
@@ -1159,7 +1412,7 @@ RESPONSE=$(thunder_api_call POST "/applications" "{
     \"config\": {
             \"clientId\": \"CONSOLE\",
             \"redirectUris\": [${REDIRECT_URIS}],
-            \"grantTypes\": [\"authorization_code\"],
+            \"grantTypes\": [\"authorization_code\", \"refresh_token\"],
             \"responseTypes\": [\"code\"],
             \"pkceRequired\": true,
             \"tokenEndpointAuthMethod\": \"none\",
@@ -1183,7 +1436,9 @@ RESPONSE=$(thunder_api_call POST "/applications" "{
       }
     }
   }]
-}")
+}"
+
+RESPONSE=$(api_call POST "/applications" "${PAYLOAD}")
 
 HTTP_CODE="${RESPONSE: -3}"
 BODY="${RESPONSE%???}"
@@ -1197,8 +1452,10 @@ elif [[ "$HTTP_CODE" == "400" ]] && [[ "$BODY" =~ (Application already exists|AP
 else
     log_error "Failed to create CONSOLE application (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
+    log_result_failure "Failed to create Console application"
     exit 1
 fi
+log_result_success "Created Console application"
 
 echo ""
 
@@ -1237,7 +1494,7 @@ else
             THEME_PAYLOAD=$(cat "$THEME_FILE")
 
             log_info "Creating theme: ${THEME_NAME} (from $(basename "$THEME_FILE"))"
-            RESPONSE=$(thunder_api_call POST "/design/themes" "${THEME_PAYLOAD}")
+            RESPONSE=$(api_call POST "/design/themes" "${THEME_PAYLOAD}")
             HTTP_CODE="${RESPONSE: -3}"
             BODY="${RESPONSE%???}"
 
@@ -1250,7 +1507,7 @@ else
                 THEME_CREATED=$((THEME_CREATED + 1))
             elif [[ "$HTTP_CODE" == "409" ]] || (echo "$BODY" | grep -q '"THM-1015"'); then
                 log_warning "Theme '${THEME_NAME}' already exists, updating..."
-                RESPONSE=$(thunder_api_call GET "/design/themes")
+                RESPONSE=$(api_call GET "/design/themes")
                 HTTP_CODE="${RESPONSE: -3}"
                 BODY="${RESPONSE%???}"
                 THEME_ID=$(echo "$BODY" | grep -o '"id":"[^"]*","handle":"'"${THEME_HANDLE}"'"' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -1259,7 +1516,7 @@ else
                     exit 1
                 fi
                 log_info "Found existing theme ID: $THEME_ID"
-                RESPONSE=$(thunder_api_call PUT "/design/themes/${THEME_ID}" "${THEME_PAYLOAD}")
+                RESPONSE=$(api_call PUT "/design/themes/${THEME_ID}" "${THEME_PAYLOAD}")
                 HTTP_CODE="${RESPONSE: -3}"
                 BODY="${RESPONSE%???}"
                 if [[ "$HTTP_CODE" == "200" ]]; then
@@ -1283,6 +1540,7 @@ else
         log_warning "No theme files found in ${THEMES_DIR}"
     fi
 fi
+log_result_success "Created themes"
 
 echo ""
 
@@ -1319,7 +1577,7 @@ else
 
             PAYLOAD=$(cat "$I18N_FILE")
 
-            RESPONSE=$(thunder_api_call POST "/i18n/languages/${LANGUAGE}/translations" "$PAYLOAD")
+            RESPONSE=$(api_call POST "/i18n/languages/${LANGUAGE}/translations" "$PAYLOAD")
             HTTP_CODE="${RESPONSE: -3}"
             BODY="${RESPONSE%???}"
 
@@ -1330,6 +1588,7 @@ else
             else
                 log_error "Failed to seed translations for '${LANGUAGE}' (HTTP $HTTP_CODE)"
                 log_error "Response: $BODY"
+                log_result_failure "Failed to seed i18n translations"
                 exit 1
             fi
         done
@@ -1340,6 +1599,7 @@ else
         log_warning "No i18n translation files found in ${I18N_DIR}"
     fi
 fi
+log_result_success "Seeded i18n translations"
 
 echo ""
 
@@ -1352,5 +1612,5 @@ echo ""
 log_info "👤 Admin credentials:"
 log_info "   Username: admin"
 log_info "   Password: admin"
-log_info "   Role: Administrator (system permission via Administrators group)"
+log_info "   Role: Administrator (${SYSTEM_PERMISSION} permission via Administrators group)"
 echo ""

@@ -7,9 +7,9 @@ package tokenmock
 import (
 	"context"
 
-	model0 "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
 	mock "github.com/stretchr/testify/mock"
+	model0 "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
 )
 
 // NewTokenServiceInterfaceMock creates a new instance of TokenServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -40,7 +40,7 @@ func (_m *TokenServiceInterfaceMock) EXPECT() *TokenServiceInterfaceMock_Expecte
 }
 
 // ProcessTokenRequest provides a mock function for the type TokenServiceInterfaceMock
-func (_mock *TokenServiceInterfaceMock) ProcessTokenRequest(ctx context.Context, tokenRequest *model.TokenRequest, oauthApp *model0.OAuthAppConfigProcessedDTO) (*model.TokenResponse, *model.ErrorResponse) {
+func (_mock *TokenServiceInterfaceMock) ProcessTokenRequest(ctx context.Context, tokenRequest *model.TokenRequest, oauthApp *model0.OAuthClient) (*model.TokenResponse, *model.ErrorResponse) {
 	ret := _mock.Called(ctx, tokenRequest, oauthApp)
 
 	if len(ret) == 0 {
@@ -49,17 +49,17 @@ func (_mock *TokenServiceInterfaceMock) ProcessTokenRequest(ctx context.Context,
 
 	var r0 *model.TokenResponse
 	var r1 *model.ErrorResponse
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *model.TokenRequest, *model0.OAuthAppConfigProcessedDTO) (*model.TokenResponse, *model.ErrorResponse)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *model.TokenRequest, *model0.OAuthClient) (*model.TokenResponse, *model.ErrorResponse)); ok {
 		return returnFunc(ctx, tokenRequest, oauthApp)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *model.TokenRequest, *model0.OAuthAppConfigProcessedDTO) *model.TokenResponse); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *model.TokenRequest, *model0.OAuthClient) *model.TokenResponse); ok {
 		r0 = returnFunc(ctx, tokenRequest, oauthApp)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.TokenResponse)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *model.TokenRequest, *model0.OAuthAppConfigProcessedDTO) *model.ErrorResponse); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *model.TokenRequest, *model0.OAuthClient) *model.ErrorResponse); ok {
 		r1 = returnFunc(ctx, tokenRequest, oauthApp)
 	} else {
 		if ret.Get(1) != nil {
@@ -77,12 +77,12 @@ type TokenServiceInterfaceMock_ProcessTokenRequest_Call struct {
 // ProcessTokenRequest is a helper method to define mock.On call
 //   - ctx context.Context
 //   - tokenRequest *model.TokenRequest
-//   - oauthApp *model0.OAuthAppConfigProcessedDTO
+//   - oauthApp *model0.OAuthClient
 func (_e *TokenServiceInterfaceMock_Expecter) ProcessTokenRequest(ctx interface{}, tokenRequest interface{}, oauthApp interface{}) *TokenServiceInterfaceMock_ProcessTokenRequest_Call {
 	return &TokenServiceInterfaceMock_ProcessTokenRequest_Call{Call: _e.mock.On("ProcessTokenRequest", ctx, tokenRequest, oauthApp)}
 }
 
-func (_c *TokenServiceInterfaceMock_ProcessTokenRequest_Call) Run(run func(ctx context.Context, tokenRequest *model.TokenRequest, oauthApp *model0.OAuthAppConfigProcessedDTO)) *TokenServiceInterfaceMock_ProcessTokenRequest_Call {
+func (_c *TokenServiceInterfaceMock_ProcessTokenRequest_Call) Run(run func(ctx context.Context, tokenRequest *model.TokenRequest, oauthApp *model0.OAuthClient)) *TokenServiceInterfaceMock_ProcessTokenRequest_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -92,9 +92,9 @@ func (_c *TokenServiceInterfaceMock_ProcessTokenRequest_Call) Run(run func(ctx c
 		if args[1] != nil {
 			arg1 = args[1].(*model.TokenRequest)
 		}
-		var arg2 *model0.OAuthAppConfigProcessedDTO
+		var arg2 *model0.OAuthClient
 		if args[2] != nil {
-			arg2 = args[2].(*model0.OAuthAppConfigProcessedDTO)
+			arg2 = args[2].(*model0.OAuthClient)
 		}
 		run(
 			arg0,
@@ -110,7 +110,7 @@ func (_c *TokenServiceInterfaceMock_ProcessTokenRequest_Call) Return(tokenRespon
 	return _c
 }
 
-func (_c *TokenServiceInterfaceMock_ProcessTokenRequest_Call) RunAndReturn(run func(ctx context.Context, tokenRequest *model.TokenRequest, oauthApp *model0.OAuthAppConfigProcessedDTO) (*model.TokenResponse, *model.ErrorResponse)) *TokenServiceInterfaceMock_ProcessTokenRequest_Call {
+func (_c *TokenServiceInterfaceMock_ProcessTokenRequest_Call) RunAndReturn(run func(ctx context.Context, tokenRequest *model.TokenRequest, oauthApp *model0.OAuthClient) (*model.TokenResponse, *model.ErrorResponse)) *TokenServiceInterfaceMock_ProcessTokenRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }

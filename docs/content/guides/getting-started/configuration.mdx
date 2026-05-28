@@ -5,44 +5,44 @@ sidebar_position: 3
 
 # Configuration
 
-Thunder's behavior is controlled by a combination of default configurations and deployment-specific overrides. This page covers all available configuration options and how to customize them.
+<ProductName />'s behavior is controlled by a combination of default configurations and deployment-specific overrides. This page covers all available configuration options and how to customize them.
 
 ## Configuration System
 
-Thunder uses a two-tier configuration system:
+<ProductName /> uses a two-tier configuration system:
 
-1. **Default Configuration** — Provides sensible defaults for all settings. These are built into Thunder.
-2. **Deployment Configuration** — Located at `repository/conf/deployment.yaml` in your Thunder installation directory. This file overrides specific defaults for your deployment.
+1. **Default Configuration** — Provides sensible defaults for all settings. These are built into <ProductName />.
+2. **Deployment Configuration** — Located at `repository/conf/deployment.yaml` in your <ProductName /> installation directory. This file overrides specific defaults for your deployment.
 
 :::note
 Only settings you want to override need to be specified in `deployment.yaml`. All other values will use the built-in defaults.
 :::
 
 :::tip
-Thunder must be restarted after any configuration change.
+<ProductName /> must be restarted after any configuration change.
 :::
 
 ## Server Configuration
 
-Controls the Thunder server's network settings and identity.
+Controls the <ProductName /> server's network settings and identity.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `server.hostname` | `localhost` | Hostname or IP address the server binds to |
+| `server.hostname` | `localhost` | The hostname or IP address the server binds to |
 | `server.port` | `8090` | Port the server listens on |
 | `server.http_only` | `false` | If `true`, disables HTTPS and uses HTTP only (not recommended for production) |
 | `server.identifier` | `default-deployment` | Unique identifier for this deployment instance |
 
 ## Gate Client Configuration
 
-Configures the connection to Thunder Gate (the login UI).
+Configures the connection to <ProductName /> Gate (the login UI).
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `gate_client.hostname` | `localhost` | Hostname where Thunder Gate is hosted |
-| `gate_client.port` | `8090` | Port where Thunder Gate is accessible |
+| `gate_client.hostname` | `localhost` | The hostname where <ProductName /> Gate is hosted |
+| `gate_client.port` | `8090` | Port where <ProductName /> Gate is accessible |
 | `gate_client.scheme` | `https` | Protocol scheme (`http` or `https`) |
-| `gate_client.path` | `/gate` | Base path for Thunder Gate |
+| `gate_client.path` | `/gate` | Base path for <ProductName /> Gate |
 
 ## TLS Configuration
 
@@ -55,12 +55,14 @@ Controls HTTPS/TLS settings for secure communication.
 | `tls.key_file` | `repository/resources/security/server.key` | Path to TLS private key file |
 
 :::warning Self-Signed Certificate
-Thunder ships with a self-signed certificate for local development at `repository/resources/security/server.cert`. For production, replace it with a certificate from a trusted Certificate Authority.
+<ProductName /> ships with a self-signed certificate for local development at `repository/resources/security/server.cert`. For production, replace it with a certificate from a trusted Certificate Authority.
 :::
 
 ## Database Configuration
 
-Thunder uses three separate databases for different purposes. Each database can be configured independently.
+<ProductName /> uses three separate databases for different purposes. Each database can be configured independently.
+
+Connection parameters are grouped under a type-specific sub-key (`postgres`, `sqlite`, or `redis`). Only `type` is a top-level field; all other settings belong under the matching sub-key.
 
 ### Config Database
 
@@ -69,36 +71,108 @@ Stores identity provider configurations, applications, and authentication flows.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `database.config.type` | `sqlite` | Database type (`sqlite` or `postgres`) |
-| `database.config.hostname` | `""` | Database server hostname (for PostgreSQL) |
-| `database.config.port` | `0` | Database server port (for PostgreSQL) |
-| `database.config.name` | `""` | Database name (for PostgreSQL) |
-| `database.config.username` | `""` | Database username (for PostgreSQL) |
-| `database.config.password` | `""` | Database password (for PostgreSQL) |
-| `database.config.sslmode` | `""` | SSL mode for PostgreSQL (`disable`, `require`, `verify-ca`, `verify-full`) |
-| `database.config.path` | `repository/database/configdb.db` | SQLite database file path |
-| `database.config.options` | `_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)` | Database-specific connection options |
-| `database.config.max_open_conns` | `500` | Maximum number of open connections |
-| `database.config.max_idle_conns` | `100` | Maximum number of idle connections |
-| `database.config.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
 
-### Runtime Database
-
-Stores runtime data like sessions, tokens, and temporary data.
+**`database.config.postgres.*`** — only read when `database.config.type: postgres`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `database.runtime.type` | `sqlite` | Database type (`sqlite` or `postgres`) |
-| `database.runtime.hostname` | `""` | Database server hostname (for PostgreSQL) |
-| `database.runtime.port` | `0` | Database server port (for PostgreSQL) |
-| `database.runtime.name` | `""` | Database name (for PostgreSQL) |
-| `database.runtime.username` | `""` | Database username (for PostgreSQL) |
-| `database.runtime.password` | `""` | Database password (for PostgreSQL) |
-| `database.runtime.sslmode` | `""` | SSL mode for PostgreSQL |
-| `database.runtime.path` | `repository/database/runtimedb.db` | SQLite database file path |
-| `database.runtime.options` | `_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)` | Database-specific connection options |
-| `database.runtime.max_open_conns` | `500` | Maximum number of open connections |
-| `database.runtime.max_idle_conns` | `100` | Maximum number of idle connections |
-| `database.runtime.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
+| `database.config.postgres.hostname` | `""` | Database server hostname |
+| `database.config.postgres.port` | `0` | Database server port |
+| `database.config.postgres.name` | `""` | Database name |
+| `database.config.postgres.username` | `""` | Database username |
+| `database.config.postgres.password` | `""` | Database password |
+| `database.config.postgres.sslmode` | `""` | SSL mode (`disable`, `require`, `verify-ca`, `verify-full`) |
+| `database.config.postgres.max_open_conns` | `500` | Maximum number of open connections |
+| `database.config.postgres.max_idle_conns` | `100` | Maximum number of idle connections |
+| `database.config.postgres.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
+| `database.config.postgres.max_retries` | `3` | Maximum retry attempts for transient errors |
+| `database.config.postgres.min_retry_backoff_ms` | `50` | Minimum delay before retrying in milliseconds |
+| `database.config.postgres.max_retry_backoff_ms` | `2000` | Maximum delay before retrying in milliseconds |
+
+**`database.config.sqlite.*`** — only read when `database.config.type: sqlite`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `database.config.sqlite.path` | `repository/database/configdb.db` | SQLite database file path |
+| `database.config.sqlite.options` | `_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)` | SQLite connection options |
+| `database.config.sqlite.max_open_conns` | `500` | Maximum number of open connections |
+| `database.config.sqlite.max_idle_conns` | `100` | Maximum number of idle connections |
+| `database.config.sqlite.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
+| `database.config.sqlite.max_retries` | `3` | Maximum retry attempts for transient errors |
+| `database.config.sqlite.min_retry_backoff_ms` | `50` | Minimum delay before retrying in milliseconds |
+| `database.config.sqlite.max_retry_backoff_ms` | `2000` | Maximum delay before retrying in milliseconds |
+
+### Runtime Database
+
+Stores runtime data like sessions, tokens, and temporary data. The runtime database supports three backend types: `sqlite`, `postgres`, and `redis`.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `database.runtime.type` | `sqlite` | Database type (`sqlite`, `postgres`, or `redis`) |
+
+**`database.runtime.postgres.*`** — only read when `database.runtime.type: postgres`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `database.runtime.postgres.hostname` | `""` | Database server hostname |
+| `database.runtime.postgres.port` | `0` | Database server port |
+| `database.runtime.postgres.name` | `""` | Database name |
+| `database.runtime.postgres.username` | `""` | Database username |
+| `database.runtime.postgres.password` | `""` | Database password |
+| `database.runtime.postgres.sslmode` | `""` | SSL mode (`disable`, `require`, `verify-ca`, `verify-full`) |
+| `database.runtime.postgres.max_open_conns` | `500` | Maximum number of open connections |
+| `database.runtime.postgres.max_idle_conns` | `100` | Maximum number of idle connections |
+| `database.runtime.postgres.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
+| `database.runtime.postgres.max_retries` | `3` | Maximum retry attempts for transient errors |
+| `database.runtime.postgres.min_retry_backoff_ms` | `50` | Minimum delay before retrying in milliseconds |
+| `database.runtime.postgres.max_retry_backoff_ms` | `2000` | Maximum delay before retrying in milliseconds |
+
+**`database.runtime.sqlite.*`** — only read when `database.runtime.type: sqlite`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `database.runtime.sqlite.path` | `repository/database/runtimedb.db` | SQLite database file path |
+| `database.runtime.sqlite.options` | `_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)` | SQLite connection options |
+| `database.runtime.sqlite.max_open_conns` | `500` | Maximum number of open connections |
+| `database.runtime.sqlite.max_idle_conns` | `100` | Maximum number of idle connections |
+| `database.runtime.sqlite.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
+| `database.runtime.sqlite.max_retries` | `3` | Maximum retry attempts for transient errors |
+| `database.runtime.sqlite.min_retry_backoff_ms` | `50` | Minimum delay before retrying in milliseconds |
+| `database.runtime.sqlite.max_retry_backoff_ms` | `2000` | Maximum delay before retrying in milliseconds |
+
+**`database.runtime.redis.*`** — only read when `database.runtime.type: redis`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `database.runtime.redis.address` | `""` | Redis server address in `host:port` format, for example `localhost:6379` |
+| `database.runtime.redis.username` | `""` | Redis ACL username — leave empty if ACLs are not configured |
+| `database.runtime.redis.password` | `""` | Redis password or ACL user password |
+| `database.runtime.redis.db` | `0` | Redis logical database index (0–15) |
+| `database.runtime.redis.key_prefix` | `""` | Prefix applied to all Redis keys written by <ProductName />, for example `{{productSlug}}:` |
+| `database.runtime.redis.max_retries` | `5` | Maximum retry attempts for transient Redis network and timeout issues |
+| `database.runtime.redis.min_retry_backoff_ms` | `10` | Minimum delay before Redis retries in milliseconds |
+| `database.runtime.redis.max_retry_backoff_ms` | `100` | Maximum delay before Redis retries in milliseconds |
+| `database.runtime.redis.dial_timeout_ms` | `5000` | Redis connection (dial) timeout in milliseconds |
+| `database.runtime.redis.read_timeout_ms` | `3000` | Redis read timeout in milliseconds |
+| `database.runtime.redis.write_timeout_ms` | `3000` | Redis write timeout in milliseconds |
+
+#### Redis Connection Requirements
+
+- <ProductName /> requires Redis 6.0 or later.
+- <ProductName /> connects to a single Redis node. Cluster mode and Sentinel mode are not currently supported.
+- The default Redis port is `6379`. Ensure the port is reachable from the <ProductName /> server.
+- <ProductName /> does not enforce TLS at the client configuration level. To encrypt traffic, place a TLS-terminating proxy in front of Redis and point `database.runtime.redis.address` at the proxy endpoint.
+- If your Redis deployment uses Access Control Lists (ACLs), create a dedicated user and grant the following commands: `GET`, `SET`, `DEL`, `EXPIRE`, `EVAL`, `EVALSHA`. Set `database.runtime.redis.username` and `database.runtime.redis.password` accordingly.
+- <ProductName /> calls `PING` at startup to verify connectivity. The process terminates if the Redis server is unreachable.
+
+#### Database Retry Behavior
+
+<ProductName /> applies exponential backoff with jitter for transient failures on non-transactional SQL read operations (`Query` path). Retry behavior is configurable per database via `max_retries`, `min_retry_backoff_ms`, and `max_retry_backoff_ms` under the relevant `postgres` or `sqlite` sub-key.
+
+- Retryable classes include transient connectivity errors (`ErrBadConn`, `ErrConnDone`, connection reset/refused), timeouts, deadlocks (`40P01`), and PostgreSQL resource/availability states (`53xxx`, `57P01`, `57P02`, `57P03`, too-many-connections).
+- Non-retryable conditions include no-row outcomes (`ErrNoRows`), syntax/validation issues, and other permanent SQL conditions.
+- Write operations executed via `Execute` are not retried automatically to avoid accidental duplicate writes. If your write path is explicitly idempotent, add idempotency at the business layer (for example with deterministic IDs or upsert semantics).
+- Retry metrics are emitted through OpenTelemetry metric instruments (`{{productSlug}}_db_retry_attempts_total`, `{{productSlug}}_db_retry_backoff_seconds`, `{{productSlug}}_db_operation_seconds`), which can be exported to Prometheus via your OpenTelemetry collector pipeline.
 
 ### User Database
 
@@ -107,30 +181,130 @@ Stores user profiles and credentials.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `database.user.type` | `sqlite` | Database type (`sqlite` or `postgres`) |
-| `database.user.hostname` | `""` | Database server hostname (for PostgreSQL) |
-| `database.user.port` | `0` | Database server port (for PostgreSQL) |
-| `database.user.name` | `""` | Database name (for PostgreSQL) |
-| `database.user.username` | `""` | Database username (for PostgreSQL) |
-| `database.user.password` | `""` | Database password (for PostgreSQL) |
-| `database.user.sslmode` | `""` | SSL mode for PostgreSQL |
-| `database.user.path` | `repository/database/userdb.db` | SQLite database file path |
-| `database.user.options` | `_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)` | Database-specific connection options |
-| `database.user.max_open_conns` | `500` | Maximum number of open connections |
-| `database.user.max_idle_conns` | `100` | Maximum number of idle connections |
-| `database.user.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
+
+**`database.user.postgres.*`** — only read when `database.user.type: postgres`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `database.user.postgres.hostname` | `""` | Database server hostname |
+| `database.user.postgres.port` | `0` | Database server port |
+| `database.user.postgres.name` | `""` | Database name |
+| `database.user.postgres.username` | `""` | Database username |
+| `database.user.postgres.password` | `""` | Database password |
+| `database.user.postgres.sslmode` | `""` | SSL mode (`disable`, `require`, `verify-ca`, `verify-full`) |
+| `database.user.postgres.max_open_conns` | `500` | Maximum number of open connections |
+| `database.user.postgres.max_idle_conns` | `100` | Maximum number of idle connections |
+| `database.user.postgres.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
+| `database.user.postgres.max_retries` | `3` | Maximum retry attempts for transient errors |
+| `database.user.postgres.min_retry_backoff_ms` | `50` | Minimum delay before retrying in milliseconds |
+| `database.user.postgres.max_retry_backoff_ms` | `2000` | Maximum delay before retrying in milliseconds |
+
+**`database.user.sqlite.*`** — only read when `database.user.type: sqlite`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `database.user.sqlite.path` | `repository/database/userdb.db` | SQLite database file path |
+| `database.user.sqlite.options` | `_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)` | SQLite connection options |
+| `database.user.sqlite.max_open_conns` | `500` | Maximum number of open connections |
+| `database.user.sqlite.max_idle_conns` | `100` | Maximum number of idle connections |
+| `database.user.sqlite.conn_max_lifetime` | `3600` | Maximum connection lifetime in seconds |
+| `database.user.sqlite.max_retries` | `3` | Maximum retry attempts for transient errors |
+| `database.user.sqlite.min_retry_backoff_ms` | `50` | Minimum delay before retrying in milliseconds |
+| `database.user.sqlite.max_retry_backoff_ms` | `2000` | Maximum delay before retrying in milliseconds |
 
 ## Cache Configuration
 
-Thunder includes an in-memory caching layer to improve performance.
+<ProductName /> includes both in-memory and Redis-backed caching to improve performance.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `cache.disabled` | `false` | If `true`, disables caching entirely |
-| `cache.type` | `inmemory` | Cache type (currently only `inmemory` is supported) |
+| `cache.type` | `inmemory` | Cache type (`inmemory` or `redis`). When `cache.type` is `redis`, <ProductName /> does not use the periodic cleanup routine. |
 | `cache.size` | `1000` | Maximum number of cache entries |
 | `cache.ttl` | `3600` | Default time-to-live for cache entries in seconds |
 | `cache.eviction_policy` | `LRU` | Cache eviction policy (`LRU` - Least Recently Used) |
-| `cache.cleanup_interval` | `300` | Interval in seconds to clean up expired entries |
+| `cache.cleanup_interval` | `300` | In-memory only. Interval in seconds to clean up expired entries. Not used when `cache.type` is `redis`. |
+| `cache.properties[]` | `[]` | Per-cache overrides for `name`, `disabled`, `size`, `ttl`, and `eviction_policy` |
+| `cache.redis.address` | `""` | Redis server address in `host:port` format |
+| `cache.redis.username` | `""` | Redis username |
+| `cache.redis.password` | `""` | Redis password |
+| `cache.redis.db` | `0` | Redis database index |
+| `cache.redis.key_prefix` | `{{productSlug}}` | Prefix added to all Redis cache keys |
+| `cache.redis.max_retries` | `5` | Maximum retry attempts for transient Redis network and timeout issues |
+| `cache.redis.min_retry_backoff_ms` | `10` | Minimum delay before Redis retries in milliseconds |
+| `cache.redis.max_retry_backoff_ms` | `100` | Maximum delay before Redis retries in milliseconds |
+| `cache.redis.dial_timeout_ms` | `5000` | Redis connection (dial) timeout in milliseconds |
+| `cache.redis.read_timeout_ms` | `3000` | Redis read timeout in milliseconds |
+| `cache.redis.write_timeout_ms` | `3000` | Redis write timeout in milliseconds |
+
+### Cache Property Overrides
+
+Use `cache.properties` when you want to override cache behavior for a specific internal cache instead of changing the global cache settings for all caches.
+
+Each item in `cache.properties` supports these fields:
+
+| Field | Required | Description |
+|---------|---------|-------------|
+| `name` | Yes | Internal cache name to override. The value must match the cache name exactly. |
+| `disabled` | No | Disables only that cache when set to `true`. |
+| `size` | No | Maximum number of entries for that cache. This setting applies to in-memory caches only. |
+| `ttl` | No | Time-to-live for that cache in seconds. |
+| `eviction_policy` | No | Eviction policy for that cache. Supported values are `LRU` and `LFU`. This setting applies to in-memory caches only. |
+
+If you omit a field in a `cache.properties` entry, <ProductName /> falls back to the corresponding global `cache.*` setting.
+
+That means you can override only the fields you need. <ProductName /> continues to use the global cache settings for any fields you leave unset.
+
+<ProductName /> currently uses cache names such as:
+
+- `ApplicationByIDCache`
+- `ApplicationByNameCache`
+- `OAuthAppCache`
+- `FlowByIDCache`
+- `FlowByHandleCache`
+- `CertificateByIDCache`
+- `CertificateByReferenceCache`
+- `EntityTypeByIDCache`
+- `EntityTypeByNameCache`
+- `FlowGraphCache`
+
+:::note
+`FlowGraphCache` is always in-memory. It caches process-local flow graph Go objects during flow execution, not shared system-level cache data.
+:::
+
+:::note
+When `cache.type` is `redis`, per-cache `ttl` and `disabled` remain useful. Per-cache `size` and `eviction_policy` do not affect Redis behavior because Redis manages memory and eviction independently.
+:::
+
+### Redis Cache Configuration
+
+Set `cache.type` to `redis` and configure `cache.redis.address` to enable Redis-backed cache storage.
+
+```yaml
+cache:
+  type: "redis"
+  ttl: 3600
+  redis:
+    address: "localhost:6379"
+    username: ""
+    password: ""
+    db: 0
+    key_prefix: "thunderid"
+    max_retries: 5
+    min_retry_backoff_ms: 10
+    max_retry_backoff_ms: 100
+    dial_timeout_ms: 5000
+    read_timeout_ms: 3000
+    write_timeout_ms: 3000
+```
+
+:::note
+When Redis caching is enabled, <ProductName /> expires keys automatically based on TTL.
+:::
+
+:::warning
+If <ProductName /> cannot connect to Redis during startup, it disables the cache layer.
+:::
 
 ## JWT Configuration
 
@@ -153,6 +327,11 @@ OAuth 2.0 and OpenID Connect settings.
 | `oauth.refresh_token.validity_period` | `86400` | Refresh token validity period in seconds (24 hours) |
 | `oauth.authorization_code.validity_period` | `600` | Authorization code validity period in seconds (10 minutes) |
 | `oauth.dcr.insecure` | `false` | If `true`, allows insecure dynamic client registration (development only) |
+| `oauth.allow_wildcard_redirect_uri` | `false` | If `true`, allows wildcard patterns in registered redirect URIs: `*` and `**` in the path component, and `*` in the host component (label-internal, alphanumeric only). When `false`, only exact redirect URI matching is performed and registering a wildcard URI returns a `400 Bad Request` error. |
+
+:::note
+Enabling `oauth.allow_wildcard_redirect_uri` affects all applications in the deployment. See [Use Wildcard Redirect URIs](/docs/next/guides/guides/applications/application-settings#use-wildcard-redirect-uris) for pattern syntax and matching rules.
+:::
 
 ## Flow Configuration
 
@@ -171,7 +350,7 @@ User management settings.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `user.indexed_attributes` | `["username", "email", "mobileNumber", "sub"]` | User attributes that are indexed for fast lookups |
+| `user.indexed_attributes` | `["username", "email", "mobileNumber", "sub"]` | User attributes that are indexed for fast `lookups` |
 
 ## Declarative Resources
 
@@ -181,19 +360,19 @@ Controls declarative configuration support.
 |---------|---------|-------------|
 | `declarative_resources.enabled` | `false` | If `true`, enables declarative resource configuration |
 
-For Helm deployments, this setting is managed through `declarativeResources.enabled` in the Helm values. When enabled, the chart also mounts declarative resource files from either a ConfigMap or Secret into the Thunder `repository/resources` directory.
+For Helm deployments, this setting is managed through `declarativeResources.enabled` in the Helm values. When enabled, the chart also mounts declarative resource files from either a ConfigMap or Secret into the <ProductName /> `repository/resources` directory.
 
 Example Helm values:
 
 ```yaml
 declarativeResources:
   enabled: true
-  # Base mount path inside the Thunder container (default: /opt/thunder/repository/resources)
+  # Base mount path inside the {{ProductName}} container (default: /opt/thunder/repository/resources)
   mountPath: /opt/thunder/repository/resources
   # Mount as read-only (recommended)
   readOnly: true
   configMap:
-    name: thunder-declarative-resources
+    name: declarative-resources
     items:
       # Format 1 — string shorthand: key and path are the same
       - "identity_providers/google.yaml"
@@ -214,7 +393,7 @@ declarativeResources:
   mountPath: /opt/thunder/repository/resources
   readOnly: true
   secret:
-    name: thunder-declarative-resources-secret
+    name: declarative-resources-secret
     items:
       - key: my-app-with-secrets
         path: applications/my-app.yaml
@@ -229,6 +408,67 @@ Authorization resource settings.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `resource.default_delimiter` | `:` | Default delimiter for resource hierarchies |
+
+### System Resource Server
+
+The system resource server controls administrative permissions for <ProductName /> Console operations such as managing users, groups, organization units, and user types. You can customize the handle and identifier to fit your deployment requirements.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `resource.system_resource_server.handle` | `""` (empty) | Prefix added before all system permission strings. When empty, permissions use their base names (for example, `system`, `system:ou`). When set, the handle is added before every permission (for example, `mgmt:system`, `mgmt:system:ou`) |
+| `resource.system_resource_server.identifier` | `system` | Identifier for the system resource server. Can be set to a URI for [RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707) resource indicator flows (for example, `https://api.example.com`) |
+
+**Example:**
+```yaml
+resource:
+  system_resource_server:
+    handle: "mgmt"
+    identifier: "https://api.example.com"
+```
+
+With the handle set to `mgmt`, all system permissions change as follows:
+
+| Default Permission | Custom Permission |
+|-------------------|-------------------|
+| `system` | `mgmt:system` |
+| `system:ou` | `mgmt:system:ou` |
+| `system:ou:view` | `mgmt:system:ou:view` |
+| `system:user` | `mgmt:system:user` |
+| `system:user:view` | `mgmt:system:user:view` |
+| `system:group` | `mgmt:system:group` |
+| `system:group:view` | `mgmt:system:group:view` |
+| `system:usertype` | `mgmt:system:usertype` |
+| `system:usertype:view` | `mgmt:system:usertype:view` |
+
+#### Update Console Scopes
+
+When you change the system resource server handle, you must also update the <ProductName /> Console scopes to match the new permission strings. The scopes tell the Console which permissions to request during sign-in.
+
+Update the `scopes` array in the Console configuration file for your deployment mode:
+
+- **Local development** (`pnpm dev`): Update `frontend/apps/console/public/config.js`.
+- **Packaged build** (`build.sh` / `setup.sh` / `setup.ps1`): The setup scripts read the handle from `deployment.yaml` and pass the value to the bootstrap process automatically. Update `frontend/apps/console/public/config.js` for the Console scopes.
+- **Helm deployment**: Update `configuration.consoleClient.scopes` in your Helm values file (`install/helm/values.yaml`).
+
+For example, with the handle set to `mgmt`, update the Console `scopes` array to:
+
+```javascript
+scopes: [
+  'openid',
+  'profile',
+  'email',
+  'ou',
+  'mgmt:system',
+  'mgmt:system:user',
+  'mgmt:system:group',
+  'mgmt:system:ou:view',
+  'mgmt:system:usertype:view',
+],
+```
+
+:::warning
+If the Console scopes do not match the configured handle, the admin user token will lack the required `authorized_permissions` claim. All administrative API calls from the Console will then return `403 Forbidden`.
+:::
 
 ## Observability Configuration
 
@@ -276,6 +516,8 @@ Signing keys are configured as an array. Each key has the following properties:
   cert_file: "repository/resources/security/signing.cert"
   key_file: "repository/resources/security/signing.key"
 ```
+
+The key type under `crypto.keys` determines the algorithm in `id_token_signing_alg_values_supported` in the OIDC discovery document. RSA keys advertise `RS256`; ECDSA `P-256`, `P-384`, and `P-521` keys advertise `ES256`, `ES384`, and `ES512`; Ed25519 keys advertise `EdDSA`. If multiple keys are configured, all resulting algorithms are included without duplicates.
 
 ## Email Configuration
 
@@ -327,17 +569,29 @@ External authentication provider settings.
 
 Cross-Origin Resource Sharing settings (typically defined in `deployment.yaml`).
 
-| Setting | Description |
-|---------|-------------|
-| `cors.allowed_origins` | Array of allowed origins for CORS requests |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `cors.allowed_origins` | `[]` | List of allowed origins. Each entry is either a literal origin string (scheme and host are case-insensitive, trailing dots are stripped, IDN labels are Punycode-encoded, IPv6 hosts are bracketed, ports are preserved verbatim — list each port variant separately) or an object of the shape `{ regex: "..." }` whose RE2 pattern is matched against the raw `Origin` header. The special string `"null"` matches the CORS null origin. The literal `"*"` is rejected — list explicit origins or use a regex. Requests from any other origin are rejected. |
+
+The methods, headers, credentials, and preflight cache TTL applied to each allowed response are configured per route in code; only the allowed-origins list is operator-tunable. Preflight responses default to a 600-second `Access-Control-Max-Age`.
 
 **Example:**
 ```yaml
 cors:
   allowed_origins:
-    - "https://localhost:3000"
-    - "http://localhost:5173"
+    - "https://app.example.com"
+    - "https://münchen.example"           # IDN — equal to its Punycode form
+    - "http://[::1]:8080"                 # IPv6 in bracketed form
+    - regex: '^https://[a-z0-9-]+\.staging\.example\.com(:[0-9]+)?$'
 ```
+
+:::note
+Regex patterns are taken as-is and matched against the raw `Origin` header byte-for-byte. Make patterns strict (anchor with `^` and `$`, escape `.` literals) so that a hostile origin cannot match them. Invalid patterns cause the server to fail at startup, and patterns that lack `^`/`$` anchors are flagged with a startup warning because they permit partial matches.
+:::
+
+:::warning
+The `null` origin is shared by sandboxed iframes, `file://` and `data:` documents, and some cross-origin redirects. Because multiple unrelated contexts all emit it, allowing `"null"` cannot identify the caller. List it only when those contexts are intentionally trusted — combined with credentialed responses, it lets any sandboxed page in any browser tab issue authenticated requests.
+:::
 
 ## Passkey Configuration
 
@@ -353,3 +607,41 @@ passkey:
   allowed_origins:
     - "https://localhost:8090"
 ```
+
+## Security Configuration
+
+Controls server-wide security behavior that is not specific to any single authenticator. Maps to `SecurityConfig` in the backend, nested under `server.security`.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `server.security.jwks_cache_ttl` | `300` | JWKS cache TTL in seconds. Applies to every JWKS consumer in the server (trusted issuer validation, federated OIDC authenticators such as Google, and so on). Fetched signing keys are reused from the in-process cache for this duration before being re-fetched. Plan external-server key rotations with at least this much overlap. Set to `0` to disable caching |
+
+## Trusted Issuer Configuration
+
+Maps to `TrustedIssuerConfig` in the backend, nested under `server.security.trusted_issuer`. Setting `server.security.trusted_issuer.issuer` activates the feature: <ProductName /> trusts access tokens issued by an external authorization server and validates them against the external server's JWKS endpoint. When `issuer` is set, `jwks_url` and `audience` are required and <ProductName /> fails to start if either is missing. This is used for federated authentication scenarios where a central <ProductName /> instance issues tokens that tenant instances accept.
+
+Enabling a trusted issuer is additive and non-breaking. <ProductName /> still accepts the tokens it issues itself, routed by the token's `iss` claim. Existing `client_credentials`, system, and console callers keep working without configuration changes. See [Self-Issued Tokens](/docs/next/guides/guides/trusted-issuer#self-issued-tokens) in the Trusted Issuer guide.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `server.security.trusted_issuer.issuer` | `""` | Expected value of the token's `iss` claim. Must match the external authorization server's issuer URL exactly |
+| `server.security.trusted_issuer.jwks_url` | `""` | URL of the external authorization server's JWKS endpoint used to fetch signing keys. Must use HTTPS (HTTP allowed only for `localhost`) |
+| `server.security.trusted_issuer.audience` | `""` | Expected value of the token's `aud` claim. This should be this server's own identifier (typically its public URL) |
+| `server.security.trusted_issuer.required_claims` | `[]` | List of claims that every accepted token must contain. Each entry has a `claim` name and an expected `value`. If any required claim is missing or does not match, the token is rejected |
+
+**Example:**
+```yaml
+server:
+  security:
+    trusted_issuer:
+      issuer: "https://cloud.example.com"
+      jwks_url: "https://cloud.example.com/oauth2/jwks"
+      audience: "https://tenant.example.com"
+      required_claims:
+        - claim: "ouId"
+          value: "tenant-123"
+```
+
+:::note
+The frontend must include a matching `resource` parameter in the authorization request so the external authorization server sets the token's `aud` claim to this server's identifier. See the [Trusted Issuer](/docs/next/guides/guides/trusted-issuer) guide for the end-to-end setup.
+:::

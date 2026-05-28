@@ -29,10 +29,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/system/config"
 
-	"github.com/asgardeo/thunder/tests/mocks/database/providermock"
+	"github.com/thunder-id/thunderid/tests/mocks/database/providermock"
 )
 
 type AuthorizationRequestStoreTestSuite struct {
@@ -51,16 +51,16 @@ func (suite *AuthorizationRequestStoreTestSuite) SetupTest() {
 	testConfig := &config.Config{
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	_ = config.InitializeServerRuntime("test", testConfig)
 
 	suite.mockdbProvider = &providermock.DBProviderInterfaceMock{}
 	suite.mockDBClient = &providermock.DBClientInterfaceMock{}
@@ -81,13 +81,13 @@ func (suite *AuthorizationRequestStoreTestSuite) SetupTest() {
 			PermissionScopes:    []string{"read", "write"},
 			CodeChallenge:       "test-challenge",
 			CodeChallengeMethod: "S256",
-			Resource:            "https://api.example.com/resource",
+			Resources:           []string{"https://api.example.com/resource"},
 		},
 	}
 }
 
 func (suite *AuthorizationRequestStoreTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func (suite *AuthorizationRequestStoreTestSuite) TestNewAuthorizationRequestStore() {
@@ -184,7 +184,7 @@ func (suite *AuthorizationRequestStoreTestSuite) TestGetRequest_Success() {
 		"permission_scopes":     []interface{}{"read", "write"},
 		"code_challenge":        "test-challenge",
 		"code_challenge_method": "S256",
-		"resource":              "https://api.example.com/resource",
+		"resource":              []interface{}{"https://api.example.com/resource"},
 	}
 	requestDataJSON, _ := json.Marshal(requestData)
 
@@ -213,7 +213,7 @@ func (suite *AuthorizationRequestStoreTestSuite) TestGetRequest_Success() {
 	assert.Equal(suite.T(), []string{"read", "write"}, result.OAuthParameters.PermissionScopes)
 	assert.Equal(suite.T(), "test-challenge", result.OAuthParameters.CodeChallenge)
 	assert.Equal(suite.T(), "S256", result.OAuthParameters.CodeChallengeMethod)
-	assert.Equal(suite.T(), "https://api.example.com/resource", result.OAuthParameters.Resource)
+	assert.Equal(suite.T(), []string{"https://api.example.com/resource"}, result.OAuthParameters.Resources)
 
 	suite.mockdbProvider.AssertExpectations(suite.T())
 	suite.mockDBClient.AssertExpectations(suite.T())

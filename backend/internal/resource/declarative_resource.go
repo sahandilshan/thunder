@@ -25,9 +25,10 @@ import (
 	"strings"
 	"testing"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 
 	"gopkg.in/yaml.v3"
 )
@@ -68,15 +69,24 @@ func (e *resourceServerExporter) GetParameterizerType() string {
 // GetAllResourceIDs retrieves all resource server IDs.
 // In composite mode, this excludes declarative (YAML-based) resource servers.
 func (e *resourceServerExporter) GetAllResourceIDs(ctx context.Context) ([]string, *serviceerror.ServiceError) {
-	servers, err := e.service.GetResourceServerList(ctx, 1000, 0)
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(servers.ResourceServers))
-	for _, server := range servers.ResourceServers {
-		// Only include mutable (database-backed) resource servers
-		if !e.service.IsResourceServerDeclarative(server.ID) {
-			ids = append(ids, server.ID)
+	ids := make([]string, 0)
+	offset := 0
+	for {
+		servers, err := e.service.GetResourceServerList(ctx, serverconst.MaxPageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		if len(servers.ResourceServers) == 0 {
+			break
+		}
+		for _, server := range servers.ResourceServers {
+			if !e.service.IsResourceServerDeclarative(server.ID) {
+				ids = append(ids, server.ID)
+			}
+		}
+		offset += len(servers.ResourceServers)
+		if offset >= servers.TotalResults {
+			break
 		}
 	}
 	return ids, nil
@@ -103,10 +113,22 @@ func (e *resourceServerExporter) GetResourceByID(ctx context.Context, id string)
 		Resources:   []Resource{},
 	}
 
-	// Get all resources for this server (parent=nil for root resources)
-	resources, err := e.service.GetResourceList(ctx, id, nil, 1000, 0)
-	if err != nil {
-		return nil, "", err
+	// Get all resources for this server
+	var allResources []Resource
+	resOffset := 0
+	for {
+		resources, err := e.service.GetResourceList(ctx, id, nil, serverconst.MaxPageSize, resOffset)
+		if err != nil {
+			return nil, "", err
+		}
+		if len(resources.Resources) == 0 {
+			break
+		}
+		allResources = append(allResources, resources.Resources...)
+		resOffset += len(resources.Resources)
+		if resOffset >= resources.TotalResults {
+			break
+		}
 	}
 
 	// Build map for hierarchical structure keyed by resource ID
@@ -114,7 +136,7 @@ func (e *resourceServerExporter) GetResourceByID(ctx context.Context, id string)
 	// Build separate map for ID to Handle lookups (for parent resolution)
 	idToHandleMap := make(map[string]string)
 
-	for _, res := range resources.Resources {
+	for _, res := range allResources {
 		resource := Resource{
 			Name:        res.Name,
 			Handle:      res.Handle,
@@ -130,12 +152,24 @@ func (e *resourceServerExporter) GetResourceByID(ctx context.Context, id string)
 		}
 
 		// Get actions for this resource
-		actions, err := e.service.GetActionList(ctx, id, &res.ID, 1000, 0)
-		if err != nil {
-			return nil, "", err
+		var allActions []Action
+		actOffset := 0
+		for {
+			actions, err := e.service.GetActionList(ctx, id, &res.ID, serverconst.MaxPageSize, actOffset)
+			if err != nil {
+				return nil, "", err
+			}
+			if len(actions.Actions) == 0 {
+				break
+			}
+			allActions = append(allActions, actions.Actions...)
+			actOffset += len(actions.Actions)
+			if actOffset >= actions.TotalResults {
+				break
+			}
 		}
 
-		for _, action := range actions.Actions {
+		for _, action := range allActions {
 			resource.Actions = append(resource.Actions, Action{
 				Name:        action.Name,
 				Handle:      action.Handle,
@@ -149,14 +183,8 @@ func (e *resourceServerExporter) GetResourceByID(ctx context.Context, id string)
 		idToHandleMap[res.ID] = res.Handle
 	}
 
-	// Get root-level actions (not associated with any resource)
-	_, err = e.service.GetActionList(ctx, id, nil, 1000, 0)
-	if err != nil {
-		return nil, "", err
-	}
-
 	// Build the hierarchical structure - add root-level resources
-	for _, res := range resources.Resources {
+	for _, res := range allResources {
 		if res.ParentHandle == "" {
 			if resource, ok := resourceIDMap[res.ID]; ok {
 				rs.Resources = append(rs.Resources, *resource)
@@ -185,14 +213,11 @@ func (e *resourceServerExporter) ValidateResource(
 }
 
 // GetResourceRules returns the parameterization rules for resource servers.
+// Resource servers have no fields that need to be parameterized as template variables,
+// so nil is returned to use the standard YAML encoder path which preserves literal values
+// and correctly quotes fields tagged with yamlfmt:"quoted" (e.g. Delimiter).
 func (e *resourceServerExporter) GetResourceRules() *declarativeresource.ResourceRules {
-	return &declarativeresource.ResourceRules{
-		Variables: []string{
-			"OUID",
-			"Identifier",
-		},
-		ArrayVariables: []string{},
-	}
+	return nil
 }
 
 // loadDeclarativeResources loads resource server resources from declarative files.
@@ -229,7 +254,7 @@ func loadDeclarativeResources(resourceStore resourceStoreInterface, resourceServ
 		DirectoryName: "resource_servers",
 		Parser:        parseAndValidateResourceServerWrapper(resourceService),
 		Validator: func(data interface{}) error {
-			return validateResourceServerWrapper(data, fileStore, dbStore)
+			return validateResourceServerWrapper(data, fileStore, dbStore, resourceService)
 		},
 		IDExtractor: func(data interface{}) string {
 			return data.(*ResourceServer).ID
@@ -254,7 +279,7 @@ func parseAndValidateResourceServerWrapper(resourceService ResourceServiceInterf
 		}
 
 		// Process and compute permissions in-place
-		if err := processResourceServer(rs); err != nil {
+		if err := ProcessResourceServer(rs); err != nil {
 			return nil, fmt.Errorf("error processing resource server '%s': %w", rs.Name, err)
 		}
 
@@ -275,15 +300,12 @@ func parseToResourceServer(data []byte) (*ResourceServer, error) {
 	if rs.Name == "" {
 		return nil, fmt.Errorf("resource server name cannot be empty")
 	}
-	if rs.OUID == "" {
-		return nil, fmt.Errorf("resource server organization unit ID cannot be empty")
-	}
 
 	return &rs, nil
 }
 
-// processResourceServer processes the resource server and computes permissions in-place.
-func processResourceServer(rs *ResourceServer) error {
+// ProcessResourceServer processes the resource server and computes permissions in-place.
+func ProcessResourceServer(rs *ResourceServer) error {
 	delimiter := rs.Delimiter
 	if delimiter == "" {
 		delimiter = ":" // Default delimiter
@@ -309,7 +331,7 @@ func processResourceServer(rs *ResourceServer) error {
 
 	// Process resources and compute permissions
 	for i := range rs.Resources {
-		if err := processResource(&rs.Resources[i], resourceHandleMap, delimiter); err != nil {
+		if err := processResource(&rs.Resources[i], resourceHandleMap, rs.Handle, delimiter); err != nil {
 			return err
 		}
 	}
@@ -321,16 +343,15 @@ func processResourceServer(rs *ResourceServer) error {
 func processResource(
 	res *Resource,
 	resourceHandleMap map[string]*Resource,
+	rsHandle string,
 	delimiter string,
 ) error {
-	// Build permission string from parent chain
-	permission, err := buildPermissionString(res, resourceHandleMap, delimiter)
+	permission, err := buildPermissionString(res, resourceHandleMap, rsHandle, delimiter)
 	if err != nil {
 		return err
 	}
 	res.Permission = permission
 
-	// Process actions
 	for i := range res.Actions {
 		actionPermission := permission + delimiter + res.Actions[i].Handle
 		res.Actions[i].Permission = actionPermission
@@ -340,19 +361,30 @@ func processResource(
 }
 
 // buildPermissionString constructs the permission string by traversing parent chain.
-// Returns an error if a parent handle is not found in the resourceHandleMap.
 func buildPermissionString(
 	res *Resource,
 	resourceHandleMap map[string]*Resource,
+	rsHandle string,
 	delimiter string,
 ) (string, error) {
 	var parts []string
 
-	// Build parent chain
+	if rsHandle != "" {
+		parts = append(parts, rsHandle)
+	}
+
 	parentChain := []string{}
+	visited := make(map[string]bool)
 	current := res
 	for current != nil {
 		if current.Handle != "" {
+			if visited[current.Handle] {
+				return "", fmt.Errorf(
+					"circular parent reference detected at handle '%s' for resource '%s'",
+					current.Handle, res.Handle,
+				)
+			}
+			visited[current.Handle] = true
 			parentChain = append([]string{current.Handle}, parentChain...)
 		}
 
@@ -362,7 +394,6 @@ func buildPermissionString(
 
 		parent, exists := resourceHandleMap[current.ParentHandle]
 		if !exists {
-			// Surface the missing parent handle error instead of silently breaking
 			return "", fmt.Errorf(
 				"parent resource handle '%s' not found for resource '%s': cannot resolve permission chain",
 				current.ParentHandle,
@@ -372,12 +403,10 @@ func buildPermissionString(
 		current = parent
 	}
 
-	// Add parent chain (excluding current resource)
 	if len(parentChain) > 1 {
 		parts = append(parts, parentChain[:len(parentChain)-1]...)
 	}
 
-	// Add current resource handle
 	parts = append(parts, res.Handle)
 
 	return strings.Join(parts, delimiter), nil
@@ -387,6 +416,7 @@ func validateResourceServerWrapper(
 	data interface{},
 	fileStore resourceStoreInterface,
 	dbStore resourceStoreInterface,
+	service ResourceServiceInterface,
 ) error {
 	rs, ok := data.(*ResourceServer)
 	if !ok {
@@ -395,6 +425,17 @@ func validateResourceServerWrapper(
 
 	if rs.Name == "" {
 		return fmt.Errorf("resource server name cannot be empty")
+	}
+
+	if service != nil {
+		if svcErr := service.ResolveResourceServerOUHandle(context.Background(), rs); svcErr != nil {
+			return fmt.Errorf("organization unit with handle %q not found for resource server '%s'",
+				rs.OUHandle, rs.Name)
+		}
+	}
+
+	if rs.OUID == "" {
+		return fmt.Errorf("ou_id or ou_handle is required for resource server '%s'", rs.Name)
 	}
 
 	// Check for duplicate ID in the file store

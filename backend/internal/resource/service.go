@@ -25,27 +25,37 @@ import (
 	"fmt"
 	"strings"
 
-	oupkg "github.com/asgardeo/thunder/internal/ou"
-	"github.com/asgardeo/thunder/internal/system/config"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/consent"
+	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/security"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const (
 	loggerComponentName = "ResourceMgtService"
 
-	// validDelimiterCharacters defines the allowed characters for delimiters.
-	// Allowed: . _ : - /
-	validDelimiterCharacters = "._:-/"
+	// ValidPermissionDelimiters defines the allowed delimiter characters in permission strings.
+	// Exported so callers parsing permission strings (e.g. consent enforcer rollup) can share the
+	// single source of truth.
+	ValidPermissionDelimiters = "._:-/"
 
 	// validPermissionCharacters defines the allowed characters for permission strings.
 	// Allowed: a-z A-Z 0-9 and delimiter characters (. _ : - /)
 	validPermissionCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" +
-		validDelimiterCharacters
+		ValidPermissionDelimiters
 )
+
+// IsPermissionDelimiter reports whether r is one of the allowed delimiter characters in a
+// permission string (see ValidPermissionDelimiters).
+func IsPermissionDelimiter(r rune) bool {
+	return strings.ContainsRune(ValidPermissionDelimiters, r)
+}
 
 // ResourceServiceInterface defines the interface for the resource service.
 type ResourceServiceInterface interface {
@@ -57,10 +67,14 @@ type ResourceServiceInterface interface {
 		ctx context.Context, id string, rs ResourceServer,
 	) (*ResourceServer, *serviceerror.ServiceError)
 	DeleteResourceServer(ctx context.Context, id string) *serviceerror.ServiceError
+	GetResourceServerByIdentifier(
+		ctx context.Context, identifier string,
+	) (*ResourceServer, *serviceerror.ServiceError)
 	IsResourceServerDeclarative(id string) bool
 
 	// Resource operations
-	CreateResource(ctx context.Context, resourceServerID string, res Resource) (*Resource, *serviceerror.ServiceError)
+	CreateResource(ctx context.Context, resourceServerID string, res Resource) (
+		*Resource, *serviceerror.ServiceError)
 	GetResource(ctx context.Context, resourceServerID, id string) (*Resource, *serviceerror.ServiceError)
 	GetResourceList(
 		ctx context.Context, resourceServerID string, parentID *string, limit, offset int,
@@ -83,10 +97,25 @@ type ResourceServiceInterface interface {
 	UpdateAction(
 		ctx context.Context, resourceServerID string, resourceID *string, id string, action Action,
 	) (*Action, *serviceerror.ServiceError)
-	DeleteAction(ctx context.Context, resourceServerID string, resourceID *string, id string) *serviceerror.ServiceError
+	DeleteAction(ctx context.Context, resourceServerID string, resourceID *string,
+		id string) *serviceerror.ServiceError
 	ValidatePermissions(
 		ctx context.Context, resourceServerID string, permissions []string,
 	) ([]string, *serviceerror.ServiceError)
+
+	// FindResourceServersByPermissions returns registered resource servers that define at least
+	// one permission in the supplied set. Used by the OAuth2 token layer to populate aud when no
+	// explicit resource parameter was supplied.
+	FindResourceServersByPermissions(
+		ctx context.Context, permissions []string,
+	) ([]ResourceServer, *serviceerror.ServiceError)
+
+	// ResolveResourceServerOUHandle resolves ou_handle to an OU ID on the given resource server
+	// in-place. Called by the declarative loader validator so that file-based resource servers
+	// support ou_handle.
+	ResolveResourceServerOUHandle(
+		ctx context.Context, rs *ResourceServer,
+	) *serviceerror.ServiceError
 }
 
 // resourceService is the default implementation of ResourceServiceInterface.
@@ -94,6 +123,7 @@ type resourceService struct {
 	logger           log.Logger
 	resourceStore    resourceStoreInterface
 	ouService        oupkg.OrganizationUnitServiceInterface
+	consentService   consent.ConsentServiceInterface
 	defaultDelimiter string
 	transactioner    transaction.Transactioner
 }
@@ -101,6 +131,7 @@ type resourceService struct {
 // newResourceService creates a new instance of ResourceService.
 func newResourceService(
 	ouService oupkg.OrganizationUnitServiceInterface,
+	consentService consent.ConsentServiceInterface,
 	resourceStore resourceStoreInterface,
 	transactionerInstance transaction.Transactioner,
 ) (ResourceServiceInterface, error) {
@@ -114,6 +145,7 @@ func newResourceService(
 		logger:           *log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName)),
 		resourceStore:    resourceStore,
 		ouService:        ouService,
+		consentService:   consentService,
 		defaultDelimiter: defaultDelimiter,
 		transactioner:    transactionerInstance,
 	}, nil
@@ -139,7 +171,7 @@ func (rs *resourceService) CreateResourceServer(
 			rs.logger.Debug("Organization unit not found", log.String("ouID", resourceServer.OUID))
 			return nil, &ErrorOrganizationUnitNotFound
 		}
-		rs.logger.Error("Failed to validate organization unit", log.String("error", svcErr.Error))
+		rs.logger.Error("Failed to validate organization unit", log.String("error", svcErr.Error.DefaultValue))
 		return nil, &serviceerror.InternalServerError
 	}
 
@@ -152,6 +184,20 @@ func (rs *resourceService) CreateResourceServer(
 	if nameExists {
 		rs.logger.Debug("Resource server name already exists", log.String("name", resourceServer.Name))
 		return nil, &ErrorNameConflict
+	}
+
+	// Check handle uniqueness (if provided)
+	if resourceServer.Handle != "" {
+		handleExists, err := rs.resourceStore.CheckResourceServerHandleExists(ctx, resourceServer.Handle)
+		if err != nil {
+			rs.logger.Error("Failed to check resource server handle", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
+		if handleExists {
+			rs.logger.Debug("Resource server handle already exists",
+				log.String("handle", resourceServer.Handle))
+			return nil, &ErrorHandleConflict
+		}
 	}
 
 	// Check identifier uniqueness (if provided)
@@ -167,15 +213,39 @@ func (rs *resourceService) CreateResourceServer(
 			return nil, &ErrorIdentifierConflict
 		}
 	}
+
 	// Set default delimiter if not provided
 	if resourceServer.Delimiter == "" {
 		resourceServer.Delimiter = rs.defaultDelimiter
 	}
 
-	id, err := utils.GenerateUUIDv7()
-	if err != nil {
-		rs.logger.Error("Failed to generate UUID", log.Error(err))
-		return nil, &serviceerror.InternalServerError
+	// Validate handle format and ensure it does not contain the delimiter character
+	if resourceServer.Handle != "" {
+		if svcErr := validateHandle(resourceServer.Handle, resourceServer.Delimiter); svcErr != nil {
+			if svcErr.Code == ErrorDelimiterInHandle.Code {
+				return nil, &ErrorDelimiterInResourceServerHandle
+			}
+			return nil, svcErr
+		}
+	}
+
+	id := resourceServer.ID
+	if id == "" {
+		var err error
+		id, err = utils.GenerateUUIDv7()
+		if err != nil {
+			rs.logger.Error("Failed to generate UUID", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
+	} else {
+		_, svcErr := rs.GetResourceServer(ctx, id)
+		if svcErr != nil && svcErr.Code != ErrorResourceServerNotFound.Code {
+			return nil, svcErr
+		}
+		if svcErr == nil {
+			rs.logger.Debug("Resource server ID already exists", log.String("id", id))
+			return nil, &ErrorResourceServerIDConflict
+		}
 	}
 
 	// Use transaction for write operation
@@ -190,6 +260,7 @@ func (rs *resourceService) CreateResourceServer(
 			ID:          id,
 			Name:        resourceServer.Name,
 			Description: resourceServer.Description,
+			Handle:      resourceServer.Handle,
 			Identifier:  resourceServer.Identifier,
 			OUID:        resourceServer.OUID,
 			Delimiter:   resourceServer.Delimiter,
@@ -218,6 +289,28 @@ func (rs *resourceService) GetResourceServer(
 			return nil, &ErrorResourceServerNotFound
 		}
 		rs.logger.Error("Failed to get resource server", log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	return &resourceServer, nil
+}
+
+// GetResourceServerByIdentifier retrieves a resource server by its identifier.
+func (rs *resourceService) GetResourceServerByIdentifier(
+	ctx context.Context, identifier string,
+) (*ResourceServer, *serviceerror.ServiceError) {
+	if identifier == "" {
+		return nil, &ErrorResourceServerNotFound
+	}
+
+	resourceServer, err := rs.resourceStore.GetResourceServerByIdentifier(ctx, identifier)
+	if err != nil {
+		if errors.Is(err, errResourceServerNotFound) {
+			rs.logger.Debug("Resource server not found for identifier",
+				log.String("identifier", identifier))
+			return nil, &ErrorResourceServerNotFound
+		}
+		rs.logger.Error("Failed to get resource server by identifier", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 
@@ -287,17 +380,52 @@ func (rs *resourceService) UpdateResourceServer(
 	// Check if resource server is declarative (immutable)
 	if rs.IsResourceServerDeclarative(id) {
 		rs.logger.Debug("Cannot modify declarative resource server", log.String("id", id))
-		errorMsg := fmt.Sprintf(ErrorImmutableResourceServer.ErrorDescription, id)
-		return nil, &serviceerror.ServiceError{
-			Type:             ErrorImmutableResourceServer.Type,
-			Code:             ErrorImmutableResourceServer.Code,
-			Error:            ErrorImmutableResourceServer.Error,
-			ErrorDescription: errorMsg,
+		return nil, serviceerror.CustomServiceError(ErrorImmutableResourceServer, core.I18nMessage{
+			Key:          ErrorImmutableResourceServer.ErrorDescription.Key,
+			DefaultValue: fmt.Sprintf(ErrorImmutableResourceServer.ErrorDescription.DefaultValue, id),
+		})
+	}
+
+	// Delimiter is always preserved from the existing record
+	resourceServer.Delimiter = existingResServer.Delimiter
+
+	// Handle: preserve existing if not provided; validate and check uniqueness if changed
+	if resourceServer.Handle == "" {
+		resourceServer.Handle = existingResServer.Handle
+	} else if resourceServer.Handle != existingResServer.Handle {
+		if svcErr := validateHandle(resourceServer.Handle, resourceServer.Delimiter); svcErr != nil {
+			if svcErr.Code == ErrorDelimiterInHandle.Code {
+				return nil, &ErrorDelimiterInResourceServerHandle
+			}
+			return nil, svcErr
+		}
+		handleExists, err := rs.resourceStore.CheckResourceServerHandleExists(ctx, resourceServer.Handle)
+		if err != nil {
+			rs.logger.Error("Failed to check resource server handle", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
+		if handleExists {
+			rs.logger.Debug("Resource server handle already exists",
+				log.String("handle", resourceServer.Handle))
+			return nil, &ErrorHandleConflict
 		}
 	}
 
-	// Preserve the immutable delimiter from existing record
-	resourceServer.Delimiter = existingResServer.Delimiter
+	// Identifier: preserve existing if not provided; check uniqueness if changed
+	if resourceServer.Identifier == "" {
+		resourceServer.Identifier = existingResServer.Identifier
+	} else if resourceServer.Identifier != existingResServer.Identifier {
+		identifierExists, err := rs.resourceStore.CheckResourceServerIdentifierExists(ctx, resourceServer.Identifier)
+		if err != nil {
+			rs.logger.Error("Failed to check resource server identifier", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
+		if identifierExists {
+			rs.logger.Debug("Resource server identifier already exists",
+				log.String("identifier", resourceServer.Identifier))
+			return nil, &ErrorIdentifierConflict
+		}
+	}
 
 	// Validate organization unit
 	_, svcErr := rs.ouService.GetOrganizationUnit(ctx, resourceServer.OUID)
@@ -320,18 +448,11 @@ func (rs *resourceService) UpdateResourceServer(
 		}
 	}
 
-	// Check identifier uniqueness, if provided and changed
-	if resourceServer.Identifier != "" && existingResServer.Identifier != resourceServer.Identifier {
-		identifierExists, err := rs.resourceStore.CheckResourceServerIdentifierExists(ctx, resourceServer.Identifier)
-		if err != nil {
-			rs.logger.Error("Failed to check resource server identifier", log.Error(err))
-			return nil, &serviceerror.InternalServerError
-		}
-		if identifierExists {
-			rs.logger.Debug("Resource server identifier already exists",
-				log.String("identifier", resourceServer.Identifier))
-			return nil, &ErrorIdentifierConflict
-		}
+	// When handle changes, collect all resources and actions for permission recomputation
+	handleChanged := existingResServer.Handle != resourceServer.Handle
+	permData, svcErr2 := rs.collectPermissionData(ctx, id, handleChanged)
+	if svcErr2 != nil {
+		return nil, svcErr2
 	}
 
 	var updatedRS *ResourceServer
@@ -341,10 +462,17 @@ func (rs *resourceService) UpdateResourceServer(
 			return err
 		}
 
+		if handleChanged {
+			if err := rs.recomputePermissions(txCtx, id, resourceServer, permData); err != nil {
+				return err
+			}
+		}
+
 		updatedRS = &ResourceServer{
 			ID:          id,
 			Name:        resourceServer.Name,
 			Description: resourceServer.Description,
+			Handle:      resourceServer.Handle,
 			Identifier:  resourceServer.Identifier,
 			OUID:        resourceServer.OUID,
 			Delimiter:   resourceServer.Delimiter,
@@ -357,6 +485,110 @@ func (rs *resourceService) UpdateResourceServer(
 	return updatedRS, nil
 }
 
+// permissionData holds the resources and actions collected for permission recomputation.
+type permissionData struct {
+	resources       []Resource
+	rsLevelActions  []Action
+	resourceActions []struct {
+		resourceID string
+		actions    []Action
+	}
+}
+
+// collectPermissionData fetches all resources and actions under a resource server when the handle changes.
+// Returns a zero-value permissionData (no store calls) when handleChanged is false.
+func (rs *resourceService) collectPermissionData(
+	ctx context.Context, rsID string, handleChanged bool,
+) (*permissionData, *serviceerror.ServiceError) {
+	if !handleChanged {
+		return &permissionData{}, nil
+	}
+
+	pd := &permissionData{}
+	var err error
+
+	pd.resources, err = rs.resourceStore.GetResourceList(ctx, rsID, serverconst.MaxPageSize, 0)
+	if err != nil {
+		rs.logger.Error("Failed to list resources for permission recomputation", log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	pd.rsLevelActions, err = rs.resourceStore.GetActionList(ctx, rsID, nil, serverconst.MaxPageSize, 0)
+	if err != nil {
+		rs.logger.Error("Failed to list RS-level actions for permission recomputation", log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	for i := range pd.resources {
+		actions, err := rs.resourceStore.GetActionList(
+			ctx, rsID, &pd.resources[i].ID, serverconst.MaxPageSize, 0,
+		)
+		if err != nil {
+			rs.logger.Error("Failed to list resource actions for permission recomputation", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
+		if len(actions) > 0 {
+			pd.resourceActions = append(pd.resourceActions, struct {
+				resourceID string
+				actions    []Action
+			}{resourceID: pd.resources[i].ID, actions: actions})
+		}
+	}
+
+	return pd, nil
+}
+
+// recomputePermissions updates the stored permission strings for all resources and actions
+// under a resource server whose handle has changed. Must be called inside a transaction.
+func (rs *resourceService) recomputePermissions(
+	ctx context.Context, rsID string, resourceServer ResourceServer, pd *permissionData,
+) error {
+	permByID := make(map[string]string, len(pd.resources))
+
+	for i := range pd.resources {
+		res := &pd.resources[i]
+		var parentRes *Resource
+		if res.Parent != nil {
+			if parentPerm, ok := permByID[*res.Parent]; ok {
+				parentRes = &Resource{Permission: parentPerm}
+			}
+		}
+		newPerm := derivePermission(resourceServer, parentRes, res.Handle)
+		permByID[res.ID] = newPerm
+		if err := rs.resourceStore.UpdateResourcePermission(ctx, res.ID, rsID, newPerm); err != nil {
+			rs.logger.Error("Failed to update resource permission", log.Error(err))
+			return err
+		}
+	}
+
+	for i := range pd.rsLevelActions {
+		newPerm := derivePermission(resourceServer, nil, pd.rsLevelActions[i].Handle)
+		if err := rs.resourceStore.UpdateActionPermission(
+			ctx, pd.rsLevelActions[i].ID, rsID, nil, newPerm,
+		); err != nil {
+			rs.logger.Error("Failed to update RS-level action permission", log.Error(err))
+			return err
+		}
+	}
+
+	for _, ra := range pd.resourceActions {
+		parentPerm := permByID[ra.resourceID]
+		parentRes := &Resource{Permission: parentPerm}
+		for i := range ra.actions {
+			newPerm := derivePermission(resourceServer, parentRes, ra.actions[i].Handle)
+			resID := ra.resourceID
+			if err := rs.resourceStore.UpdateActionPermission(
+				ctx, ra.actions[i].ID, rsID, &resID, newPerm,
+			); err != nil {
+				rs.logger.Error("Failed to update resource action permission", log.Error(err))
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // DeleteResourceServer deletes a resource server.
 func (rs *resourceService) DeleteResourceServer(ctx context.Context, id string) *serviceerror.ServiceError {
 	if id == "" {
@@ -366,13 +598,10 @@ func (rs *resourceService) DeleteResourceServer(ctx context.Context, id string) 
 	// Check if resource server is declarative (immutable)
 	if rs.IsResourceServerDeclarative(id) {
 		rs.logger.Debug("Cannot delete declarative resource server", log.String("id", id))
-		errorMsg := fmt.Sprintf(ErrorImmutableResourceServer.ErrorDescription, id)
-		return &serviceerror.ServiceError{
-			Type:             ErrorImmutableResourceServer.Type,
-			Code:             ErrorImmutableResourceServer.Code,
-			Error:            ErrorImmutableResourceServer.Error,
-			ErrorDescription: errorMsg,
-		}
+		return serviceerror.CustomServiceError(ErrorImmutableResourceServer, core.I18nMessage{
+			Key:          ErrorImmutableResourceServer.ErrorDescription.Key,
+			DefaultValue: fmt.Sprintf(ErrorImmutableResourceServer.ErrorDescription.DefaultValue, id),
+		})
 	}
 
 	_, err := rs.resourceStore.GetResourceServer(ctx, id)
@@ -475,6 +704,13 @@ func (rs *resourceService) CreateResource(
 			return err
 		}
 
+		if err := rs.syncConsentOnPermissionCreate(
+			txCtx, resource.Permission, resource.Description,
+		); err != nil {
+			rs.logger.Error("Failed to sync consent element for resource", log.Error(err))
+			return err
+		}
+
 		createdResource = &Resource{
 			ID:          id,
 			Name:        resource.Name,
@@ -485,7 +721,7 @@ func (rs *resourceService) CreateResource(
 		}
 		return nil
 	}); err != nil {
-		return nil, &serviceerror.InternalServerError
+		return nil, translateTxError(err)
 	}
 
 	return createdResource, nil
@@ -591,13 +827,10 @@ func (rs *resourceService) UpdateResource(
 			"Cannot modify resource in declarative resource server",
 			log.String("resource_server_id", resourceServerID),
 		)
-		errorMsg := fmt.Sprintf(ErrorImmutableResource.ErrorDescription, id)
-		return nil, &serviceerror.ServiceError{
-			Type:             ErrorImmutableResource.Type,
-			Code:             ErrorImmutableResource.Code,
-			Error:            ErrorImmutableResource.Error,
-			ErrorDescription: errorMsg,
-		}
+		return nil, serviceerror.CustomServiceError(ErrorImmutableResource, core.I18nMessage{
+			Key:          ErrorImmutableResource.ErrorDescription.Key,
+			DefaultValue: fmt.Sprintf(ErrorImmutableResource.ErrorDescription.DefaultValue, id),
+		})
 	}
 
 	// Validate resource server exists
@@ -633,6 +866,13 @@ func (rs *resourceService) UpdateResource(
 			return err
 		}
 
+		if err := rs.syncConsentOnPermissionUpdate(
+			txCtx, currentResource.Permission, updateResource.Description,
+		); err != nil {
+			rs.logger.Error("Failed to sync consent element for resource", log.Error(err))
+			return err
+		}
+
 		updatedResource = &Resource{
 			ID:          id,
 			Name:        updateResource.Name,
@@ -642,14 +882,15 @@ func (rs *resourceService) UpdateResource(
 		}
 		return nil
 	}); err != nil {
-		return nil, &serviceerror.InternalServerError
+		return nil, translateTxError(err)
 	}
 
 	return updatedResource, nil
 }
 
 // DeleteResource deletes a resource.
-func (rs *resourceService) DeleteResource(ctx context.Context, resourceServerID, id string) *serviceerror.ServiceError {
+func (rs *resourceService) DeleteResource(
+	ctx context.Context, resourceServerID, id string) *serviceerror.ServiceError {
 	if id == "" || resourceServerID == "" {
 		return &ErrorMissingID
 	}
@@ -660,13 +901,10 @@ func (rs *resourceService) DeleteResource(ctx context.Context, resourceServerID,
 			"Cannot delete resource in declarative resource server",
 			log.String("resource_server_id", resourceServerID),
 		)
-		errorMsg := fmt.Sprintf(ErrorImmutableResource.ErrorDescription, id)
-		return &serviceerror.ServiceError{
-			Type:             ErrorImmutableResource.Type,
-			Code:             ErrorImmutableResource.Code,
-			Error:            ErrorImmutableResource.Error,
-			ErrorDescription: errorMsg,
-		}
+		return serviceerror.CustomServiceError(ErrorImmutableResource, core.I18nMessage{
+			Key:          ErrorImmutableResource.ErrorDescription.Key,
+			DefaultValue: fmt.Sprintf(ErrorImmutableResource.ErrorDescription.DefaultValue, id),
+		})
 	}
 
 	// Validate resource server exists
@@ -680,7 +918,7 @@ func (rs *resourceService) DeleteResource(ctx context.Context, resourceServerID,
 	}
 
 	// Check resource exists
-	_, err = rs.resourceStore.GetResource(ctx, id, resourceServerID)
+	currentResource, err := rs.resourceStore.GetResource(ctx, id, resourceServerID)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {
 			return nil // Idempotent delete
@@ -705,9 +943,15 @@ func (rs *resourceService) DeleteResource(ctx context.Context, resourceServerID,
 			rs.logger.Error("Failed to delete resource", log.Error(err))
 			return err
 		}
+		if err := rs.syncConsentOnPermissionDelete(
+			txCtx, currentResource.Permission,
+		); err != nil {
+			rs.logger.Error("Failed to sync consent element for resource delete", log.Error(err))
+			return err
+		}
 		return nil
 	}); err != nil {
-		return &serviceerror.InternalServerError
+		return translateTxError(err)
 	}
 
 	return nil
@@ -771,6 +1015,13 @@ func (rs *resourceService) CreateAction(
 			return err
 		}
 
+		if err := rs.syncConsentOnPermissionCreate(
+			txCtx, action.Permission, action.Description,
+		); err != nil {
+			rs.logger.Error("Failed to sync consent element for action", log.Error(err))
+			return err
+		}
+
 		createdAction = &Action{
 			ID:          id,
 			Name:        action.Name,
@@ -780,7 +1031,7 @@ func (rs *resourceService) CreateAction(
 		}
 		return nil
 	}); err != nil {
-		return nil, &serviceerror.InternalServerError
+		return nil, translateTxError(err)
 	}
 
 	return createdAction, nil
@@ -919,11 +1170,6 @@ func (rs *resourceService) UpdateAction(
 	if rs.IsResourceServerDeclarative(resourceServerID) {
 		return nil, &ErrorImmutableAction
 	}
-
-	// Check if resource server is declarative (immutable)
-	if rs.IsResourceServerDeclarative(resourceServerID) {
-		return nil, &ErrorImmutableAction
-	}
 	// Validate resource server exists
 	_, svcErr := rs.validateAndGetResourceServer(ctx, resourceServerID)
 	if svcErr != nil {
@@ -967,6 +1213,13 @@ func (rs *resourceService) UpdateAction(
 			return err
 		}
 
+		if err := rs.syncConsentOnPermissionUpdate(
+			txCtx, currentAction.Permission, updateAction.Description,
+		); err != nil {
+			rs.logger.Error("Failed to sync consent element for action", log.Error(err))
+			return err
+		}
+
 		updatedAction = &Action{
 			ID:          id,
 			Name:        updateAction.Name,
@@ -975,7 +1228,7 @@ func (rs *resourceService) UpdateAction(
 		}
 		return nil
 	}); err != nil {
-		return nil, &serviceerror.InternalServerError
+		return nil, translateTxError(err)
 	}
 
 	return updatedAction, nil
@@ -1002,13 +1255,10 @@ func (rs *resourceService) DeleteAction(
 			"Cannot delete action in declarative resource server",
 			log.String("resource_server_id", resourceServerID),
 		)
-		errorMsg := fmt.Sprintf(ErrorImmutableAction.ErrorDescription, id)
-		return &serviceerror.ServiceError{
-			Type:             ErrorImmutableAction.Type,
-			Code:             ErrorImmutableAction.Code,
-			Error:            ErrorImmutableAction.Error,
-			ErrorDescription: errorMsg,
-		}
+		return serviceerror.CustomServiceError(ErrorImmutableAction, core.I18nMessage{
+			Key:          ErrorImmutableAction.ErrorDescription.Key,
+			DefaultValue: fmt.Sprintf(ErrorImmutableAction.ErrorDescription.DefaultValue, id),
+		})
 	}
 
 	// Validate resource server exists
@@ -1043,15 +1293,39 @@ func (rs *resourceService) DeleteAction(
 		return nil // Idempotent delete
 	}
 
+	// Fetch the action so its permission string is available for the consent sync inside the
+	// transaction. When the consent service is disabled the lookup is skipped.
+	var permissionToSync string
+	if rs.consentService != nil && rs.consentService.IsEnabled() {
+		act, getErr := rs.resourceStore.GetAction(ctx, id, resourceServerID, resID)
+		switch {
+		case getErr == nil:
+			permissionToSync = act.Permission
+		case errors.Is(getErr, errActionNotFound):
+			// Concurrent delete — nothing to sync.
+		default:
+			// Any other failure must abort: deleting without syncing would leave the consent
+			// element orphaned.
+			rs.logger.Error("Failed to load action for consent sync", log.Error(getErr))
+			return &serviceerror.InternalServerError
+		}
+	}
+
 	// Use transaction for write operation
 	if err := rs.transactioner.Transact(ctx, func(txCtx context.Context) error {
 		if err := rs.resourceStore.DeleteAction(txCtx, id, resourceServerID, resID); err != nil {
 			rs.logger.Error("Failed to delete action", log.Error(err))
 			return err
 		}
+		if permissionToSync != "" {
+			if err := rs.syncConsentOnPermissionDelete(txCtx, permissionToSync); err != nil {
+				rs.logger.Error("Failed to sync consent element for action delete", log.Error(err))
+				return err
+			}
+		}
 		return nil
 	}); err != nil {
-		return &serviceerror.InternalServerError
+		return translateTxError(err)
 	}
 
 	return nil
@@ -1097,6 +1371,49 @@ func (rs *resourceService) ValidatePermissions(
 	}
 
 	return invalidPermissions, nil
+}
+
+// FindResourceServersByPermissions returns registered resource servers that define at least one
+// permission in the supplied set.
+func (rs *resourceService) FindResourceServersByPermissions(
+	ctx context.Context,
+	permissions []string,
+) ([]ResourceServer, *serviceerror.ServiceError) {
+	if len(permissions) == 0 {
+		return []ResourceServer{}, nil
+	}
+
+	resourceServers, err := rs.resourceStore.FindResourceServersByPermissions(ctx, permissions)
+	if err != nil {
+		rs.logger.Error("Failed to find resource servers by permissions", log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+	return resourceServers, nil
+}
+
+// ResolveResourceServerOUHandle resolves ou_handle to an OU ID on the given resource server
+// in-place. Called by the declarative loader validator so that file-based resource servers
+// support ou_handle. If both ou_id and ou_handle are provided, ou_id wins and a warning is logged.
+func (rs *resourceService) ResolveResourceServerOUHandle(
+	ctx context.Context, server *ResourceServer,
+) *serviceerror.ServiceError {
+	if server.OUID != "" && server.OUHandle != "" {
+		rs.logger.Warn("Both ou_id and ou_handle provided for resource server; ou_handle ignored",
+			log.String("resourceServerID", server.ID), log.String("name", server.Name))
+		return nil
+	}
+	if server.OUID == "" && server.OUHandle != "" {
+		if rs.ouService == nil {
+			return &serviceerror.InternalServerError
+		}
+		ou, svcErr := rs.ouService.GetOrganizationUnitByPath(
+			security.WithRuntimeContext(ctx), server.OUHandle)
+		if svcErr != nil {
+			return &ErrorInvalidRequestFormat
+		}
+		server.OUID = ou.ID
+	}
+	return nil
 }
 
 // Validation helper methods
@@ -1253,7 +1570,7 @@ func validateDelimiter(delimiter string) *serviceerror.ServiceError {
 	if len(delimiter) != 1 {
 		return &ErrorInvalidDelimiter
 	}
-	if !strings.ContainsRune(validDelimiterCharacters, rune(delimiter[0])) {
+	if !strings.ContainsRune(ValidPermissionDelimiters, rune(delimiter[0])) {
 		return &ErrorInvalidDelimiter
 	}
 	return nil
@@ -1277,7 +1594,7 @@ func validateHandle(handle string, delimiter string) *serviceerror.ServiceError 
 
 // getDefaultDelimiter returns the default delimiter from configuration.
 func getDefaultDelimiter() string {
-	delimiter := config.GetThunderRuntime().Config.Resource.DefaultDelimiter
+	delimiter := config.GetServerRuntime().Config.Resource.DefaultDelimiter
 	if delimiter == "" {
 		return ":" // Fallback default if not configured
 	}
@@ -1291,8 +1608,148 @@ func derivePermission(
 	handle string,
 ) string {
 	if parentResource != nil {
-		// Build permission: parent_permission + delimiter + handle
 		return parentResource.Permission + resourceServer.Delimiter + handle
 	}
-	return handle // Top-level resource - permission is just the handle
+	if resourceServer.Handle != "" {
+		return resourceServer.Handle + resourceServer.Delimiter + handle
+	}
+	return handle
+}
+
+// syncConsentOnPermissionCreate creates a consent element for the given permission string.
+// Idempotent: existing elements with the same name are left untouched.
+//
+// This mirrors the attribute-consent sync model used by the inbound-client service
+// (ValidateConsentElements followed by a batch CreateConsentElements for the missing ones), so that
+// resource CRUD operations participate in the same transactional consent lifecycle as the
+// neighboring services. Callers must run this inside the resource CRUD transaction; a failure
+// rolls the transaction back.
+func (rs *resourceService) syncConsentOnPermissionCreate(
+	ctx context.Context, permission, description string,
+) error {
+	if rs.consentService == nil || !rs.consentService.IsEnabled() || permission == "" {
+		return nil
+	}
+	// TODO: Replace with the resource server's actual OU when multi-OU consent is supported.
+	const ouID = "default"
+
+	validNames, err := rs.consentService.ValidateConsentElements(ctx, ouID, []string{permission})
+	if err != nil {
+		return rs.wrapConsentServiceError(err)
+	}
+	for _, n := range validNames {
+		if n == permission {
+			return nil
+		}
+	}
+
+	if _, createErr := rs.consentService.CreateConsentElements(ctx, ouID, []consent.ConsentElementInput{{
+		Name:        permission,
+		Description: description,
+		Namespace:   consent.NamespacePermission,
+	}}); createErr != nil {
+		return rs.wrapConsentServiceError(createErr)
+	}
+	return nil
+}
+
+// syncConsentOnPermissionDelete removes the consent element associated with the given permission
+// string. Idempotent: a missing element is treated as success. An element still associated with a
+// consent purpose cannot be deleted; that case is treated as success since the permission may still
+// be referenced by an existing consent record.
+func (rs *resourceService) syncConsentOnPermissionDelete(ctx context.Context, permission string) error {
+	if rs.consentService == nil || !rs.consentService.IsEnabled() || permission == "" {
+		return nil
+	}
+	// TODO: Replace with the resource server's actual OU when multi-OU consent is supported.
+	const ouID = "default"
+
+	existing, err := rs.consentService.ListConsentElements(ctx, ouID, consent.NamespacePermission, permission)
+	if err != nil {
+		return rs.wrapConsentServiceError(err)
+	}
+	if len(existing) == 0 {
+		return nil
+	}
+
+	// Permission strings are unique within an OU, so at most one element is expected.
+	if delErr := rs.consentService.DeleteConsentElement(ctx, ouID, existing[0].ID); delErr != nil {
+		if delErr.Code == consent.ErrorDeletingConsentElementWithAssociatedPurpose.Code {
+			return nil
+		}
+		return rs.wrapConsentServiceError(delErr)
+	}
+	return nil
+}
+
+// syncConsentOnPermissionUpdate refreshes the description of the consent element associated with
+// the given permission string. When the element is missing it is created lazily so callers do not
+// have to coordinate creates and updates.
+func (rs *resourceService) syncConsentOnPermissionUpdate(
+	ctx context.Context, permission, description string,
+) error {
+	if rs.consentService == nil || !rs.consentService.IsEnabled() || permission == "" {
+		return nil
+	}
+	// TODO: Replace with the resource server's actual OU when multi-OU consent is supported.
+	const ouID = "default"
+
+	existing, err := rs.consentService.ListConsentElements(ctx, ouID, consent.NamespacePermission, permission)
+	if err != nil {
+		return rs.wrapConsentServiceError(err)
+	}
+	if len(existing) == 0 {
+		return rs.syncConsentOnPermissionCreate(ctx, permission, description)
+	}
+	if existing[0].Description == description {
+		return nil
+	}
+
+	if _, updErr := rs.consentService.UpdateConsentElement(ctx, ouID, existing[0].ID,
+		&consent.ConsentElementInput{
+			Name:        permission,
+			Description: description,
+			Namespace:   consent.NamespacePermission,
+		}); updErr != nil {
+		return rs.wrapConsentServiceError(updErr)
+	}
+	return nil
+}
+
+// wrapConsentServiceError wraps a consent service error in a consentSyncError so that callers can
+// distinguish consent-service failures from other store or service errors during resource CRUD.
+// Server-class failures are logged here so operators get a record even when the transaction
+// closure collapses the error to InternalServerError on the way out.
+func (rs *resourceService) wrapConsentServiceError(err *serviceerror.ServiceError) error {
+	if err == nil {
+		return nil
+	}
+	if err.Type == serviceerror.ServerErrorType {
+		rs.logger.Error("Consent service returned a server-class error during resource sync",
+			log.String("code", err.Code),
+			log.String("description", err.ErrorDescription.DefaultValue))
+	}
+	return &consentSyncError{Underlying: err}
+}
+
+// translateTxError converts a transaction-closure error into the resource service's
+// *serviceerror.ServiceError API surface. A typed *consentSyncError is mapped to
+// ErrorConsentSyncFailed for client-class consent failures (preserving the underlying code in the
+// description) and to InternalServerError otherwise. All other transaction errors collapse to
+// InternalServerError. This mirrors the inboundclient + agent/application translation pattern.
+func translateTxError(err error) *serviceerror.ServiceError {
+	var consentErr *consentSyncError
+	if errors.As(err, &consentErr) {
+		if consentErr.IsClientError() {
+			return serviceerror.CustomServiceError(ErrorConsentSyncFailed, core.I18nMessage{
+				Key: "error.resourceservice.consent_sync_failed_description",
+				DefaultValue: fmt.Sprintf(
+					ErrorConsentSyncFailed.ErrorDescription.DefaultValue+" : code - %s",
+					consentErr.Underlying.Code,
+				),
+			})
+		}
+		return &serviceerror.InternalServerError
+	}
+	return &serviceerror.InternalServerError
 }

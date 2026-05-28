@@ -21,9 +21,8 @@ package cache
 
 import (
 	"context"
-	"sync"
 
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // CacheInterface defines the common interface for cache operations.
@@ -43,7 +42,6 @@ type Cache[T any] struct {
 	enabled   bool
 	cacheName string
 	cacheImpl CacheInterface[T]
-	mu        sync.RWMutex
 }
 
 // GetName returns the name of the cache.
@@ -57,9 +55,6 @@ func (c *Cache[T]) Set(ctx context.Context, key CacheKey, value T) error {
 		log.String("cacheName", c.cacheName))
 
 	if c.IsEnabled() && c.cacheImpl.IsEnabled() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-
 		if err := c.cacheImpl.Set(ctx, key, value); err != nil {
 			logger.Warn("Failed to set value in the cache", log.String("key", key.ToString()), log.Error(err))
 		}
@@ -71,9 +66,6 @@ func (c *Cache[T]) Set(ctx context.Context, key CacheKey, value T) error {
 // Get retrieves a value from the cache.
 func (c *Cache[T]) Get(ctx context.Context, key CacheKey) (T, bool) {
 	if c.IsEnabled() && c.cacheImpl.IsEnabled() {
-		c.mu.RLock()
-		defer c.mu.RUnlock()
-
 		if value, found := c.cacheImpl.Get(ctx, key); found {
 			return value, true
 		}
@@ -89,9 +81,6 @@ func (c *Cache[T]) Delete(ctx context.Context, key CacheKey) error {
 		log.String("cacheName", c.cacheName))
 
 	if c.IsEnabled() && c.cacheImpl.IsEnabled() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-
 		if err := c.cacheImpl.Delete(ctx, key); err != nil {
 			logger.Warn("Failed to delete value from the cache", log.String("key", key.ToString()), log.Error(err))
 		}
@@ -107,9 +96,6 @@ func (c *Cache[T]) Clear(ctx context.Context) error {
 
 	if c.IsEnabled() && c.cacheImpl.IsEnabled() {
 		logger.Debug("Clearing all entries in the cache")
-
-		c.mu.Lock()
-		defer c.mu.Unlock()
 
 		if err := c.cacheImpl.Clear(ctx); err != nil {
 			logger.Warn("Failed to clear the cache", log.Error(err))
@@ -135,8 +121,6 @@ func (c *Cache[T]) GetStats() CacheStat {
 // CleanupExpired cleans up expired entries in the cache.
 func (c *Cache[T]) CleanupExpired() {
 	if c.IsEnabled() && c.cacheImpl.IsEnabled() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
 		c.cacheImpl.CleanupExpired()
 	}
 }

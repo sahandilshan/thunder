@@ -24,16 +24,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/authn/common"
-	authnoauth "github.com/asgardeo/thunder/internal/authn/oauth"
-	authnoidc "github.com/asgardeo/thunder/internal/authn/oidc"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	syshttp "github.com/asgardeo/thunder/internal/system/http"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	"github.com/thunder-id/thunderid/internal/authn/common"
+	authnoauth "github.com/thunder-id/thunderid/internal/authn/oauth"
+	authnoidc "github.com/thunder-id/thunderid/internal/authn/oidc"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -53,19 +52,13 @@ type googleOIDCAuthnService struct {
 }
 
 // newGoogleOIDCAuthnService creates a new instance of Google OIDC authenticator service.
-func newGoogleOIDCAuthnService(idpSvc idp.IDPServiceInterface, userProvider userprovider.UserProviderInterface,
+func newGoogleOIDCAuthnService(internal authnoidc.OIDCAuthnServiceInterface,
 	jwtSvc jwt.JWTServiceInterface) GoogleOIDCAuthnServiceInterface {
-	httpClient := syshttp.NewHTTPClient()
-	internal := authnoidc.NewOIDCAuthnService(httpClient, idpSvc, userProvider, jwtSvc)
-
-	service := &googleOIDCAuthnService{
+	return &googleOIDCAuthnService{
 		internal:   internal,
 		jwtService: jwtSvc,
 		logger:     log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName)),
 	}
-	common.RegisterAuthenticator(service.getMetadata())
-
-	return service
 }
 
 // BuildAuthorizeURL constructs the authorization request URL for Google OIDC authentication.
@@ -130,7 +123,7 @@ func (g *googleOIDCAuthnService) ValidateIDToken(
 	if oAuthClientConfig.OAuthEndpoints.JwksEndpoint != "" {
 		err := g.jwtService.VerifyJWTSignatureWithJWKS(idToken, oAuthClientConfig.OAuthEndpoints.JwksEndpoint)
 		if err != nil {
-			logger.Debug("ID token signature validation failed", log.String("error", err.Error))
+			logger.Debug("ID token signature validation failed", log.String("error", err.Error.DefaultValue))
 			return &authnoidc.ErrorInvalidIDTokenSignature
 		}
 	} else {
@@ -149,45 +142,58 @@ func (g *googleOIDCAuthnService) ValidateIDToken(
 	iss, ok := claims["iss"].(string)
 	if !ok || (iss != Issuer1 && iss != Issuer2) {
 		logger.Debug("Invalid ID token issuer", log.String("issuer", iss))
-		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken,
-			"The issuer of the ID token is not a valid Google issuer")
+		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken, core.I18nMessage{
+			Key:          "error.authnservice.google.invalid_id_token_issuer_description",
+			DefaultValue: "The issuer of the ID token is not a valid Google issuer",
+		})
 	}
 
 	// Validate audience
 	aud, ok := claims["aud"].(string)
 	if !ok || aud != oAuthClientConfig.ClientID {
 		logger.Debug("Invalid ID token audience", log.String("audience", aud),
-			log.String("clientId", log.MaskString(oAuthClientConfig.ClientID)))
-		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken,
-			"The ID token audience does not match the expected client ID")
+			log.MaskedString("clientId", oAuthClientConfig.ClientID))
+		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken, core.I18nMessage{
+			Key:          "error.authnservice.google.invalid_id_token_audience_description",
+			DefaultValue: "The ID token audience does not match the expected client ID",
+		})
 	}
 
 	// Get leeway from config to account for clock skew
-	leeway := config.GetThunderRuntime().Config.JWT.Leeway
+	leeway := config.GetServerRuntime().Config.JWT.Leeway
 
 	// Validate expiration time
 	exp, ok := claims["exp"].(float64)
 	if !ok {
 		logger.Debug("Invalid ID token expiration claim", log.Any("exp", claims["exp"]))
-		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken,
-			"The ID token expiration claim is missing or invalid")
+		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken, core.I18nMessage{
+			Key:          "error.authnservice.google.invalid_id_token_exp_claim_description",
+			DefaultValue: "The ID token expiration claim is missing or invalid",
+		})
 	}
 	if time.Now().Unix() >= int64(exp)+leeway {
 		logger.Debug("ID token has expired", log.Int("exp", int(exp)))
-		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken, "The ID token has expired")
+		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken, core.I18nMessage{
+			Key:          "error.authnservice.google.invalid_id_token_expired_description",
+			DefaultValue: "The ID token has expired",
+		})
 	}
 
 	// Check if token was issued in the future (with leeway for clock skew)
 	iat, ok := claims["iat"].(float64)
 	if !ok {
 		logger.Debug("Invalid ID token issued-at claim", log.Any("iat", claims["iat"]))
-		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken,
-			"The ID token issued-at (iat) claim is missing or invalid")
+		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken, core.I18nMessage{
+			Key:          "error.authnservice.google.invalid_id_token_iat_claim_description",
+			DefaultValue: "The ID token issued-at (iat) claim is missing or invalid",
+		})
 	}
 	if time.Now().Unix() < int64(iat)-leeway {
 		logger.Debug("ID token was issued in the future", log.Int("iat", int(iat)))
-		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken,
-			"The ID token was issued in the future")
+		return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken, core.I18nMessage{
+			Key:          "error.authnservice.google.invalid_id_token_future_iat_description",
+			DefaultValue: "The ID token was issued in the future",
+		})
 	}
 
 	// Check for specific domain if configured in additional params
@@ -198,8 +204,10 @@ func (g *googleOIDCAuthnService) ValidateIDToken(
 			if hdStr, ok := hd.(string); !ok || hdStr != domain {
 				logger.Debug("Invalid hosted domain (hd) claim", log.String("hd", hdStr),
 					log.String("expectedDomain", domain))
-				return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken,
-					"The ID token is not from the expected hosted domain: "+domain)
+				return serviceerror.CustomServiceError(authnoidc.ErrorInvalidIDToken, core.I18nMessage{
+					Key:          "error.authnservice.google.invalid_id_token_hosted_domain_description",
+					DefaultValue: "The ID token is not from the expected hosted domain: " + domain,
+				})
 			}
 		}
 	}
@@ -220,7 +228,7 @@ func (g *googleOIDCAuthnService) FetchUserInfo(ctx context.Context, idpID, acces
 }
 
 // GetInternalUser retrieves the internal user based on the external subject identifier.
-func (g *googleOIDCAuthnService) GetInternalUser(sub string) (*userprovider.User, *serviceerror.ServiceError) {
+func (g *googleOIDCAuthnService) GetInternalUser(sub string) (*entityprovider.Entity, *serviceerror.ServiceError) {
 	return g.internal.GetInternalUser(sub)
 }
 
@@ -230,11 +238,50 @@ func (g *googleOIDCAuthnService) GetOAuthClientConfig(ctx context.Context, idpID
 	return g.internal.GetOAuthClientConfig(ctx, idpID)
 }
 
-// getMetadata returns the authenticator metadata for Google OIDC authenticator.
-func (g *googleOIDCAuthnService) getMetadata() common.AuthenticatorMeta {
-	return common.AuthenticatorMeta{
-		Name:          common.AuthenticatorGoogle,
-		Factors:       []common.AuthenticationFactor{common.FactorKnowledge},
-		AssociatedIDP: idp.IDPTypeGoogle,
+// Authenticate performs the full Google OIDC authentication flow: exchanges the code for a token,
+// extracts ID token claims, and resolves the internal user.
+// A missing internal user is NOT an error — the caller decides how to handle it.
+func (g *googleOIDCAuthnService) Authenticate(ctx context.Context, idpID, code string) (
+	*common.FederatedAuthResult, *serviceerror.ServiceError) {
+	logger := g.logger.With(log.String("idpId", idpID))
+	logger.Debug("Performing federated Google OIDC authentication")
+
+	tokenResp, svcErr := g.ExchangeCodeForToken(ctx, idpID, code, true)
+	if svcErr != nil {
+		return nil, svcErr
 	}
+
+	claims, svcErr := g.GetIDTokenClaims(tokenResp.IDToken)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	sub := ""
+	if subVal, ok := claims["sub"]; ok && subVal != nil {
+		if subStr, ok := subVal.(string); ok && subStr != "" {
+			sub = subStr
+		}
+	}
+	if sub == "" {
+		logger.Debug("sub claim not found in ID token")
+		return nil, &common.ErrorSubClaimNotFound
+	}
+
+	result := &common.FederatedAuthResult{
+		Sub:    sub,
+		Claims: claims,
+	}
+	user, svcErr := g.GetInternalUser(sub)
+	if svcErr != nil {
+		if svcErr.Code == common.ErrorUserNotFound.Code {
+			return result, nil
+		}
+		if svcErr.Code == common.ErrorAmbiguousUser.Code {
+			result.IsAmbiguousUser = true
+			return result, nil
+		}
+		return nil, svcErr
+	}
+	result.InternalEntity = user
+	return result, nil
 }

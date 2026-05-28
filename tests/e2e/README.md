@@ -1,6 +1,6 @@
-# Thunder Console E2E Tests
+# ThunderID Console E2E Tests
 
-End-to-end automation test suite for the Thunder Console, built with [Playwright](https://playwright.dev/).
+End-to-end automation test suite for the Console, built with [Playwright](https://playwright.dev/).
 
 ## 📋 Overview
 
@@ -27,7 +27,7 @@ This framework uses the **Page Object Model (POM)** design pattern and Playwrigh
 
 1. Navigate to the e2e directory:
    ```bash
-   cd thunder/tests/e2e
+   cd <PROJECT_ROOT>/tests/e2e
    ```
 2. Install dependencies:
    ```bash
@@ -38,9 +38,48 @@ This framework uses the **Page Object Model (POM)** design pattern and Playwrigh
    npx playwright install --with-deps
    ```
 
+### Build the Product
+
+From the repository root, build the product if you haven't already:
+
+```bash
+make build
+```
+
+This produces the server distribution and sample app packages under `target/dist/`.
+
+### Start the Server
+
+Extract the server distribution, run setup (which bootstraps default resources and registers sample app OAuth clients), then start the server:
+
+```bash
+mkdir -p tests/e2e/server
+unzip "target/dist/thunderid-*.zip" -d tests/e2e/server
+cd tests/e2e/server && ./setup.sh
+./start.sh &
+```
+
+### Extract Sample Apps and Start the SDK Sample
+
+Extract both sample packages and start the React SDK sample app, which the e2e tests interact with:
+
+```bash
+cd <REPO_ROOT>
+mkdir -p tests/e2e/sample-app-vanilla tests/e2e/sample-app-sdk
+
+unzip "target/dist/sample-app-react-vanilla-*.zip" -d tests/e2e/sample-app-vanilla
+unzip "target/dist/sample-app-react-sdk-*.zip"    -d tests/e2e/sample-app-sdk
+
+cd tests/e2e/sample-app-sdk && ./start.sh &
+```
+
 ### Configuration
 
-Create a `.env` file in the `e2e` directory (copy from `.env.example` if available):
+Copy `.env.example` to `.env` and fill in your values:
+
+```bash
+cp .env.example .env
+```
 
 ```env
 BASE_URL=https://localhost:8090
@@ -48,6 +87,15 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin
 TEST_USER_USERNAME=testuser
 TEST_USER_PASSWORD=admin
+ENVIRONMENT=local
+
+# Sample app (used in social login / OAuth flow tests)
+SAMPLE_APP_URL=https://localhost:3000
+SAMPLE_APP_USERNAME=e2e-test-user
+SAMPLE_APP_PASSWORD=e2e-test-password
+
+# Mock SMS server port (used in MFA tests)
+MOCK_SMS_SERVER_PORT=8098
 ```
 
 ---
@@ -128,7 +176,7 @@ npm run posttest
 
 ### Authentication Flow
 
-We use Playwright's **Project Dependencies** pattern. The `setup` project runs first, authenticates the user, and saves the session state (cookies, localStorage, sessionStorage) to a JSON file. Subsequent test projects import this state.
+We use Playwright's **Project Dependencies** pattern. The `setup` project runs first, authenticates the user, and saves the session state (cookies, localStorage, sessionStorage) to a JSON file. Later test projects import this state.
 
 ```mermaid
 sequenceDiagram
@@ -181,7 +229,7 @@ tests/e2e/
 
 Follow this workflow when adding new automation:
 
-### Step 1: Define Constants & Configs
+### Step 1: Define Constants and Configurations
 
 Before writing test logic, define static values in the appropriate files:
 

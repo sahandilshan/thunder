@@ -1,0 +1,110 @@
+{
+  "id": "vue",
+  "displayName": "Vue",
+  "description": "Single Page Application built with Vue 3",
+  "defaults": {
+    "name": "Vue Application",
+    "inboundAuthConfig": [
+      {
+        "type": "oauth2",
+        "config": {
+          "grantTypes": ["authorization_code", "refresh_token"],
+          "responseTypes": ["code"],
+          "redirectUris": ["http://localhost:5173"],
+          "pkceRequired": true,
+          "tokenEndpointAuthMethod": "none",
+          "publicClient": true
+        }
+      }
+    ],
+    "allowedUserTypes": []
+  },
+  "fieldConstraints": {
+    "oauth2": {
+      "publicClient": {
+        "readOnly": true,
+        "value": true
+      },
+      "pkceRequired": {
+        "readOnly": true,
+        "value": true
+      },
+      "tokenEndpointAuthMethod": {
+        "readOnly": true,
+        "value": "none"
+      }
+    }
+  },
+  "integrationGuides": {
+    "INBUILT": {
+      "llm_prompt": {
+        "id": "llm-prompt",
+        "title": "Integrate with a Coding Agent Prompt",
+        "description": "Use AI to generate integration code for your Vue 3 application",
+        "type": "llm",
+        "icon": "sparkles",
+        "content": "# Integrate {{productName}} Authentication in Vue 3 Application\n\n## Context\nI have a Vue 3 application and I want to integrate {{productName}}'s authentication system using the @thunderid/vue SDK with {{productName}}-hosted login pages.\n\n## Requirements\n- Use @thunderid/vue SDK for authentication\n- Register the ThunderIDPlugin in main.js\n- Wrap the app with ThunderIDProvider in App.vue\n- Implement sign-in and sign-out with prebuilt components\n- Display signed-in user's profile information\n- Handle loading state during authentication\n\n## Configuration\n- **Client ID**: {{clientId}}\n- **Base URL**: https://localhost:8090 (or your {{productName}} instance URL)\n- **SDK**: @thunderid/vue\n\n## IMPORTANT Configuration Rules\n- Register ThunderIDPlugin via app.use(ThunderIDPlugin) in src/main.js\n- Import ThunderIDPlugin from '@thunderid/vue'\n- Wrap the app root in App.vue with <ThunderIDProvider client-id=\"...\" base-url=\"...\">\n- Pass configuration as kebab-case attributes: `client-id` and `base-url`\n- Import UI components (SignInButton, SignOutButton, SignedIn, SignedOut, Loading, User) from '@thunderid/vue'\n- Use <User> with a scoped slot #default=\"{ user }\" to access user profile data\n\n## Implementation Steps\n1. Create a Vue 3 app: npm create vite@latest my-vue-app -- --template vue\n2. Navigate into the project: cd my-vue-app && npm install\n3. Install @thunderid/vue: npm install @thunderid/vue\n4. Register ThunderIDPlugin in src/main.js with app.use(ThunderIDPlugin)\n5. Wrap app content with <ThunderIDProvider client-id=\"{{clientId}}\" base-url=\"https://localhost:8090\"> in src/App.vue\n6. Add SignInButton and SignOutButton inside SignedOut/SignedIn conditional wrappers\n7. Use <Loading> component to show a loading state during auth initialization\n8. Use <User> with scoped slot to display user profile details\n9. Run: npm run dev\n\nPlease provide complete, working code with proper configuration for {{productName}} authentication using the @thunderid/vue SDK."
+      },
+      "manual_steps": [
+        {
+          "step": 1,
+          "title": "Create a Vue 3 app",
+          "description": "Run the following command to create a new Vue 3 app with Vite:",
+          "code": {
+            "language": "terminal",
+            "content": "npm create vite@latest my-vue-app -- --template vue\ncd my-vue-app\nnpm install"
+          }
+        },
+        {
+          "step": 2,
+          "title": "Install @thunderid/vue",
+          "description": "The {{productName}} Vue SDK provides a plugin, prebuilt components, and helpers for authentication.",
+          "subDescription": "Run the following command to install the SDK:",
+          "code": {
+            "language": "terminal",
+            "content": "npm install @thunderid/vue"
+          }
+        },
+        {
+          "step": 3,
+          "title": "Register the ThunderIDPlugin",
+          "description": "Update src/main.js to register the ThunderID Vue plugin:",
+          "code": {
+            "language": "javascript",
+            "filename": "src/main.js",
+            "content": "import { createApp } from 'vue'\nimport { ThunderIDPlugin } from '@thunderid/vue'\nimport App from './App.vue'\nimport './style.css'\n\nconst app = createApp(App)\napp.use(ThunderIDPlugin)\napp.mount('#app')"
+          }
+        },
+        {
+          "step": 4,
+          "title": "Add <ThunderIDProvider /> and sign-in / sign-out",
+          "description": "Replace the content of src/App.vue with the following to wrap your app with ThunderIDProvider and add authentication components:",
+          "code": {
+            "language": "vue",
+            "filename": "src/App.vue",
+            "content": "<script setup>\nimport {\n  SignedIn,\n  SignedOut,\n  SignInButton,\n  SignOutButton,\n  Loading,\n} from '@thunderid/vue'\n</script>\n\n<template>\n  <ThunderIDProvider\n    client-id=\"{{clientId}}\"\n    base-url=\"https://localhost:8090\"\n  >\n    <Loading>\n      <div>Loading authentication...</div>\n    </Loading>\n\n    <header>\n      <h1>{{productName}} Auth Demo</h1>\n      <SignedIn>\n        <SignOutButton>Sign Out</SignOutButton>\n      </SignedIn>\n      <SignedOut>\n        <SignInButton>Sign In</SignInButton>\n      </SignedOut>\n    </header>\n  </ThunderIDProvider>\n</template>"
+          }
+        },
+        {
+          "step": 5,
+          "title": "Display signed-in user's profile information",
+          "description": "Update src/App.vue to use the User component with a scoped slot to display the signed-in user's profile:",
+          "code": {
+            "language": "vue",
+            "filename": "src/App.vue",
+            "content": "<script setup>\nimport {\n  SignedIn,\n  SignedOut,\n  SignInButton,\n  SignOutButton,\n  Loading,\n  User,\n} from '@thunderid/vue'\n</script>\n\n<template>\n  <ThunderIDProvider\n    client-id=\"{{clientId}}\"\n    base-url=\"https://localhost:8090\"\n  >\n    <Loading>\n      <div>Loading authentication...</div>\n    </Loading>\n\n    <header>\n      <h1>{{productName}} Auth Demo</h1>\n      <SignedIn>\n        <SignOutButton>Sign Out</SignOutButton>\n      </SignedIn>\n      <SignedOut>\n        <SignInButton>Sign In</SignInButton>\n      </SignedOut>\n    </header>\n\n    <main>\n      <SignedIn>\n        <User>\n          <template #default=\"{ user }\">\n            <div class=\"user-profile\">\n              <img\n                v-if=\"user.picture\"\n                :src=\"user.picture\"\n                :alt=\"user.name || 'User avatar'\"\n                style=\"width: 80px; height: 80px; border-radius: 50%\"\n              />\n              <h2>Welcome, {{ user.name || user.username }}!</h2>\n              <div class=\"user-details\">\n                <p><strong>Email:</strong> {{ user.email }}</p>\n                <p><strong>First Name:</strong> {{ user.given_name }}</p>\n                <p><strong>Last Name:</strong> {{ user.family_name }}</p>\n              </div>\n            </div>\n          </template>\n        </User>\n      </SignedIn>\n    </main>\n  </ThunderIDProvider>\n</template>"
+          }
+        },
+        {
+          "step": 6,
+          "title": "Run the app",
+          "description": "Start your development server and test the authentication flow:",
+          "code": {
+            "language": "terminal",
+            "content": "npm run dev"
+          }
+        }
+      ]
+    }
+  }
+}

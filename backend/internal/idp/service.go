@@ -24,11 +24,11 @@ import (
 	"errors"
 	"strings"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // IDPServiceInterface defines the interface for the IdP service.
@@ -37,6 +37,8 @@ type IDPServiceInterface interface {
 	GetIdentityProviderList(ctx context.Context) ([]BasicIDPDTO, *serviceerror.ServiceError)
 	GetIdentityProvider(ctx context.Context, idpID string) (*IDPDTO, *serviceerror.ServiceError)
 	GetIdentityProviderByName(ctx context.Context, idpName string) (*IDPDTO, *serviceerror.ServiceError)
+	GetIdentityProvidersByProperty(ctx context.Context, propertyKey,
+		propertyValue string) ([]IDPDTO, *serviceerror.ServiceError)
 	UpdateIdentityProvider(ctx context.Context, idpID string, idp *IDPDTO) (*IDPDTO, *serviceerror.ServiceError)
 	DeleteIdentityProvider(ctx context.Context, idpID string) *serviceerror.ServiceError
 }
@@ -46,6 +48,7 @@ type idpService struct {
 	idpStore      idpStoreInterface
 	transactioner transaction.Transactioner
 	logger        *log.Logger
+	uuidGenerator func() (string, error)
 }
 
 // newIDPService creates a new instance of IdPService.
@@ -54,11 +57,13 @@ func newIDPService(idpStore idpStoreInterface, transactioner transaction.Transac
 		idpStore:      idpStore,
 		transactioner: transactioner,
 		logger:        log.GetLogger().With(log.String(log.LoggerKeyComponentName, "IdPService")),
+		uuidGenerator: utils.GenerateUUIDv7,
 	}
 }
 
 // CreateIdentityProvider creates a new Identity Provider.
-func (is *idpService) CreateIdentityProvider(ctx context.Context, idp *IDPDTO) (*IDPDTO, *serviceerror.ServiceError) {
+func (is *idpService) CreateIdentityProvider(
+	ctx context.Context, idp *IDPDTO) (*IDPDTO, *serviceerror.ServiceError) {
 	logger := is.logger
 	if isDeclarativeModeEnabled() {
 		return nil, &declarativeresource.ErrorDeclarativeResourceCreateOperation
@@ -68,14 +73,19 @@ func (is *idpService) CreateIdentityProvider(ctx context.Context, idp *IDPDTO) (
 		return nil, svcErr
 	}
 
-	id, err := utils.GenerateUUIDv7()
-	if err != nil {
-		logger.Error("failed to generate ID for identity provider", log.Error(err))
-		return nil, &serviceerror.InternalServerError
+	if idp.ID == "" {
+		id, genErr := is.uuidGenerator()
+		if genErr != nil {
+			logger.Error("failed to generate ID for identity provider", log.Error(genErr))
+			return nil, &serviceerror.InternalServerError
+		}
+		idp.ID = id
 	}
-	idp.ID = id
 
-	var svcErr *serviceerror.ServiceError
+	var (
+		err    error
+		svcErr *serviceerror.ServiceError
+	)
 	err = is.transactioner.Transact(ctx, func(txCtx context.Context) error {
 		// Check if an identity provider with the same name already exists
 		existingIDP, err := is.idpStore.GetIdentityProviderByName(txCtx, idp.Name)
@@ -158,6 +168,28 @@ func (is *idpService) GetIdentityProviderByName(ctx context.Context,
 	}
 
 	return idp, nil
+}
+
+// GetIdentityProvidersByProperty retrieves identity providers matching a given property key and value.
+func (is *idpService) GetIdentityProvidersByProperty(ctx context.Context,
+	propertyKey, propertyValue string) ([]IDPDTO, *serviceerror.ServiceError) {
+	logger := is.logger
+	if strings.TrimSpace(propertyKey) == "" || strings.TrimSpace(propertyValue) == "" {
+		return nil, &ErrorInvalidIDPID
+	}
+
+	idps, err := is.idpStore.GetIdentityProvidersByProperty(ctx, propertyKey, propertyValue)
+	if err != nil {
+		if errors.Is(err, ErrIDPNotFound) {
+			return nil, &ErrorIDPNotFound
+		}
+		logger.Error("Failed to get identity providers by property",
+			log.String("propertyKey", propertyKey),
+			log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+
+	return idps, nil
 }
 
 // UpdateIdentityProvider updates an existing Identity Provider.

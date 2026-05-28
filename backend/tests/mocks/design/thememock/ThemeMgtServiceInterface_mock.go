@@ -5,9 +5,9 @@
 package thememock
 
 import (
-	"github.com/asgardeo/thunder/internal/design/theme/mgt"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/design/theme/mgt"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // NewThemeMgtServiceInterfaceMock creates a new instance of ThemeMgtServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -38,7 +38,7 @@ func (_m *ThemeMgtServiceInterfaceMock) EXPECT() *ThemeMgtServiceInterfaceMock_E
 }
 
 // CreateTheme provides a mock function for the type ThemeMgtServiceInterfaceMock
-func (_mock *ThemeMgtServiceInterfaceMock) CreateTheme(theme thememgt.CreateThemeRequest) (*thememgt.Theme, *serviceerror.ServiceError) {
+func (_mock *ThemeMgtServiceInterfaceMock) CreateTheme(theme thememgt.CreateThemeRequestWithID) (*thememgt.Theme, *serviceerror.ServiceError) {
 	ret := _mock.Called(theme)
 
 	if len(ret) == 0 {
@@ -47,17 +47,17 @@ func (_mock *ThemeMgtServiceInterfaceMock) CreateTheme(theme thememgt.CreateThem
 
 	var r0 *thememgt.Theme
 	var r1 *serviceerror.ServiceError
-	if returnFunc, ok := ret.Get(0).(func(thememgt.CreateThemeRequest) (*thememgt.Theme, *serviceerror.ServiceError)); ok {
+	if returnFunc, ok := ret.Get(0).(func(thememgt.CreateThemeRequestWithID) (*thememgt.Theme, *serviceerror.ServiceError)); ok {
 		return returnFunc(theme)
 	}
-	if returnFunc, ok := ret.Get(0).(func(thememgt.CreateThemeRequest) *thememgt.Theme); ok {
+	if returnFunc, ok := ret.Get(0).(func(thememgt.CreateThemeRequestWithID) *thememgt.Theme); ok {
 		r0 = returnFunc(theme)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*thememgt.Theme)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(thememgt.CreateThemeRequest) *serviceerror.ServiceError); ok {
+	if returnFunc, ok := ret.Get(1).(func(thememgt.CreateThemeRequestWithID) *serviceerror.ServiceError); ok {
 		r1 = returnFunc(theme)
 	} else {
 		if ret.Get(1) != nil {
@@ -73,16 +73,16 @@ type ThemeMgtServiceInterfaceMock_CreateTheme_Call struct {
 }
 
 // CreateTheme is a helper method to define mock.On call
-//   - theme thememgt.CreateThemeRequest
+//   - theme thememgt.CreateThemeRequestWithID
 func (_e *ThemeMgtServiceInterfaceMock_Expecter) CreateTheme(theme interface{}) *ThemeMgtServiceInterfaceMock_CreateTheme_Call {
 	return &ThemeMgtServiceInterfaceMock_CreateTheme_Call{Call: _e.mock.On("CreateTheme", theme)}
 }
 
-func (_c *ThemeMgtServiceInterfaceMock_CreateTheme_Call) Run(run func(theme thememgt.CreateThemeRequest)) *ThemeMgtServiceInterfaceMock_CreateTheme_Call {
+func (_c *ThemeMgtServiceInterfaceMock_CreateTheme_Call) Run(run func(theme thememgt.CreateThemeRequestWithID)) *ThemeMgtServiceInterfaceMock_CreateTheme_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 thememgt.CreateThemeRequest
+		var arg0 thememgt.CreateThemeRequestWithID
 		if args[0] != nil {
-			arg0 = args[0].(thememgt.CreateThemeRequest)
+			arg0 = args[0].(thememgt.CreateThemeRequestWithID)
 		}
 		run(
 			arg0,
@@ -96,7 +96,7 @@ func (_c *ThemeMgtServiceInterfaceMock_CreateTheme_Call) Return(theme1 *thememgt
 	return _c
 }
 
-func (_c *ThemeMgtServiceInterfaceMock_CreateTheme_Call) RunAndReturn(run func(theme thememgt.CreateThemeRequest) (*thememgt.Theme, *serviceerror.ServiceError)) *ThemeMgtServiceInterfaceMock_CreateTheme_Call {
+func (_c *ThemeMgtServiceInterfaceMock_CreateTheme_Call) RunAndReturn(run func(theme thememgt.CreateThemeRequestWithID) (*thememgt.Theme, *serviceerror.ServiceError)) *ThemeMgtServiceInterfaceMock_CreateTheme_Call {
 	_c.Call.Return(run)
 	return _c
 }

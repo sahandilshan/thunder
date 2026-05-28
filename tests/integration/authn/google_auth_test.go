@@ -27,7 +27,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -45,14 +45,14 @@ var googleAuthTestOU = testutils.OrganizationUnit{
 	Parent:      nil,
 }
 
-var googleUserSchema = testutils.UserSchema{
+var googleEntityType = testutils.UserType{
 	Name: "google_user",
 	Schema: map[string]interface{}{
 		"username": map[string]interface{}{
 			"type": "string",
 		},
 		"password": map[string]interface{}{
-			"type": "string",
+			"type":       "string",
 			"credential": true,
 		},
 		"sub": map[string]interface{}{
@@ -75,7 +75,7 @@ type GoogleAuthTestSuite struct {
 	mockGoogleServer *testutils.MockGoogleOIDCServer
 	idpID            string
 	userID           string
-	userSchemaID     string
+	entityTypeID     string
 	ouID             string
 }
 
@@ -107,10 +107,10 @@ func (suite *GoogleAuthTestSuite) SetupSuite() {
 	suite.Require().NoError(err, "Failed to create test organization unit")
 	suite.ouID = ouID
 
-	googleUserSchema.OUID = suite.ouID
-	schemaID, err := testutils.CreateUserType(googleUserSchema)
-	suite.Require().NoError(err, "Failed to create Google user schema")
-	suite.userSchemaID = schemaID
+	googleEntityType.OUID = suite.ouID
+	schemaID, err := testutils.CreateUserType(googleEntityType)
+	suite.Require().NoError(err, "Failed to create Google user type")
+	suite.entityTypeID = schemaID
 
 	userAttributes := map[string]interface{}{
 		"username":   "googleuser",
@@ -125,9 +125,9 @@ func (suite *GoogleAuthTestSuite) SetupSuite() {
 	suite.Require().NoError(err)
 
 	user := testutils.User{
-		Type:             googleUserSchema.Name,
-		OUID:             suite.ouID,
-		Attributes:       json.RawMessage(attributesJSON),
+		Type:       googleEntityType.Name,
+		OUID:       suite.ouID,
+		Attributes: json.RawMessage(attributesJSON),
 	}
 
 	userID, err := testutils.CreateUser(user)
@@ -192,8 +192,8 @@ func (suite *GoogleAuthTestSuite) TearDownSuite() {
 		_ = testutils.DeleteUser(suite.userID)
 	}
 
-	if suite.userSchemaID != "" {
-		_ = testutils.DeleteUserType(suite.userSchemaID)
+	if suite.entityTypeID != "" {
+		_ = testutils.DeleteUserType(suite.entityTypeID)
 	}
 
 	if suite.idpID != "" {
@@ -265,7 +265,7 @@ func (suite *GoogleAuthTestSuite) TestGoogleAuthStartInvalidIDPID() {
 	err = json.NewDecoder(resp.Body).Decode(&errorResponse)
 	suite.Require().NoError(err)
 	suite.NotEmpty(errorResponse.Code)
-	suite.NotEmpty(errorResponse.Message)
+	suite.NotEmpty(errorResponse.Message.DefaultValue)
 }
 
 func (suite *GoogleAuthTestSuite) TestGoogleAuthStartMissingIDPID() {
@@ -315,7 +315,7 @@ func (suite *GoogleAuthTestSuite) TestGoogleAuthCompleteFlowSuccess() {
 
 	finishRequest := map[string]interface{}{
 		"sessionToken": sessionToken,
-		"code":          authCode,
+		"code":         authCode,
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
 	suite.Require().NoError(err)
@@ -344,7 +344,7 @@ func (suite *GoogleAuthTestSuite) TestGoogleAuthCompleteFlowSuccess() {
 func (suite *GoogleAuthTestSuite) TestGoogleAuthFinishInvalidSessionToken() {
 	finishRequest := map[string]interface{}{
 		"sessionToken": "invalid-session-token",
-		"code":          "some-auth-code",
+		"code":         "some-auth-code",
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
 	suite.Require().NoError(err)
@@ -411,7 +411,7 @@ func (suite *GoogleAuthTestSuite) TestGoogleAuthCompleteFlowWithSkipAssertionFal
 
 	finishRequest := map[string]interface{}{
 		"sessionToken":  sessionToken,
-		"code":           authCode,
+		"code":          authCode,
 		"skipAssertion": false,
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
@@ -469,7 +469,7 @@ func (suite *GoogleAuthTestSuite) TestGoogleAuthCompleteFlowWithSkipAssertionTru
 
 	finishRequest := map[string]interface{}{
 		"sessionToken":  sessionToken,
-		"code":           authCode,
+		"code":          authCode,
 		"skipAssertion": true,
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
@@ -570,7 +570,7 @@ func (suite *GoogleAuthTestSuite) TestGoogleAuthWithAssuranceLevelAAL1() {
 	// Step 3: Finish Google authentication
 	finishReq := map[string]interface{}{
 		"sessionToken": sessionToken,
-		"code":          code,
+		"code":         code,
 	}
 	finishReqJSON, err := json.Marshal(finishReq)
 	suite.Require().NoError(err)
@@ -629,7 +629,7 @@ func (suite *GoogleAuthTestSuite) TestGoogleAuthWithSkipAssertion() {
 	// Finish with skipAssertion=true
 	finishReq := map[string]interface{}{
 		"sessionToken":  sessionToken,
-		"code":           code,
+		"code":          code,
 		"skipAssertion": true,
 	}
 	finishReqJSON, err := json.Marshal(finishReq)

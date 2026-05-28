@@ -26,13 +26,12 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // CacheManagerInterface defines the interface for managing caches.
 type CacheManagerInterface interface {
-	Init()
 	Close()
 	IsEnabled() bool
 	getMutex() *sync.RWMutex
@@ -53,40 +52,36 @@ type CacheManager struct {
 	redisClient     *redis.Client
 }
 
-var (
-	instance CacheManagerInterface
-	once     sync.Once
-)
-
-// GetCacheManager returns a singleton instance of CacheManager.
-func GetCacheManager() CacheManagerInterface {
-	once.Do(func() {
-		instance = &CacheManager{
-			caches: make(map[string]interface{}),
-		}
-	})
-	return instance
-}
-
-// Init initializes the CacheManager, setting up caches and starting cleanup routines.
-func (cm *CacheManager) Init() {
+// Initialize creates and returns a new CacheManagerInterface instance.
+// Initialize creates, configures, and returns a ready-to-use CacheManagerInterface.
+func Initialize() CacheManagerInterface {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CacheManager"))
 	logger.Debug("Initializing Cache Manager")
 
-	cacheConfig := config.GetThunderRuntime().Config.Cache
+	cm := &CacheManager{
+		caches: make(map[string]interface{}),
+	}
+
+	cacheConfig := config.GetServerRuntime().Config.Cache
 	if cacheConfig.Disabled {
-		cm.enabled = false
 		logger.Debug("Caching is disabled. Skipping initialization")
-		return
+		return cm
 	}
 
 	cm.enabled = true
 
 	if getCacheType(cacheConfig) == cacheTypeRedis {
 		cm.redisClient = redis.NewClient(&redis.Options{
-			Addr:     cacheConfig.Redis.Address,
-			Password: cacheConfig.Redis.Password,
-			DB:       cacheConfig.Redis.DB,
+			Addr:            cacheConfig.Redis.Address,
+			Username:        cacheConfig.Redis.Username,
+			Password:        cacheConfig.Redis.Password,
+			DB:              cacheConfig.Redis.DB,
+			MaxRetries:      cacheConfig.Redis.MaxRetries,
+			MinRetryBackoff: time.Duration(cacheConfig.Redis.MinRetryBackoffMS) * time.Millisecond,
+			MaxRetryBackoff: time.Duration(cacheConfig.Redis.MaxRetryBackoffMS) * time.Millisecond,
+			DialTimeout:     time.Duration(cacheConfig.Redis.DialTimeoutMS) * time.Millisecond,
+			ReadTimeout:     time.Duration(cacheConfig.Redis.ReadTimeoutMS) * time.Millisecond,
+			WriteTimeout:    time.Duration(cacheConfig.Redis.WriteTimeoutMS) * time.Millisecond,
 		})
 		if err := cm.redisClient.Ping(context.Background()).Err(); err != nil {
 			logger.Error("Failed to connect to Redis. Cache initialization aborted.", log.Error(err))
@@ -95,7 +90,7 @@ func (cm *CacheManager) Init() {
 			}
 			cm.redisClient = nil
 			cm.enabled = false
-			return
+			return cm
 		}
 		logger.Debug("Connected to Redis successfully", log.String("address", cacheConfig.Redis.Address))
 	} else {
@@ -105,6 +100,7 @@ func (cm *CacheManager) Init() {
 
 	logger.Debug("Cache Manager initialized", log.Bool("enabled", cm.enabled),
 		log.Any("cleanupInterval", cm.cleanupInterval))
+	return cm
 }
 
 // Close shuts down the CacheManager and releases resources.
@@ -158,6 +154,10 @@ func (cm *CacheManager) getRedisClient() *redis.Client {
 
 // startCleanupRoutine starts a background routine to clean up expired caches at regular intervals.
 func (cm *CacheManager) startCleanupRoutine() {
+	if cm.cleanupInterval <= 0 {
+		return
+	}
+
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CacheManager"))
 	logger.Debug("Starting cleanup routine for caches")
 
@@ -205,12 +205,26 @@ func (cm *CacheManager) reset() {
 	cm.enabled = false
 }
 
+// buildRedisKeyPrefix composes the Redis key prefix with deployment ID for per-deployment isolation.
+func buildRedisKeyPrefix(basePrefix string) string {
+	deploymentID := config.GetServerRuntime().Config.Server.Identifier
+	if deploymentID == "" {
+		return basePrefix
+	}
+
+	if basePrefix == "" {
+		return deploymentID
+	}
+
+	return basePrefix + ":" + deploymentID
+}
+
 // newCache creates a new cache instance.
-func newCache[T any](cacheName string) CacheInterface[T] {
+func newCache[T any](cm CacheManagerInterface, cacheName string) CacheInterface[T] {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CacheManager"),
 		log.String("cacheName", cacheName))
 
-	cacheConfig := config.GetThunderRuntime().Config.Cache
+	cacheConfig := config.GetServerRuntime().Config.Cache
 	if cacheConfig.Disabled {
 		logger.Debug("Caching is disabled, returning empty")
 		return &Cache[T]{
@@ -243,7 +257,7 @@ func newCache[T any](cacheName string) CacheInterface[T] {
 			cacheProperty,
 		)
 	case cacheTypeRedis:
-		redisClient := GetCacheManager().getRedisClient()
+		redisClient := cm.getRedisClient()
 		if redisClient == nil {
 			logger.Warn("Redis client not available, disabling cache")
 			return &Cache[T]{
@@ -252,7 +266,7 @@ func newCache[T any](cacheName string) CacheInterface[T] {
 				cacheImpl: nil,
 			}
 		} else {
-			keyPrefix := cacheConfig.Redis.KeyPrefix
+			keyPrefix := buildRedisKeyPrefix(cacheConfig.Redis.KeyPrefix)
 			internalCache = newRedisCache[T](
 				cacheName,
 				!cacheProperty.Disabled,
@@ -272,20 +286,18 @@ func newCache[T any](cacheName string) CacheInterface[T] {
 		)
 	}
 
-	cache := &Cache[T]{
+	cacheInst := &Cache[T]{
 		enabled:   true,
 		cacheName: cacheName,
 		cacheImpl: internalCache,
 	}
 
-	return cache
+	return cacheInst
 }
 
-// GetInMemoryCache returns a singleton in-memory cache instance for the given type and cache name,
-func GetInMemoryCache[T any](cacheName string) CacheInterface[T] {
+// GetInMemoryCache returns a singleton in-memory cache instance for the given type and cache name.
+func GetInMemoryCache[T any](cm CacheManagerInterface, cacheName string) CacheInterface[T] {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CacheManager"))
-
-	cm := GetCacheManager()
 
 	var t T
 	typeName := reflect.TypeOf(t).String()
@@ -312,7 +324,7 @@ func GetInMemoryCache[T any](cacheName string) CacheInterface[T] {
 
 	logger.Debug("Creating new in-memory cache", log.String("cacheName", cacheName), log.String("type", typeName))
 
-	cacheConfig := config.GetThunderRuntime().Config.Cache
+	cacheConfig := config.GetServerRuntime().Config.Cache
 	cacheProperty := getCacheProperty(cacheConfig, cacheName)
 
 	var internalCache CacheInterface[T]
@@ -322,20 +334,18 @@ func GetInMemoryCache[T any](cacheName string) CacheInterface[T] {
 		internalCache = newInMemoryCache[T](cacheName, true, cacheConfig, cacheProperty)
 	}
 
-	newCache := &Cache[T]{
+	newCacheInst := &Cache[T]{
 		enabled:   !cacheConfig.Disabled && !cacheProperty.Disabled,
 		cacheName: cacheName,
 		cacheImpl: internalCache,
 	}
-	cm.addCache(cacheKey, newCache)
-	return newCache
+	cm.addCache(cacheKey, newCacheInst)
+	return newCacheInst
 }
 
 // GetCache returns a singleton cache instance for the given type and cache name.
-func GetCache[T any](cacheName string) CacheInterface[T] {
+func GetCache[T any](cm CacheManagerInterface, cacheName string) CacheInterface[T] {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CacheManager"))
-
-	cm := GetCacheManager()
 
 	// Create unique key for the cache
 	var t T
@@ -372,10 +382,10 @@ func GetCache[T any](cacheName string) CacheInterface[T] {
 
 	// Create a new cache
 	logger.Debug("Creating new cache", log.String("cacheName", cacheName), log.String("type", typeName))
-	newCache := newCache[T](cacheName)
-	cm.addCache(cacheKey, newCache)
+	newCacheInst := newCache[T](cm, cacheName)
+	cm.addCache(cacheKey, newCacheInst)
 
-	return newCache
+	return newCacheInst
 }
 
 // getCacheType retrieves the cache type from the configuration.

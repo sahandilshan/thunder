@@ -20,18 +20,20 @@ package executor
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
-	authnoauth "github.com/asgardeo/thunder/internal/authn/oauth"
-	authnoidc "github.com/asgardeo/thunder/internal/authn/oidc"
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userschema"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	authnoauth "github.com/thunder-id/thunderid/internal/authn/oauth"
+	authnoidc "github.com/thunder-id/thunderid/internal/authn/oidc"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/idp"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	systemutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const (
@@ -44,14 +46,15 @@ var idTokenNonUserAttributes = []string{"aud", "exp", "iat", "iss", "at_hash", "
 // oidcAuthExecutorInterface defines the interface for OIDC authentication executors.
 type oidcAuthExecutorInterface interface {
 	oAuthExecutorInterface
-	GetIDTokenClaims(execResp *common.ExecutorResponse, idToken string) (map[string]interface{}, error)
 }
 
 // oidcAuthExecutor implements the OIDCAuthExecutorInterface for handling generic OIDC authentication flows.
 type oidcAuthExecutor struct {
 	oAuthExecutorInterface
-	authService authnoidc.OIDCAuthnCoreServiceInterface
-	logger      *log.Logger
+	authService   authnoidc.OIDCAuthnCoreServiceInterface
+	authnProvider authnprovidermgr.AuthnProviderManagerInterface
+	idpType       idp.IDPType
+	logger        *log.Logger
 }
 
 var _ core.ExecutorInterface = (*oidcAuthExecutor)(nil)
@@ -62,8 +65,10 @@ func newOIDCAuthExecutor(
 	defaultInputs, prerequisites []common.Input,
 	flowFactory core.FlowFactoryInterface,
 	idpService idp.IDPServiceInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
+	entityTypeService entitytype.EntityTypeServiceInterface,
 	authService authnoidc.OIDCAuthnCoreServiceInterface,
+	authnProvider authnprovidermgr.AuthnProviderManagerInterface,
+	idpType idp.IDPType,
 ) oidcAuthExecutorInterface {
 	if name == "" {
 		name = ExecutorNameOIDCAuth
@@ -77,18 +82,20 @@ func newOIDCAuthExecutor(
 	}
 
 	base := newOAuthExecutor(name, defaultInputs, prerequisites,
-		flowFactory, idpService, userSchemaService, oauthSvcCast)
+		flowFactory, idpService, entityTypeService, oauthSvcCast, authnProvider, idpType)
 
 	return &oidcAuthExecutor{
 		oAuthExecutorInterface: base,
 		authService:            authService,
+		authnProvider:          authnProvider,
+		idpType:                idpType,
 		logger:                 logger,
 	}
 }
 
 // Execute executes the OIDC authentication logic.
 func (o *oidcAuthExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := o.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := o.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing OIDC authentication executor")
 
 	execResp := &common.ExecutorResponse{
@@ -119,7 +126,7 @@ func (o *oidcAuthExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorRespo
 // ProcessAuthFlowResponse processes the response from the OIDC authentication flow and authenticates the user.
 func (o *oidcAuthExecutor) ProcessAuthFlowResponse(ctx *core.NodeContext,
 	execResp *common.ExecutorResponse) error {
-	logger := o.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := o.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Processing OIDC authentication response")
 
 	code, ok := ctx.UserInputs[userInputCode]
@@ -130,54 +137,86 @@ func (o *oidcAuthExecutor) ProcessAuthFlowResponse(ctx *core.NodeContext,
 		return nil
 	}
 
-	tokenResp, err := o.ExchangeCodeForToken(ctx, execResp, code)
-	if err != nil {
-		return err
-	}
-	if execResp.Status == common.ExecFailure {
-		return nil
+	// Validate the OAuth state parameter to prevent CSRF attacks.
+	// State is validated only when the client sends it back. Clients that handle CSRF
+	// protection client-side (e.g., via sessionStorage) may omit it.
+	if returnedState, ok := ctx.UserInputs[userInputState]; ok && returnedState != "" {
+		expectedState := ctx.RuntimeData[common.RuntimeKeyOAuthState]
+		if returnedState != expectedState {
+			logger.Debug("OAuth state mismatch")
+			execResp.Status = common.ExecFailure
+			execResp.FailureReason = "Invalid OAuth state parameter"
+			return nil
+		}
+		delete(ctx.RuntimeData, common.RuntimeKeyOAuthState)
 	}
 
-	idTokenClaims, err := o.GetIDTokenClaims(execResp, tokenResp.IDToken)
+	idpID, err := o.GetIdpID(ctx)
 	if err != nil {
 		return err
 	}
-	if execResp.Status == common.ExecFailure {
-		return nil
+
+	credentials := map[string]interface{}{
+		"federated": &authncm.FederatedAuthCredential{
+			IDPID:   idpID,
+			IDPType: o.idpType,
+			Code:    code,
+		},
+	}
+	newAuthUser, basicResult, svcErr := o.authnProvider.AuthenticateUser(
+		ctx.Context, nil, credentials, nil, nil, ctx.AuthUser)
+	if svcErr != nil {
+		if svcErr.Type == serviceerror.ClientErrorType {
+			execResp.Status = common.ExecFailure
+			execResp.FailureReason = svcErr.ErrorDescription.DefaultValue
+			return nil
+		}
+
+		logger.Error("OIDC authentication failed", log.String("errorCode", svcErr.Code),
+			log.String("errorDescription", svcErr.ErrorDescription.DefaultValue))
+		return errors.New("OIDC authentication failed")
+	}
+
+	if basicResult == nil {
+		logger.Error("authnProvider.AuthenticateUser returned nil result")
+		return errors.New("OIDC authentication failed")
 	}
 
 	// Validate nonce if configured
 	if nonce, ok := ctx.UserInputs[userInputNonce]; ok && nonce != "" {
-		if idTokenClaims[userInputNonce] != nonce {
+		claimNonce := basicResult.ExternalClaims[userInputNonce]
+		if claimNonce != nonce {
 			execResp.Status = common.ExecFailure
 			execResp.FailureReason = "Nonce mismatch in ID token claims."
 			return nil
 		}
 	}
 
-	// Extract sub claim from the id token claims
-	parsedSub := ""
-	sub, ok := idTokenClaims[userAttributeSub]
-	if ok && sub != "" {
-		if subStr, ok := sub.(string); ok && subStr != "" {
-			parsedSub = subStr
+	if !validateFederatedIdentifierConsistency(ctx, basicResult) {
+		execResp.Status = common.ExecFailure
+		execResp.FailureReason = "Invalid federated user"
+		return nil
+	}
+
+	sub := basicResult.ExternalSub
+
+	if basicResult.IsAmbiguousUser {
+		if execResp.RuntimeData == nil {
+			execResp.RuntimeData = make(map[string]string)
+		}
+		execResp.RuntimeData[common.RuntimeKeyUserAmbiguous] = dataValueTrue
+	}
+
+	var internalUser *entityprovider.Entity
+	if basicResult.IsExistingUser {
+		internalUser = &entityprovider.Entity{
+			ID:   basicResult.UserID,
+			OUID: basicResult.OUID,
+			Type: basicResult.UserType,
 		}
 	}
-	if parsedSub == "" {
-		execResp.Status = common.ExecFailure
-		execResp.FailureReason = "sub claim not found in the ID token."
-		return nil
-	}
 
-	internalUser, err := o.GetInternalUser(parsedSub, execResp)
-	if err != nil {
-		return err
-	}
-	if execResp.Status == common.ExecFailure {
-		return nil
-	}
-
-	contextUser, err := o.ResolveContextUser(ctx, execResp, parsedSub, internalUser)
+	contextUser, err := o.ResolveContextUser(ctx, execResp, sub, internalUser, basicResult.IsAmbiguousUser)
 	if err != nil {
 		return err
 	}
@@ -185,100 +224,27 @@ func (o *oidcAuthExecutor) ProcessAuthFlowResponse(ctx *core.NodeContext,
 		return nil
 	}
 	if contextUser == nil {
-		logger.Error("Failed to resolve context user after OAuth authentication")
+		logger.Error("Failed to resolve context user after OIDC authentication")
 		return errors.New("unexpected error occurred while resolving user")
 	}
 
-	attributes, err := o.getContextUserAttributes(ctx, execResp, idTokenClaims, tokenResp.AccessToken)
-	if err != nil {
-		return err
-	}
-	if execResp.Status == common.ExecFailure {
-		return nil
-	}
-
-	contextUser.Attributes = attributes
+	contextUser.Attributes = o.getContextUserAttributes(execResp, basicResult.ExternalClaims)
 	execResp.AuthenticatedUser = *contextUser
+	execResp.AuthUser = newAuthUser
 
 	return nil
 }
 
-// GetIDTokenClaims extracts the ID token claims from the provided ID token.
-func (o *oidcAuthExecutor) GetIDTokenClaims(execResp *common.ExecutorResponse,
-	idToken string) (map[string]interface{}, error) {
-	logger := o.logger
-	logger.Debug("Extracting claims from the ID token")
-
-	claims, svcErr := o.authService.GetIDTokenClaims(idToken)
-	if svcErr != nil {
-		if svcErr.Type == serviceerror.ClientErrorType {
-			execResp.Status = common.ExecFailure
-			execResp.FailureReason = svcErr.ErrorDescription
-			return nil, nil
-		}
-
-		logger.Error("Failed to extract claims from the ID token", log.String("errorCode", svcErr.Code),
-			log.String("errorDescription", svcErr.ErrorDescription))
-		return nil, errors.New("failed to extract claims from the ID token")
-	}
-
-	return claims, nil
-}
-
-// getContextUserAttributes retrieves user attributes from the ID token claims and user info endpoint.
+// getContextUserAttributes extracts user-facing attributes from the external claims map.
 // TODO: Need to convert attributes as per the IDP to local attribute mapping when the support is implemented.
-func (o *oidcAuthExecutor) getContextUserAttributes(ctx *core.NodeContext, execResp *common.ExecutorResponse,
-	idTokenClaims map[string]interface{}, accessToken string) (map[string]interface{}, error) {
-	logger := o.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+func (o *oidcAuthExecutor) getContextUserAttributes(execResp *common.ExecutorResponse,
+	claims map[string]interface{}) map[string]interface{} {
 	userClaims := make(map[string]interface{})
 
-	// Resolve and add ID token claims
-	if len(idTokenClaims) != 0 {
-		for attr, val := range idTokenClaims {
-			if !slices.Contains(idTokenNonUserAttributes, attr) {
-				userClaims[attr] = val
-			}
+	for attr, val := range claims {
+		if !slices.Contains(idTokenNonUserAttributes, attr) {
+			userClaims[attr] = systemutils.ConvertInterfaceValueToString(val)
 		}
-		logger.Debug("Extracted ID token claims", log.Int("noOfClaims", len(idTokenClaims)))
-	}
-
-	// Retrieve IDP and check for additional scopes
-	idpID, err := o.GetIdpID(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	oauthConfigs, svcErr := o.authService.GetOAuthClientConfig(ctx.Context, idpID)
-	if svcErr != nil {
-		if svcErr.Type == serviceerror.ClientErrorType {
-			execResp.Status = common.ExecFailure
-			execResp.FailureReason = fmt.Sprintf("failed to retrieve OAuth client configuration: %s",
-				svcErr.ErrorDescription)
-			return nil, nil
-		}
-
-		logger.Error("Failed to retrieve OAuth client configuration", log.String("errorCode", svcErr.Code),
-			log.String("errorDescription", svcErr.ErrorDescription))
-		return nil, errors.New("failed to retrieve OAuth client configuration")
-	}
-
-	// If additional scopes are configured, retrieve user info
-	if len(oauthConfigs.Scopes) > 1 {
-		userInfo, err := o.GetUserInfo(ctx, execResp, accessToken)
-		if err != nil {
-			return nil, err
-		}
-		if execResp.Status == common.ExecFailure {
-			return nil, nil
-		}
-
-		for key, value := range userInfo {
-			if !slices.Contains(userInfoSkipAttributes, key) {
-				userClaims[key] = value
-			}
-		}
-	} else {
-		logger.Debug("No additional scopes configured.")
 	}
 
 	// Append email to runtime data if available.
@@ -291,5 +257,5 @@ func (o *oidcAuthExecutor) getContextUserAttributes(ctx *core.NodeContext, execR
 		}
 	}
 
-	return userClaims, nil
+	return userClaims
 }

@@ -24,6 +24,7 @@ type AssigneeType string
 const (
 	AssigneeTypeUser  AssigneeType = "user"
 	AssigneeTypeGroup AssigneeType = "group"
+	AssigneeTypeApp   AssigneeType = "app"
 )
 
 // Assignment represents a role assignment
@@ -35,37 +36,37 @@ type Assignment struct {
 
 // CreateRoleRequest represents the request to create a role
 type CreateRoleRequest struct {
-	Name               string                `json:"name"`
-	Description        string                `json:"description,omitempty"`
-	OUID               string                `json:"ouId"`
-	Permissions        []ResourcePermissions `json:"permissions"`
-	Assignments        []Assignment          `json:"assignments,omitempty"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	OUID        string                `json:"ouId"`
+	Permissions []ResourcePermissions `json:"permissions"`
+	Assignments []Assignment          `json:"assignments,omitempty"`
 }
 
 // UpdateRoleRequest represents the request to update a role
 type UpdateRoleRequest struct {
-	Name               string                `json:"name"`
-	Description        string                `json:"description,omitempty"`
-	OUID               string                `json:"ouId"`
-	Permissions        []ResourcePermissions `json:"permissions"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	OUID        string                `json:"ouId"`
+	Permissions []ResourcePermissions `json:"permissions"`
 }
 
 // Role represents a complete role resource
 type Role struct {
-	ID                 string                `json:"id"`
-	Name               string                `json:"name"`
-	Description        string                `json:"description,omitempty"`
-	OUID               string                `json:"ouId"`
-	Permissions        []ResourcePermissions `json:"permissions"`
-	Assignments        []Assignment          `json:"assignments,omitempty"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	OUID        string                `json:"ouId"`
+	Permissions []ResourcePermissions `json:"permissions"`
+	Assignments []Assignment          `json:"assignments,omitempty"`
 }
 
 // RoleSummary represents a minimal role information
 type RoleSummary struct {
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	Description        string `json:"description,omitempty"`
-	OUID               string `json:"ouId"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	OUID        string `json:"ouId"`
 }
 
 // Link represents a pagination link

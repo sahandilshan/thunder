@@ -16,7 +16,7 @@
  * under the License.
  */
 
-// Package main is the entry point for starting the Thunder server.
+// Package main is the entry point for starting the server.
 package main
 
 import (
@@ -33,15 +33,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/system/cache"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/crypto/pki"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/middleware"
-	"github.com/asgardeo/thunder/internal/system/security"
+	"github.com/thunder-id/thunderid/internal/system/cache"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/cors"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/kmprovider/defaultkm/pki"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/system/security"
 )
 
 // shutdownTimeout defines the timeout duration for graceful shutdown.
@@ -56,15 +57,25 @@ func main() {
 	startupStartedAt := time.Now()
 	logger := log.GetLogger()
 
-	thunderHome := getThunderHome(logger)
+	serverHome := getThunderHome(logger)
 
-	cfg := initThunderConfigurations(logger, thunderHome)
+	cfg := initThunderConfigurations(logger, serverHome)
 	if cfg == nil {
 		logger.Fatal("Failed to initialize configurations")
 	}
 
+	// Install the CORS allowed-origins matcher used by the HTTP middleware.
+	// Compilation errors are already surfaced by config validation; this call
+	// rebuilds the rules and installs them as the cors package singleton.
+	if err := cors.InitializeMatcher(cfg.CORS.AllowedOrigins); err != nil {
+		logger.Fatal("Failed to initialize CORS matcher", log.Error(err))
+	}
+
 	// Initialize the cache manager.
-	initCacheManager(logger)
+	cacheManager := cache.Initialize()
+
+	// Initialize system permission strings before any service or middleware uses them.
+	security.InitSystemPermissions(cfg.Resource.SystemResourceServer.Handle)
 
 	// Create a new HTTP multiplexer.
 	mux := http.NewServeMux()
@@ -73,10 +84,10 @@ func main() {
 	}
 
 	// Register the services.
-	jwtService := registerServices(mux)
+	jwtService := registerServices(mux, cacheManager)
 
 	// Register static file handlers for frontend applications.
-	registerStaticFileHandlers(logger, mux, thunderHome)
+	registerStaticFileHandlers(logger, mux, serverHome)
 
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -89,19 +100,19 @@ func main() {
 		logger.Info("TLS is not enabled, starting server without TLS")
 		ln = createListener(logger, server)
 	} else {
-		tlsConfig := loadCertConfig(logger, cfg, thunderHome)
+		tlsConfig := loadCertConfig(logger, cfg, serverHome)
 		ln = createTLSListener(logger, server, tlsConfig)
 	}
 
 	serverURL := config.GetServerURL(&cfg.Server)
 	consoleURL := fmt.Sprintf("%s/console", strings.TrimSuffix(serverURL, "/"))
-	logger.Info("Thunder Server URL", log.String("url", serverURL))
-	logger.Info("Thunder Console URL", log.String("url", consoleURL))
+	logger.Info("ThunderID Server URL", log.String("url", serverURL))
+	logger.Info("ThunderID Console URL", log.String("url", consoleURL))
 
 	// Start server in a goroutine
 	go func() {
 		startupDuration := time.Since(startupStartedAt)
-		logger.Info("Thunder Server started", log.String("startup_time", startupDuration.String()))
+		logger.Info("ThunderID Server started", log.String("startup_time", startupDuration.String()))
 		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Failed to serve requests", log.Error(err))
 		}
@@ -110,18 +121,18 @@ func main() {
 	// Wait for shutdown signal
 	<-sigChan
 	logger.Info("Shutting down server...")
-	gracefulShutdown(logger, server)
+	gracefulShutdown(logger, server, cacheManager)
 }
 
-// getThunderHome retrieves and return the Thunder home directory.
+// getThunderHome retrieves and return the home directory.
 func getThunderHome(logger *log.Logger) string {
 	// Parse project directory from command line arguments.
 	projectHome := ""
-	projectHomeFlag := flag.String("thunderHome", "", "Path to Thunder home directory")
+	projectHomeFlag := flag.String("serverHome", "", "Path to ThunderID home directory")
 	flag.Parse()
 
 	if *projectHomeFlag != "" {
-		logger.Info("Using thunderHome from command line argument", log.String("thunderHome", *projectHomeFlag))
+		logger.Info("Using serverHome from command line argument", log.String("serverHome", *projectHomeFlag))
 		projectHome = *projectHomeFlag
 	} else {
 		// If no command line argument is provided, use the current working directory.
@@ -135,38 +146,29 @@ func getThunderHome(logger *log.Logger) string {
 	return projectHome
 }
 
-// initThunderConfigurations initializes the Thunder configurations.
-func initThunderConfigurations(logger *log.Logger, thunderHome string) *config.Config {
+// initThunderConfigurations initializes the configurations.
+func initThunderConfigurations(logger *log.Logger, serverHome string) *config.Config {
 	// Load the configurations.
-	configFilePath := path.Join(thunderHome, "repository/conf/deployment.yaml")
-	defaultConfigPath := path.Join(thunderHome, "repository/resources/conf/default.json")
-	cfg, err := config.LoadConfig(configFilePath, defaultConfigPath, thunderHome)
+	configFilePath := path.Join(serverHome, "repository/conf/deployment.yaml")
+	defaultConfigPath := path.Join(serverHome, "repository/resources/conf/default.json")
+	cfg, err := config.LoadConfig(configFilePath, defaultConfigPath, serverHome)
 	if err != nil {
 		logger.Fatal("Failed to load configurations", log.Error(err))
 	}
 
 	// Initialize runtime configurations.
-	if err := config.InitializeThunderRuntime(thunderHome, cfg); err != nil {
-		logger.Fatal("Failed to initialize thunder runtime", log.Error(err))
+	if err := config.InitializeServerRuntime(serverHome, cfg); err != nil {
+		logger.Fatal("Failed to initialize server runtime", log.Error(err))
 	}
 
 	return cfg
 }
 
-// initCacheManager initializes the cache manager with centralized cleanup.
-func initCacheManager(logger *log.Logger) {
-	cm := cache.GetCacheManager()
-	if cm == nil {
-		logger.Fatal("Failed to get cache manager instance")
-	}
-	cm.Init()
-}
-
 // loadCertConfig loads the certificate configuration and extracts the Key ID (kid).
-func loadCertConfig(logger *log.Logger, cfg *config.Config, thunderHome string) *tls.Config {
+func loadCertConfig(logger *log.Logger, cfg *config.Config, serverHome string) *tls.Config {
 	// Build full paths for certificate and key files
-	certFilePath := path.Join(thunderHome, cfg.TLS.CertFile)
-	keyFilePath := path.Join(thunderHome, cfg.TLS.KeyFile)
+	certFilePath := path.Join(serverHome, cfg.TLS.CertFile)
+	keyFilePath := path.Join(serverHome, cfg.TLS.KeyFile)
 
 	// Load TLS configuration
 	tlsConfig, err := pki.LoadTLSConfig(cfg, certFilePath, keyFilePath)
@@ -232,6 +234,7 @@ func createSecurityMiddleware(logger *log.Logger, mux *http.ServeMux,
 func gracefulShutdown(
 	logger *log.Logger,
 	server *http.Server,
+	cacheManager cache.CacheManagerInterface,
 ) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -254,7 +257,6 @@ func gracefulShutdown(
 		logger.Debug("Database connections closed successfully")
 	}
 
-	cacheManager := cache.GetCacheManager()
 	if cacheManager != nil {
 		cacheManager.Close()
 		logger.Debug("Cache manager closed successfully")
@@ -264,9 +266,9 @@ func gracefulShutdown(
 }
 
 // registerStaticFileHandlers registers static file handlers for frontend applications.
-func registerStaticFileHandlers(logger *log.Logger, mux *http.ServeMux, thunderHome string) {
+func registerStaticFileHandlers(logger *log.Logger, mux *http.ServeMux, serverHome string) {
 	// Serve gate application from /gate
-	gateDir := path.Join(thunderHome, "apps", "gate")
+	gateDir := path.Join(serverHome, "apps", "gate")
 	if directoryExists(gateDir) {
 		logger.Debug("Registering static file handler for Gate application",
 			log.String("path", "/gate/"), log.String("directory", gateDir))
@@ -276,7 +278,7 @@ func registerStaticFileHandlers(logger *log.Logger, mux *http.ServeMux, thunderH
 	}
 
 	// Serve console application from /console
-	consoleDir := path.Join(thunderHome, "apps", "console")
+	consoleDir := path.Join(serverHome, "apps", "console")
 	if directoryExists(consoleDir) {
 		logger.Debug("Registering static file handler for Console application",
 			log.String("path", "/console/"), log.String("directory", consoleDir))

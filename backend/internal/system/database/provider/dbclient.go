@@ -24,9 +24,9 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/system/database/model"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/database/model"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 
 	_ "github.com/lib/pq"
 	_ "modernc.org/sqlite"
@@ -50,17 +50,19 @@ type DBClientInterface interface {
 
 // DBClient is the implementation of DBClientInterface.
 type DBClient struct {
-	db     model.DBInterface
-	dbType string
-	dbName string
+	db          model.DBInterface
+	dbType      string
+	dbName      string
+	retryConfig retryConfig
 }
 
 // NewDBClient creates a new instance of DBClient with the provided database connection.
-func NewDBClient(db model.DBInterface, dbType string, dbName string) DBClientInterface {
+func NewDBClient(db model.DBInterface, dbType string, dbName string, rc retryConfig) DBClientInterface {
 	return &DBClient{
-		db:     db,
-		dbType: dbType,
-		dbName: dbName,
+		db:          db,
+		dbType:      dbType,
+		dbName:      dbName,
+		retryConfig: normalizeRetryConfig(rc),
 	}
 }
 
@@ -87,7 +89,12 @@ func (client *DBClient) QueryContext(
 	if tx := transaction.KeyedTxFromContext(ctx, client.dbName); tx != nil {
 		rows, err = tx.QueryContext(ctx, sqlQuery, args...)
 	} else {
-		rows, err = client.db.Query(sqlQuery, args...)
+		err = withRetryDB(ctx, client.dbType, client.dbName, query.GetID(), client.retryConfig,
+			func(execCtx context.Context) error {
+				var queryErr error
+				rows, queryErr = client.db.GetSQLDB().QueryContext(execCtx, sqlQuery, args...)
+				return queryErr
+			})
 	}
 
 	if err != nil {
@@ -150,7 +157,7 @@ func (client *DBClient) ExecuteContext(ctx context.Context, query model.DBQuery,
 	if tx := transaction.KeyedTxFromContext(ctx, client.dbName); tx != nil {
 		res, err = tx.ExecContext(ctx, sqlQuery, args...)
 	} else {
-		res, err = client.db.Exec(sqlQuery, args...)
+		res, err = client.db.GetSQLDB().ExecContext(ctx, sqlQuery, args...)
 	}
 
 	if err != nil {

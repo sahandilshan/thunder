@@ -50,8 +50,8 @@ if ($DbType -eq "postgres") {
     hostname: localhost
     port: 5432
     name: configdb
-    username: asgthunder
-    password: asgthunder
+    username: dbuser
+    password: dbpassword
     sslmode: disable
     path: ""
     options: ""
@@ -61,8 +61,8 @@ if ($DbType -eq "postgres") {
     hostname: localhost
     port: 5432
     name: runtimedb
-    username: asgthunder
-    password: asgthunder
+    username: dbuser
+    password: dbpassword
     sslmode: disable
     path: ""
     options: ""
@@ -72,8 +72,8 @@ if ($DbType -eq "postgres") {
     hostname: localhost
     port: 5432
     name: userdb
-    username: asgthunder
-    password: asgthunder
+    username: dbuser
+    password: dbpassword
     sslmode: disable
     path: ""
     options: ""
@@ -120,6 +120,21 @@ $footer = @"
 
 flow:
   max_version_history: 3
+
+oauth:
+  allow_wildcard_redirect_uri: true
+  auth_class:
+    amrs:
+      - PWD
+      - OTP
+      - BIO
+    acr_amr:
+      "urn:thunder:acr:password":
+        - PWD
+      "urn:thunder:acr:generated-code":
+        - OTP
+      "urn:thunder:acr:biometrics":
+        - BIO
 "@
 
 $content = $header + "`n" + $dbConfig + $footer

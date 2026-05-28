@@ -1,6 +1,7 @@
 openapi: 3.0.3
+
 info:
-  title: Thunder i18n API
+  title: Internationalization (i18n) API
   version: "1.0"
   description: API to manage internationalization (i18n) translations organized by language, namespace, and key.
   license:
@@ -16,7 +17,7 @@ servers:
         default: "8090"
 
 tags:
-  - name: languages
+  - name: Languages
     description: List supported languages
   - name: resolve
     description: Resolve translations (runtime)
@@ -30,14 +31,14 @@ paths:
   /i18n/languages:
     get:
       tags:
-        - languages
+        - Languages
       security: []
       summary: List all languages
       description: Returns a list of all language tags that have translations in the system.
       operationId: listLanguages
       responses:
-        '200':
-          description: List of language tags retrieved successfully
+        "200":
+          description: List of language tags
           content:
             application/json:
               schema:
@@ -47,7 +48,7 @@ paths:
                   summary: Multiple languages
                   value:
                     languages:
-                      - en
+                      - en-US
                       - es
                       - fr
                       - fr-CA
@@ -55,9 +56,21 @@ paths:
                   summary: Default language only
                   value:
                     languages:
-                      - en
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                      - en-US
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /i18n/languages/{language}/translations/resolve:
     parameters:
@@ -80,8 +93,8 @@ paths:
             pattern: '^[a-zA-Z0-9_-]+$'
             example: auth
       responses:
-        '200':
-          description: Translations resolved successfully
+        "200":
+          description: Translations resolved
           content:
             application/json:
               schema:
@@ -110,10 +123,47 @@ paths:
                         login.button: Iniciar sesión
                         login.title: Bienvenido
                         logout.button: Cerrar sesión
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-language:
+                  summary: Invalid language tag format
+                  value:
+                    code: "I18N-1001"
+                    message:
+                      key: "error.i18nservice.invalid_language"
+                      defaultValue: "Invalid language tag format"
+                    description:
+                      key: "error.i18nservice.invalid_language_description"
+                      defaultValue: "The language tag must follow canonical BCP 47 format (e.g., 'en', 'es', 'fr-CA')"
+                invalid-namespace:
+                  summary: Invalid namespace format
+                  value:
+                    code: "I18N-1002"
+                    message:
+                      key: "error.i18nservice.invalid_namespace"
+                      defaultValue: "Invalid namespace format"
+                    description:
+                      key: "error.i18nservice.invalid_namespace_description"
+                      defaultValue: "The namespace can only contain alphanumeric characters, underscores, and hyphens"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /i18n/languages/{language}/translations:
     parameters:
@@ -144,8 +194,8 @@ paths:
                   save: Guardar
                   cancel: Cancelar
       responses:
-        '200':
-          description: Custom translations set successfully
+        "200":
+          description: Custom translations set
           content:
             application/json:
               schema:
@@ -164,14 +214,107 @@ paths:
                   common:
                     save: Guardar
                     cancel: Cancelar
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-language:
+                  summary: Invalid language tag format
+                  value:
+                    code: "I18N-1001"
+                    message:
+                      key: "error.i18nservice.invalid_language"
+                      defaultValue: "Invalid language tag format"
+                    description:
+                      key: "error.i18nservice.invalid_language_description"
+                      defaultValue: "The language tag must follow canonical BCP 47 format (e.g., 'en', 'es', 'fr-CA')"
+                invalid-namespace:
+                  summary: Invalid namespace format
+                  value:
+                    code: "I18N-1002"
+                    message:
+                      key: "error.i18nservice.invalid_namespace"
+                      defaultValue: "Invalid namespace format"
+                    description:
+                      key: "error.i18nservice.invalid_namespace_description"
+                      defaultValue: "The namespace can only contain alphanumeric characters, underscores, and hyphens"
+                invalid-key:
+                  summary: Invalid key format
+                  value:
+                    code: "I18N-1003"
+                    message:
+                      key: "error.i18nservice.invalid_key"
+                      defaultValue: "Invalid key format"
+                    description:
+                      key: "error.i18nservice.invalid_key_description"
+                      defaultValue: "The key can only contain alphanumeric characters, dots, underscores, and hyphens"
+                missing-language:
+                  summary: Missing language code
+                  value:
+                    code: "I18N-1004"
+                    message:
+                      key: "error.i18nservice.missing_language"
+                      defaultValue: "Missing language code"
+                    description:
+                      key: "error.i18nservice.missing_language_description"
+                      defaultValue: "Language code is required"
+                missing-value:
+                  summary: Missing translation value
+                  value:
+                    code: "I18N-1005"
+                    message:
+                      key: "error.i18nservice.missing_value"
+                      defaultValue: "Missing translation value"
+                    description:
+                      key: "error.i18nservice.missing_value_description"
+                      defaultValue: "Translation value is required"
+                invalid-request-format:
+                  summary: Invalid request format
+                  value:
+                    code: "I18N-1007"
+                    message:
+                      key: "error.i18nservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.i18nservice.invalid_request_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
+                empty-translations:
+                  summary: Empty translations
+                  value:
+                    code: "I18N-1008"
+                    message:
+                      key: "error.i18nservice.empty_translations"
+                      defaultValue: "Empty translations"
+                    description:
+                      key: "error.i18nservice.empty_translations_description"
+                      defaultValue: "At least one translation must be provided"
+                declarative-update:
+                  summary: Cannot update declarative resource
+                  value:
+                    code: "DCR-1002"
+                    message:
+                      key: "error.declarative_resource.update_operation_not_allowed"
+                      defaultValue: "Declarative resource update operation is not allowed"
+                    description:
+                      key: "error.declarative_resource.update_operation_not_allowed_description"
+                      defaultValue: "Updating declarative resources is not permitted"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     delete:
       tags:
@@ -180,16 +323,59 @@ paths:
       description: Removes all custom translations for the language.
       operationId: deleteTranslations
       responses:
-        '204':
-          description: Translations reset to default successfully
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        "204":
+          description: Custom translations cleared
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-language:
+                  summary: Invalid language tag format
+                  value:
+                    code: "I18N-1001"
+                    message:
+                      key: "error.i18nservice.invalid_language"
+                      defaultValue: "Invalid language tag format"
+                    description:
+                      key: "error.i18nservice.invalid_language_description"
+                      defaultValue: "The language tag must follow canonical BCP 47 format (e.g., 'en', 'es', 'fr-CA')"
+                missing-language:
+                  summary: Missing language code
+                  value:
+                    code: "I18N-1004"
+                    message:
+                      key: "error.i18nservice.missing_language"
+                      defaultValue: "Missing language code"
+                    description:
+                      key: "error.i18nservice.missing_language_description"
+                      defaultValue: "Language code is required"
+                declarative-delete:
+                  summary: Cannot delete declarative resource
+                  value:
+                    code: "DCR-1003"
+                    message:
+                      key: "error.declarative_resource.delete_operation_not_allowed"
+                      defaultValue: "Declarative resource delete operation is not allowed"
+                    description:
+                      key: "error.declarative_resource.delete_operation_not_allowed_description"
+                      defaultValue: "Deleting declarative resources is not permitted"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /i18n/languages/{language}/translations/ns/{namespace}/keys/{key}/resolve:
     parameters:
@@ -205,8 +391,8 @@ paths:
       description: Resolves the final value for a translation by merging custom and default values; returns 200 even when only a default exists (404 only if neither custom nor default exists).
       operationId: resolveTranslation
       responses:
-        '200':
-          description: Translation resolved successfully
+        "200":
+          description: Translation resolved
           content:
             application/json:
               schema:
@@ -216,12 +402,71 @@ paths:
                 namespace: errors
                 key: user.not_found
                 value: Usuario no encontrado
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-language:
+                  summary: Invalid language tag format
+                  value:
+                    code: "I18N-1001"
+                    message:
+                      key: "error.i18nservice.invalid_language"
+                      defaultValue: "Invalid language tag format"
+                    description:
+                      key: "error.i18nservice.invalid_language_description"
+                      defaultValue: "The language tag must follow canonical BCP 47 format (e.g., 'en', 'es', 'fr-CA')"
+                invalid-namespace:
+                  summary: Invalid namespace format
+                  value:
+                    code: "I18N-1002"
+                    message:
+                      key: "error.i18nservice.invalid_namespace"
+                      defaultValue: "Invalid namespace format"
+                    description:
+                      key: "error.i18nservice.invalid_namespace_description"
+                      defaultValue: "The namespace can only contain alphanumeric characters, underscores, and hyphens"
+                invalid-key:
+                  summary: Invalid key format
+                  value:
+                    code: "I18N-1003"
+                    message:
+                      key: "error.i18nservice.invalid_key"
+                      defaultValue: "Invalid key format"
+                    description:
+                      key: "error.i18nservice.invalid_key_description"
+                      defaultValue: "The key can only contain alphanumeric characters, dots, underscores, and hyphens"
+        "404":
+          description: Translation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "I18N-1006"
+                message:
+                  key: "error.i18nservice.translation_not_found"
+                  defaultValue: "Translation not found"
+                description:
+                  key: "error.i18nservice.translation_not_found_description"
+                  defaultValue: "The requested translation does not exist for the specified language, namespace, and key"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /i18n/languages/{language}/translations/ns/{namespace}/keys/{key}:
     parameters:
@@ -244,8 +489,8 @@ paths:
             example:
               value: Usuario no encontrado
       responses:
-        '200':
-          description: Translation set successfully
+        "200":
+          description: Translation set
           content:
             application/json:
               schema:
@@ -255,34 +500,158 @@ paths:
                 namespace: errors
                 key: user.not_found
                 value: Usuario no encontrado
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-language:
+                  summary: Invalid language tag format
+                  value:
+                    code: "I18N-1001"
+                    message:
+                      key: "error.i18nservice.invalid_language"
+                      defaultValue: "Invalid language tag format"
+                    description:
+                      key: "error.i18nservice.invalid_language_description"
+                      defaultValue: "The language tag must follow canonical BCP 47 format (e.g., 'en', 'es', 'fr-CA')"
+                invalid-namespace:
+                  summary: Invalid namespace format
+                  value:
+                    code: "I18N-1002"
+                    message:
+                      key: "error.i18nservice.invalid_namespace"
+                      defaultValue: "Invalid namespace format"
+                    description:
+                      key: "error.i18nservice.invalid_namespace_description"
+                      defaultValue: "The namespace can only contain alphanumeric characters, underscores, and hyphens"
+                invalid-key:
+                  summary: Invalid key format
+                  value:
+                    code: "I18N-1003"
+                    message:
+                      key: "error.i18nservice.invalid_key"
+                      defaultValue: "Invalid key format"
+                    description:
+                      key: "error.i18nservice.invalid_key_description"
+                      defaultValue: "The key can only contain alphanumeric characters, dots, underscores, and hyphens"
+                missing-value:
+                  summary: Missing translation value
+                  value:
+                    code: "I18N-1005"
+                    message:
+                      key: "error.i18nservice.missing_value"
+                      defaultValue: "Missing translation value"
+                    description:
+                      key: "error.i18nservice.missing_value_description"
+                      defaultValue: "Translation value is required"
+                invalid-request-format:
+                  summary: Invalid request format
+                  value:
+                    code: "I18N-1007"
+                    message:
+                      key: "error.i18nservice.invalid_request_format"
+                      defaultValue: "Invalid request format"
+                    description:
+                      key: "error.i18nservice.invalid_request_description"
+                      defaultValue: "The request body is malformed or contains invalid data"
+                declarative-update:
+                  summary: Cannot update declarative resource
+                  value:
+                    code: "DCR-1002"
+                    message:
+                      key: "error.declarative_resource.update_operation_not_allowed"
+                      defaultValue: "Declarative resource update operation is not allowed"
+                    description:
+                      key: "error.declarative_resource.update_operation_not_allowed_description"
+                      defaultValue: "Updating declarative resources is not permitted"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
     delete:
       tags:
         - management
       summary: Clear a single translation
-      description: Removes the custom translation. 
+      description: Removes the custom translation for the specified language, namespace, and key.
       operationId: deleteTranslation
       responses:
-        '204':
-          description: Translations reset to default successfully
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        "204":
+          description: Custom translation cleared
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-language:
+                  summary: Invalid language tag format
+                  value:
+                    code: "I18N-1001"
+                    message:
+                      key: "error.i18nservice.invalid_language"
+                      defaultValue: "Invalid language tag format"
+                    description:
+                      key: "error.i18nservice.invalid_language_description"
+                      defaultValue: "The language tag must follow canonical BCP 47 format (e.g., 'en', 'es', 'fr-CA')"
+                invalid-namespace:
+                  summary: Invalid namespace format
+                  value:
+                    code: "I18N-1002"
+                    message:
+                      key: "error.i18nservice.invalid_namespace"
+                      defaultValue: "Invalid namespace format"
+                    description:
+                      key: "error.i18nservice.invalid_namespace_description"
+                      defaultValue: "The namespace can only contain alphanumeric characters, underscores, and hyphens"
+                invalid-key:
+                  summary: Invalid key format
+                  value:
+                    code: "I18N-1003"
+                    message:
+                      key: "error.i18nservice.invalid_key"
+                      defaultValue: "Invalid key format"
+                    description:
+                      key: "error.i18nservice.invalid_key_description"
+                      defaultValue: "The key can only contain alphanumeric characters, dots, underscores, and hyphens"
+                declarative-delete:
+                  summary: Cannot delete declarative resource
+                  value:
+                    code: "DCR-1003"
+                    message:
+                      key: "error.declarative_resource.delete_operation_not_allowed"
+                      defaultValue: "Declarative resource delete operation is not allowed"
+                    description:
+                      key: "error.declarative_resource.delete_operation_not_allowed_description"
+                      defaultValue: "Deleting declarative resources is not permitted"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
 components:
   securitySchemes:
@@ -294,16 +663,19 @@ components:
           tokenUrl: https://localhost:8090/oauth2/token
           scopes:
             system: Access to system management APIs
+        clientCredentials:
+          tokenUrl: https://localhost:8090/oauth2/token
+          scopes:
+            system: Access to system management APIs
 
   parameters:
     languagePathParam:
       name: language
       in: path
       required: true
-      description: Language tag in BCP 47 format (e.g., `en`, `es`, `fr-CA`).
+      description: Language tag in canonical BCP 47 format (e.g., `en-US`, `es`, `fr-CA`).
       schema:
         type: string
-        pattern: '^[a-z]{2}(-[A-Z]{2})?(-[A-Za-z]+)?$'
         example: es
 
     namespacePathParam:
@@ -334,7 +706,7 @@ components:
     LanguageListResponse:
       type: object
       required:
-        - languages
+        - Languages
       properties:
         languages:
           type: array
@@ -342,7 +714,7 @@ components:
             type: string
           description: List of language tags available in the system.
           example:
-            - en
+            - en-US
             - es
             - fr
             - fr-CA
@@ -453,7 +825,7 @@ components:
           description: Default message in English (fallback).
           example: Missing language code
 
-    ErrorResponse:
+    Error:
       type: object
       required:
         - code
@@ -461,108 +833,9 @@ components:
       properties:
         code:
           type: string
-          description: Error code for programmatic handling.
-          example: I18N-1003
+          description: "Error code. Codes follow the I18N-XXXX convention."
+          example: "I18N-1003"
         message:
           $ref: '#/components/schemas/I18nMessage'
         description:
           $ref: '#/components/schemas/I18nMessage'
-
-  responses:
-    BadRequest:
-      description: Bad request - Invalid input
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          examples:
-            invalid-language:
-              summary: Invalid language tag format
-              value:
-                code: I18N-1001
-                message:
-                  key: error.i18nservice.invalid_language
-                  defaultValue: Invalid language tag format
-                description:
-                  key: error.i18nservice.invalid_language_description
-                  defaultValue: "The language tag must follow BCP 47 format (e.g., 'en', 'es', 'fr-CA')"
-            invalid-namespace:
-              summary: Invalid namespace format
-              value:
-                code: I18N-1002
-                message:
-                  key: error.i18nservice.invalid_namespace
-                  defaultValue: Invalid namespace format
-                description:
-                  key: error.i18nservice.invalid_namespace_description
-                  defaultValue: "The namespace can only contain alphanumeric characters, underscores, and hyphens"
-            invalid-key:
-              summary: Invalid key format
-              value:
-                code: I18N-1003
-                message:
-                  key: error.i18nservice.invalid_key
-                  defaultValue: Invalid key format
-                description:
-                  key: error.i18nservice.invalid_key_description
-                  defaultValue: "The key can only contain alphanumeric characters, dots, underscores, and hyphens"
-
-    Unauthorized:
-      description: Authentication required
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: AUTH-4001
-            message:
-              key: error.auth.unauthorized
-              defaultValue: Unauthorized
-            description:
-              key: error.auth.unauthorized_description
-              defaultValue: Authentication is required to access this resource
-
-    Forbidden:
-      description: Insufficient permissions
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: AUTH-4003
-            message:
-              key: error.auth.forbidden
-              defaultValue: Forbidden
-            description:
-              key: error.auth.forbidden_description
-              defaultValue: You do not have permission to access this resource
-
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: I18N-1006
-            message:
-              key: error.i18nservice.translation_not_found
-              defaultValue: Translation not found
-            description:
-              key: error.i18nservice.translation_not_found_description
-              defaultValue: The requested translation does not exist for the specified language, namespace, and key
-
-    InternalServerError:
-      description: Internal server error
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: I18N-5000
-            message:
-              key: error.i18nservice.internal_server_error
-              defaultValue: Internal server error
-            description:
-              key: error.i18nservice.internal_server_error_description
-              defaultValue: An unexpected error occurred while processing the request

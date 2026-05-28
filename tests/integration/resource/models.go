@@ -23,6 +23,7 @@ type ResourceServerResponse struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
 	Description        string `json:"description,omitempty"`
+	Handle             string `json:"handle"`
 	Identifier         string `json:"identifier,omitempty"`
 	OUID               string `json:"ouId"`
 	Delimiter          string `json:"delimiter"`
@@ -99,6 +100,7 @@ type ResourcePermissionListResponse struct {
 type CreateResourceServerRequest struct {
 	Name               string  `json:"name"`
 	Description        string  `json:"description,omitempty"`
+	Handle             string  `json:"handle"`
 	Identifier         string  `json:"identifier,omitempty"`
 	OUID               string  `json:"ouId"`
 	Delimiter          *string `json:"delimiter,omitempty"`
@@ -106,10 +108,11 @@ type CreateResourceServerRequest struct {
 
 // UpdateResourceServerRequest represents the request to update a resource server.
 type UpdateResourceServerRequest struct {
-	Name               string `json:"name"`
-	Description        string `json:"description,omitempty"`
-	Identifier         string `json:"identifier,omitempty"`
-	OUID               string `json:"ouId"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Handle      string `json:"handle,omitempty"`
+	Identifier  string `json:"identifier,omitempty"`
+	OUID        string `json:"ouId"`
 }
 
 // CreateResourceRequest represents the request to create a resource.

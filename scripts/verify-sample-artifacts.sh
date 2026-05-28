@@ -40,7 +40,7 @@ fi
 echo "📦 Verifying sample artifacts for $OS/$ARCH..."
 
 # Define expected sample apps
-SAMPLE_APPS=("react-vanilla" "react-sdk" "react-api-based")
+SAMPLE_APPS=("react-vanilla" "react-sdk" "react-api-based" "wayfinder")
 
 # Track any missing artifacts
 MISSING_COUNT=0

@@ -16,10 +16,10 @@
  * under the License.
  */
 
-import React, {type ReactNode} from 'react';
-import type SystemColorModeType from '@theme/Icon/SystemColorMode';
 import type {WrapperProps} from '@docusaurus/types';
+import type SystemColorModeType from '@theme/Icon/SystemColorMode';
 import {Monitor} from '@wso2/oxygen-ui-icons-react';
+import {type ReactNode} from 'react';
 
 type Props = WrapperProps<typeof SystemColorModeType>;
 

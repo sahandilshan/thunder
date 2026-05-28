@@ -21,7 +21,7 @@ package clientauth
 import (
 	"context"
 
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 )
 
 type contextKey string
@@ -33,7 +33,7 @@ var OAuthClientKey contextKey = "oauth_client"
 type OAuthClientInfo struct {
 	ClientID     string
 	ClientSecret string
-	OAuthApp     *appmodel.OAuthAppConfigProcessedDTO
+	OAuthApp     *inboundmodel.OAuthClient
 }
 
 // withOAuthClient adds OAuth client information to the context.

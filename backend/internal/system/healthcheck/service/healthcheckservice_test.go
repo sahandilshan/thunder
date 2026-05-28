@@ -20,13 +20,12 @@ package service
 
 import (
 	"errors"
-	"sync"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/healthcheck/model"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/healthcheck/model"
 
-	dbprovidermock "github.com/asgardeo/thunder/tests/mocks/database/providermock"
+	dbprovidermock "github.com/thunder-id/thunderid/tests/mocks/database/providermock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -49,24 +48,22 @@ func (suite *HealthCheckServiceTestSuite) SetupTest() {
 	testConfig := &config.Config{
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			User: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	_ = config.InitializeServerRuntime("test", testConfig)
 
-	instance = nil
-	once = sync.Once{}
-	suite.service = GetHealthCheckService()
+	suite.service = Initialize(nil, nil)
 }
 
 func (suite *HealthCheckServiceTestSuite) BeforeTest(suiteName, testName string) {

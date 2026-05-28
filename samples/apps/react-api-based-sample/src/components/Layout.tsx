@@ -27,12 +27,7 @@ import {
   Tooltip,
   Typography,
 } from "@wso2/oxygen-ui";
-import {
-  Link,
-  Outlet,
-  useNavigate,
-  useLocation,
-} from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useLocation } from "react-router";
 import UserProfileModal from "./UserProfileModal";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { decodeJwt } from "../utils/jwt";
@@ -75,7 +70,7 @@ function Layout() {
 
   const handleLogout = () => {
     sessionStorage.removeItem("assertion");
-    navigate({ to: "/" });
+    navigate("/");
   };
 
   return (
@@ -98,7 +93,7 @@ function Layout() {
                 color: "primary.main",
               }}
             >
-              Thunder Sample
+              ThunderID Sample
             </Typography>
           </Link>
 

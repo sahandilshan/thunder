@@ -18,10 +18,15 @@
 # ----------------------------------------------------------------------------
 
 # Default settings
+PRODUCT_NAME="ThunderID"
+PRODUCT_NAME_LOWERCASE="$(echo "$PRODUCT_NAME" | tr '[:upper:]' '[:lower:]')"
+BINARY_NAME="${PRODUCT_NAME_LOWERCASE}"
 BACKEND_PORT=${BACKEND_PORT:-8090}
 DEBUG_PORT=${DEBUG_PORT:-2345}
 DEBUG_MODE=${DEBUG_MODE:-false}
 WITH_CONSENT=${WITH_CONSENT:-true}
+RESOURCES_FILE=""
+ENV_FILE=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -42,12 +47,20 @@ while [[ $# -gt 0 ]]; do
             WITH_CONSENT=false
             shift
             ;;
+        --env)
+            ENV_FILE="$2"
+            shift 2
+            ;;
         --help)
-            echo "Thunder Server Startup Script"
+            echo "${PRODUCT_NAME} Server Startup Script"
             echo ""
-            echo "Usage: $0 [options]"
+            echo "Usage: $0 [resources_file] [options]"
+            echo ""
+            echo "Arguments:"
+            echo "  resources_file       Path to exported resources YAML file (optional)"
             echo ""
             echo "Options:"
+            echo "  --env FILE           Path to env file with KEY=VALUE variables"
             echo "  --debug              Enable debug mode with remote debugging"
             echo "  --port PORT          Set application port (default: 8090)"
             echo "  --debug-port PORT    Set debug port (default: 2345)"
@@ -62,18 +75,37 @@ while [[ $# -gt 0 ]]; do
             echo "    ./start.sh"
             echo ""
             echo "Examples:"
-            echo "  $0                   Start server normally"
-            echo "  $0 --debug           Start in debug mode"
-            echo "  $0 --port 9090       Start on custom port"
+            echo "  $0                                    Start server normally"
+            echo "  $0 --debug                            Start in debug mode"
+            echo "  $0 --port 9090                        Start on custom port"
+            echo "  $0 cloud.yml --env my.env             Start with exported resources and env"
             exit 0
             ;;
-        *)
+        -*)
             echo "Unknown option: $1"
             echo "Use --help for usage information"
             exit 1
             ;;
+        *)
+            if [[ -z "$RESOURCES_FILE" ]]; then
+                RESOURCES_FILE="$1"
+            else
+                echo "Unknown argument: $1"
+                echo "Use --help for usage information"
+                exit 1
+            fi
+            shift
+            ;;
     esac
 done
+
+# Resolve relative paths to absolute before the working directory potentially changes.
+if [[ -n "$RESOURCES_FILE" && "$RESOURCES_FILE" != /* ]]; then
+    RESOURCES_FILE="$(pwd)/$RESOURCES_FILE"
+fi
+if [[ -n "$ENV_FILE" && "$ENV_FILE" != /* ]]; then
+    ENV_FILE="$(pwd)/$ENV_FILE"
+fi
 
 set -e  # Exit immediately if a command exits with a non-zero status
 
@@ -96,8 +128,107 @@ check_port() {
     fi
 }
 
+# Set up declarative resources from an exported resources file and optional env file.
+# Reads a multi-document YAML file and places each document into the appropriate
+# repository/resources/<type>/ directory, then exports variables from the env file.
+setup_declarative_resources() {
+    local script_dir
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    local resources_base="$script_dir/repository/resources"
+
+    # Load and export env vars from the env file.
+    if [[ -n "$ENV_FILE" ]]; then
+        if [[ ! -f "$ENV_FILE" ]]; then
+            echo "Error: env file not found: $ENV_FILE"
+            exit 1
+        fi
+        echo "Loading environment from $ENV_FILE ..."
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            line="${line%$'\r'}"
+            if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+                key="${BASH_REMATCH[1]}"
+                value="${BASH_REMATCH[2]}"
+                if [[ "$value" == \[* ]]; then
+                    # JSON array — expand into KEY_0, KEY_1, ...
+                    idx=0
+                    _json_tmp=$(mktemp)
+                    if ! python3 -c "import json,sys; [print(x) for x in json.loads(sys.argv[1])]" "$value" > "$_json_tmp" 2>&1; then
+                        echo "Error: failed to parse JSON array for key '$key': $(cat "$_json_tmp")" >&2
+                        rm -f "$_json_tmp"
+                        exit 1
+                    fi
+                    while IFS= read -r elem; do
+                        export "${key}_${idx}=${elem}"
+                        ((idx++))
+                    done < "$_json_tmp"
+                    rm -f "$_json_tmp"
+                else
+                    export "${key}=${value}"
+                fi
+            fi
+        done < "$ENV_FILE"
+    fi
+
+    # Split the combined resources YAML and place each document in its type directory.
+    if [[ -n "$RESOURCES_FILE" ]]; then
+        if [[ ! -f "$RESOURCES_FILE" ]]; then
+            echo "Error: resources file not found: $RESOURCES_FILE"
+            exit 1
+        fi
+        echo "Setting up declarative resources from $RESOURCES_FILE ..."
+        DEC_BASE="$resources_base" awk '
+BEGIN {
+    doc = ""; filename = ""; resource_type = ""
+    base = ENVIRON["DEC_BASE"]
+    type_dir["application"]         = "applications"
+    type_dir["flow"]                = "flows"
+    type_dir["group"]               = "groups"
+    type_dir["identity_provider"]   = "identity_providers"
+    type_dir["layout"]              = "layouts"
+    type_dir["notification_sender"] = "notification_senders"
+    type_dir["organization_unit"]   = "organization_units"
+    type_dir["resource_server"]     = "resource_servers"
+    type_dir["role"]                = "roles"
+    type_dir["theme"]               = "themes"
+    type_dir["translation"]         = "translations"
+    type_dir["user"]                = "users"
+    type_dir["user_schema"]         = "user_schemas"
+}
+function flush(    dir, target, outfile) {
+    if (doc == "" || resource_type == "") {
+        doc = ""; filename = ""; resource_type = ""
+        return
+    }
+    dir = (resource_type in type_dir) ? type_dir[resource_type] : resource_type "s"
+    target = base "/" dir
+    system("mkdir -p " target)
+    if (filename == "") filename = "resource.yaml"
+    outfile = target "/" filename
+    printf "%s", doc > outfile
+    close(outfile)
+    print "  Placed: " dir "/" filename > "/dev/stderr"
+    doc = ""; filename = ""; resource_type = ""
+}
+/^---[[:space:]]*$/ { flush(); next }
+/^# File:[[:space:]]*/ {
+    sub(/^# File:[[:space:]]*/, "")
+    filename = $0
+    next
+}
+/^# resource_type:[[:space:]]*/ {
+    sub(/^# resource_type:[[:space:]]*/, "")
+    resource_type = $0
+    next
+}
+{ doc = doc $0 "\n" }
+END { flush() }' "$RESOURCES_FILE"
+        echo "Declarative resources ready."
+    fi
+}
+
 # Check if ports are available
-check_port $BACKEND_PORT "Thunder server"
+check_port $BACKEND_PORT "${PRODUCT_NAME} server"
 if [ "$DEBUG_MODE" = "true" ]; then
     check_port $DEBUG_PORT "Debug server"
 fi
@@ -118,13 +249,18 @@ if [ "$DEBUG_MODE" = "true" ]; then
     fi
 fi
 
+# Set up declarative resources if a resources file or env file was provided.
+if [[ -n "$RESOURCES_FILE" || -n "$ENV_FILE" ]]; then
+    setup_declarative_resources
+fi
+
 # Cleanup function
 CONSENT_PID=""
-THUNDER_PID=""
+SERVER_PID=""
 cleanup() {
     echo -e "\n🛑 Stopping server..."
-    if [ -n "$THUNDER_PID" ]; then
-        kill $THUNDER_PID 2>/dev/null || true
+    if [ -n "$SERVER_PID" ]; then
+        kill $SERVER_PID 2>/dev/null || true
     fi
     if [ -n "$CONSENT_PID" ]; then
         pkill -P $CONSENT_PID 2>/dev/null || true
@@ -164,9 +300,9 @@ if [ "$WITH_CONSENT" = "true" ]; then
     fi
 fi
 
-# Run thunder
+# Run the Server
 if [ "$DEBUG_MODE" = "true" ]; then
-    echo "⚡ Starting Thunder Server in DEBUG mode..."
+    echo "⚡ Starting ${PRODUCT_NAME} Server in DEBUG mode..."
     echo "📝 Application will run on: https://localhost:$BACKEND_PORT"
     echo "🐛 Remote debugger will listen on: localhost:$DEBUG_PORT"
     echo ""
@@ -175,13 +311,13 @@ if [ "$DEBUG_MODE" = "true" ]; then
     echo ""
 
     # Run debugger
-    dlv exec --listen=:$DEBUG_PORT --headless=true --api-version=2 --accept-multiclient --continue ./thunder &
-    THUNDER_PID=$!
+    dlv exec --listen=:$DEBUG_PORT --headless=true --api-version=2 --accept-multiclient --continue ./${BINARY_NAME} &
+    SERVER_PID=$!
 else
-    echo "⚡ Starting Thunder Server ..."
+    echo "⚡ Starting ${PRODUCT_NAME} Server ..."
 
-    BACKEND_PORT=$BACKEND_PORT ./thunder &
-    THUNDER_PID=$!
+    BACKEND_PORT=$BACKEND_PORT ./${BINARY_NAME} &
+    SERVER_PID=$!
 fi
 
 # Status
@@ -190,4 +326,4 @@ echo "🚀 Server running"
 echo "Press Ctrl+C to stop the server."
 
 # Wait for background processes
-wait $THUNDER_PID
+wait $SERVER_PID

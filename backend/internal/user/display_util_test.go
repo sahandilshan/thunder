@@ -25,9 +25,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/tests/mocks/userschemamock"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/tests/mocks/entitytypemock"
 )
 
 // DisplayUtilTestSuite tests the display attribute resolution utility functions.
@@ -40,8 +41,8 @@ func TestDisplayUtilTestSuite(t *testing.T) {
 }
 
 func (suite *DisplayUtilTestSuite) TestResolveDisplayAttributePaths_DeduplicatesTypes() {
-	schemaMock := userschemamock.NewUserSchemaServiceInterfaceMock(suite.T())
-	schemaMock.On("GetDisplayAttributesByNames", mock.Anything,
+	schemaMock := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
+	schemaMock.On("GetDisplayAttributesByNames", mock.Anything, mock.Anything,
 		mock.MatchedBy(func(names []string) bool {
 			if len(names) != 2 {
 				return false
@@ -63,22 +64,25 @@ func (suite *DisplayUtilTestSuite) TestResolveDisplayAttributePaths_NilSchemaSer
 }
 
 func (suite *DisplayUtilTestSuite) TestResolveDisplayAttributePaths_EmptyTypes() {
-	schemaMock := userschemamock.NewUserSchemaServiceInterfaceMock(suite.T())
+	schemaMock := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
 	result := ResolveDisplayAttributePaths(context.Background(), []string{}, schemaMock, nil)
 	suite.Nil(result)
 }
 
 func (suite *DisplayUtilTestSuite) TestResolveDisplayAttributePaths_AllEmptyStrings() {
-	schemaMock := userschemamock.NewUserSchemaServiceInterfaceMock(suite.T())
+	schemaMock := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
 	result := ResolveDisplayAttributePaths(context.Background(), []string{"", ""}, schemaMock, nil)
 	suite.Nil(result)
 }
 
 func (suite *DisplayUtilTestSuite) TestResolveDisplayAttributePaths_SchemaServiceError() {
-	schemaMock := userschemamock.NewUserSchemaServiceInterfaceMock(suite.T())
-	schemaMock.On("GetDisplayAttributesByNames", mock.Anything, []string{"employee"}).
+	schemaMock := entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
+	schemaMock.On("GetDisplayAttributesByNames", mock.Anything, mock.Anything, []string{"employee"}).
 		Return((map[string]string)(nil),
-			&serviceerror.ServiceError{Code: "500", Error: "schema unavailable"})
+			&serviceerror.ServiceError{
+				Code:  "500",
+				Error: i18ncore.I18nMessage{DefaultValue: "schema unavailable"},
+			})
 
 	logger := log.GetLogger()
 	result := ResolveDisplayAttributePaths(context.Background(), []string{"employee"}, schemaMock, logger)

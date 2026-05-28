@@ -33,8 +33,32 @@ param(
     [string]$TestRun,
     
     [Parameter(Position = 4)]
-    [string]$TestPackage
+    [string]$TestPackage,
+
+    [switch]$WithoutConsent
 )
+
+# Accept --without-consent anywhere in positional arguments.
+$positionalArgs = @($Command, $GO_OS, $GO_ARCH, $TestRun, $TestPackage)
+$withoutConsentFromArgs = $false
+
+for ($i = 0; $i -lt $positionalArgs.Count; $i++) {
+    if ($positionalArgs[$i] -ceq "--without-consent") {
+        $withoutConsentFromArgs = $true
+        $positionalArgs[$i] = $null
+    }
+}
+
+$Command = $positionalArgs[0]
+$GO_OS = $positionalArgs[1]
+$GO_ARCH = $positionalArgs[2]
+$TestRun = $positionalArgs[3]
+$TestPackage = $positionalArgs[4]
+
+$skipConsent = $WithoutConsent.IsPresent -or $withoutConsentFromArgs -or ($env:WITHOUT_CONSENT -eq "true")
+
+$PRODUCT_NAME = "ThunderID"
+$PRODUCT_NAME_LOWERCASE = $PRODUCT_NAME.ToLower()
 
 # Check for PowerShell Version Compatibility
 if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -44,7 +68,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Host "================================================================" -ForegroundColor Red
     Write-Host ""
     Write-Host " You are currently running PowerShell $($PSVersionTable.PSVersion.ToString())" -ForegroundColor Yellow
-    Write-Host " Thunder requires PowerShell 7 (Core) or later." -ForegroundColor Yellow
+    Write-Host " $PRODUCT_NAME requires PowerShell 7 (Core) or later." -ForegroundColor Yellow
     Write-Host ""
     Write-Host " Please install the latest version from:"
     Write-Host " https://github.com/PowerShell/PowerShell" -ForegroundColor Cyan
@@ -113,7 +137,7 @@ if ($SAMPLE_DIST_ARCH -eq "amd64") {
     $SAMPLE_DIST_ARCH = "x64"
 }
 
-# --- Thunder Package Distribution details ---
+# --- Package Distribution details ---
 $GO_PACKAGE_OS = $GO_OS
 $GO_PACKAGE_ARCH = $GO_ARCH
 
@@ -132,12 +156,12 @@ if ($GO_ARCH -eq "amd64") {
 $VERSION_FILE = "version.txt"
 $VERSION = Get-Content $VERSION_FILE -Raw
 $VERSION = $VERSION.Trim()
-$THUNDER_VERSION = $VERSION
-if ($THUNDER_VERSION.StartsWith("v")) {
-    $THUNDER_VERSION = $THUNDER_VERSION.Substring(1)
+$PRODUCT_VERSION = $VERSION
+if ($PRODUCT_VERSION.StartsWith("v")) {
+    $PRODUCT_VERSION = $PRODUCT_VERSION.Substring(1)
 }
-$BINARY_NAME = "thunder"
-$PRODUCT_FOLDER = "${BINARY_NAME}-${THUNDER_VERSION}-${GO_PACKAGE_OS}-${GO_PACKAGE_ARCH}"
+$BINARY_NAME = $PRODUCT_NAME_LOWERCASE
+$PRODUCT_FOLDER = "${BINARY_NAME}-${PRODUCT_VERSION}-${GO_PACKAGE_OS}-${GO_PACKAGE_ARCH}"
 
 # --- Sample App Distribution details ---
 $SAMPLE_PACKAGE_OS = $SAMPLE_DIST_OS
@@ -159,6 +183,11 @@ $reactApiPackageJson = Get-Content "samples/apps/react-api-based-sample/package.
 $REACT_API_SAMPLE_APP_VERSION = $reactApiPackageJson.version
 $REACT_API_SAMPLE_APP_FOLDER = "sample-app-react-api-based-${REACT_API_SAMPLE_APP_VERSION}-${SAMPLE_PACKAGE_OS}-${SAMPLE_PACKAGE_ARCH}"
 
+# Wayfinder Sample
+$agentIdPackageJson = Get-Content "samples/apps/wayfinder-sample/package.json" -Raw | ConvertFrom-Json
+$WAYFINDER_SAMPLE_APP_VERSION = $agentIdPackageJson.version
+$WAYFINDER_SAMPLE_APP_FOLDER = "sample-app-wayfinder-${WAYFINDER_SAMPLE_APP_VERSION}-${SAMPLE_PACKAGE_OS}-${SAMPLE_PACKAGE_ARCH}"
+
 # Directories
 $TARGET_DIR = Join-Path $SCRIPT_DIR "target"
 $OUTPUT_DIR = Join-Path $TARGET_DIR "out"
@@ -175,13 +204,14 @@ $SECURITY_DIR = "repository/resources/security"
 $FRONTEND_BASE_DIR = "frontend"
 $GATE_APP_DIST_DIR = "apps/gate"
 $CONSOLE_APP_DIST_DIR = "apps/console"
-$FRONTEND_GATE_APP_SOURCE_DIR = Join-Path $FRONTEND_BASE_DIR "apps/thunder-gate"
-$FRONTEND_CONSOLE_APP_SOURCE_DIR = Join-Path $FRONTEND_BASE_DIR "apps/thunder-console"
+$FRONTEND_GATE_APP_SOURCE_DIR = Join-Path $FRONTEND_BASE_DIR "apps/gate"
+$FRONTEND_CONSOLE_APP_SOURCE_DIR = Join-Path $FRONTEND_BASE_DIR "apps/console"
 $SAMPLE_BASE_DIR = "samples"
 $VANILLA_SAMPLE_APP_DIR = Join-Path $SAMPLE_BASE_DIR "apps/react-vanilla-sample"
 $VANILLA_SAMPLE_APP_SERVER_DIR = Join-Path $VANILLA_SAMPLE_APP_DIR "server"
 $REACT_SDK_SAMPLE_APP_DIR = Join-Path $SAMPLE_BASE_DIR "apps/react-sdk-sample"
 $REACT_API_SAMPLE_APP_DIR = Join-Path $SAMPLE_BASE_DIR "apps/react-api-based-sample"
+$WAYFINDER_SAMPLE_APP_DIR = Join-Path $SAMPLE_BASE_DIR "apps/wayfinder-sample"
 
 # Default ports
 $GATE_APP_DEFAULT_PORT = 5190
@@ -213,6 +243,8 @@ function Read-Config {
             $script:PUBLIC_HOSTNAME = & yq eval '.server.public_hostname // ""' $CONFIG_FILE 2>$null
             $consentEnabled = & yq eval '.consent.enabled // true' $CONFIG_FILE 2>$null
             $script:CONSENT_ENABLED = ($consentEnabled -eq "true")
+            $script:SYSTEM_RS_HANDLE = & yq eval '.resource.system_resource_server.handle // ""' $CONFIG_FILE 2>$null
+            $script:SYSTEM_RS_IDENTIFIER = & yq eval '.resource.system_resource_server.identifier // ""' $CONFIG_FILE 2>$null
         }
         else {
             # Fallback: basic parsing with regex
@@ -256,6 +288,29 @@ function Read-Config {
             }
             else {
                 $script:CONSENT_ENABLED = $true
+            }
+
+            $uncommentedContent = ($content -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+            # Try to extract system resource server handle
+            if ($uncommentedContent -match '(?ms)system_resource_server:.*?handle:\s*[''"]([^''"]*)[''"]') {
+                $script:SYSTEM_RS_HANDLE = $matches[1]
+            }
+            elseif ($uncommentedContent -match '(?ms)system_resource_server:.*?handle:\s*([^\s#]+)') {
+                $script:SYSTEM_RS_HANDLE = $matches[1]
+            }
+            else {
+                $script:SYSTEM_RS_HANDLE = ""
+            }
+
+            # Try to extract system resource server identifier
+            if ($uncommentedContent -match '(?ms)system_resource_server:.*?identifier:\s*[''"]([^''"]*)[''"]') {
+                $script:SYSTEM_RS_IDENTIFIER = $matches[1]
+            }
+            elseif ($uncommentedContent -match '(?ms)system_resource_server:.*?identifier:\s*([^\s#]+)') {
+                $script:SYSTEM_RS_IDENTIFIER = $matches[1]
+            }
+            else {
+                $script:SYSTEM_RS_IDENTIFIER = ""
             }
         }
     }
@@ -412,24 +467,25 @@ function Build-Backend {
     Write-Host "================================================================"
 }
 
-function Build-Frontend {
-    Write-Host "================================================================"
-    Write-Host "Building frontend apps..."
-    
-    # Check if pnpm is installed, if not install it
+function Ensure-Pnpm {
     if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
         Write-Host "pnpm not found, installing..."
         & npm install -g pnpm
     }
+}
+
+function Build-Frontend {
+    Write-Host "================================================================"
+    Write-Host "Building frontend apps..."
+    Ensure-Pnpm
     
-    # Navigate to frontend directory and install dependencies
-    Push-Location $FRONTEND_BASE_DIR
+    # Install dependencies
     try {
         Write-Host "Installing frontend dependencies..."
         & pnpm install --frozen-lockfile
         
         Write-Host "Building frontend applications & packages..."
-        & pnpm build
+        & pnpm build:frontend
     }
     finally {
         Pop-Location
@@ -441,15 +497,8 @@ function Build-Frontend {
 function Build-Docs {
     Write-Host "================================================================"
     Write-Host "Building documentation..."
+    Ensure-Pnpm
     
-    # Check if pnpm is installed, if not install it
-    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-        Write-Host "pnpm not found, installing..."
-        & npm install -g pnpm
-    }
-    
-    # Navigate to frontend directory first to ensure build:docs script can run
-    Push-Location $FRONTEND_BASE_DIR
     try {
         Write-Host "Installing frontend dependencies (required for docs build)..."
         & pnpm install --frozen-lockfile
@@ -461,6 +510,57 @@ function Build-Docs {
         Pop-Location
     }
     
+    Write-Host "================================================================"
+}
+
+function Build-JavaScript-SDKs {
+    Ensure-Pnpm
+    
+    Write-Host "Installing SDK dependencies..."
+    & pnpm install --frozen-lockfile
+    
+    Write-Host "Building JavaScript ecosystem SDK packages..."
+    & pnpm --filter './sdks/**' build
+}
+
+function Test-JavaScript-SDKs {
+    Ensure-Pnpm
+    
+    Write-Host "Installing SDK dependencies..."
+    & pnpm install --frozen-lockfile
+    
+    Write-Host "Running JavaScript ecosystem SDK tests..."
+    & pnpm --filter './sdks/**' test
+}
+
+function Lint-JavaScript-SDKs {
+    Ensure-Pnpm
+    
+    Write-Host "Installing SDK dependencies..."
+    & pnpm install --frozen-lockfile
+    
+    Write-Host "Linting JavaScript ecosystem SDK packages..."
+    & pnpm --filter './sdks/**' lint
+}
+
+function Build-SDKs {
+    Write-Host "================================================================"
+    Write-Host "Building SDKs..."
+    Build-JavaScript-SDKs
+    Write-Host "================================================================"
+}
+
+function Test-SDKs {
+    Write-Host "================================================================"
+    Write-Host "Running SDK tests..."
+    Test-JavaScript-SDKs
+    Write-Host "================================================================"
+}
+
+function Lint-SDKs {
+    Write-Host "================================================================"
+    Write-Host "Linting SDKs..."
+    Lint-JavaScript-SDKs
     Write-Host "================================================================"
 }
 
@@ -617,12 +717,54 @@ function Package {
         Copy-Item -Path "setup.sh" -Destination $package_folder -Force
     }
 
-    Write-Host "Packaging consent server..."
-    $packageFolderAbs = (Resolve-Path -Path $package_folder).Path
-    & (Join-Path $SCRIPT_DIR "scripts/package-consent-server.ps1") `
-        -GoOS $GO_OS -GoArch $GO_ARCH -DistOutputPath $packageFolderAbs
-    if ($LASTEXITCODE -ne 0) {
-        throw "Consent server packaging failed with exit code $LASTEXITCODE"
+    if (-not $skipConsent) {
+        Write-Host "Packaging consent server..."
+        $packageFolderAbs = (Resolve-Path -Path $package_folder).Path
+        & (Join-Path $SCRIPT_DIR "scripts/package-consent-server.ps1") `
+            -GoOS $GO_OS -GoArch $GO_ARCH -DistOutputPath $packageFolderAbs
+        if ($LASTEXITCODE -ne 0) {
+            throw "Consent server packaging failed with exit code $LASTEXITCODE"
+        }
+    } else {
+        Write-Host "Skipping consent server packaging (--without-consent)..."
+        $targetYaml = Join-Path $package_folder "repository/conf/deployment.yaml"
+        $yqPatched = $false
+        if (Get-Command yq -ErrorAction SilentlyContinue) {
+            & yq eval '.consent.enabled = false' -i $targetYaml
+            if ($LASTEXITCODE -eq 0) {
+                $yqPatched = $true
+            }
+        }
+        if (-not $yqPatched) {
+            $content = Get-Content $targetYaml
+            $inConsent = $false
+            for ($i = 0; $i -lt $content.Length; $i++) {
+                if ($content[$i] -match '^consent:') {
+                    $inConsent = $true
+                } elseif ($inConsent -and $content[$i] -match '^\s*enabled:\s*true') {
+                    $content[$i] = $content[$i] -replace 'enabled:\s*true', 'enabled: false'
+                    $inConsent = $false
+                } elseif ($inConsent -and $content[$i] -match '^\S') {
+                    $inConsent = $false
+                }
+            }
+            $content | Set-Content $targetYaml
+        }
+        $consentDisabled = $false
+        $inConsentBlock = $false
+        foreach ($line in (Get-Content $targetYaml)) {
+            if ($line -match '^consent:') {
+                $inConsentBlock = $true
+            } elseif ($inConsentBlock -and $line -match '^\s+enabled:\s*false') {
+                $consentDisabled = $true
+                break
+            } elseif ($inConsentBlock -and $line -match '^\S') {
+                break
+            }
+        }
+        if (-not $consentDisabled) {
+            throw "Failed to disable consent in '$targetYaml' — packaging cannot continue with consent still enabled."
+        }
     }
 
     Write-Host "Creating zip file..."
@@ -653,9 +795,9 @@ function Build-Sample-App {
     Push-Location $VANILLA_SAMPLE_APP_DIR
     try {
         Write-Host "Installing React Vanilla sample dependencies..."
-        & npm install
+        & npm ci
         if ($LASTEXITCODE -ne 0) {
-            throw "npm install failed with exit code $LASTEXITCODE"
+            throw "npm ci failed with exit code $LASTEXITCODE"
         }
 
         Write-Host "Building React Vanilla sample app (TypeScript + Vite)..."
@@ -695,9 +837,9 @@ function Build-Sample-App {
         Push-Location $serverDir
         try {
             Write-Host " - Installing server dependencies..."
-            & npm install
+            & npm ci
             if ($LASTEXITCODE -ne 0) {
-                throw "npm install (server) failed with exit code $LASTEXITCODE"
+                throw "npm ci (server) failed with exit code $LASTEXITCODE"
             }
         }
         finally {
@@ -763,6 +905,43 @@ function Build-Sample-App {
     }
 
     Write-Host "✅ React API-based sample app built successfully."
+
+    # Build Wayfinder sample (Wayfinder)
+    Write-Host "=== Building Wayfinder sample app ==="
+
+    Push-Location (Join-Path $WAYFINDER_SAMPLE_APP_DIR "frontend")
+    try {
+        Write-Host "Installing Wayfinder sample frontend dependencies..."
+        & npm ci
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm ci failed with exit code $LASTEXITCODE"
+        }
+
+        Write-Host "Building Wayfinder sample frontend..."
+        & npm run build
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm run build failed with exit code $LASTEXITCODE"
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
+    foreach ($svc in @("api", "mcp", "ai-agent")) {
+        Write-Host "Installing Wayfinder sample $svc dependencies..."
+        Push-Location (Join-Path $WAYFINDER_SAMPLE_APP_DIR $svc)
+        try {
+            & npm ci
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm ci ($svc) failed with exit code $LASTEXITCODE"
+            }
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
+    Write-Host "✅ Wayfinder sample app built successfully."
     Write-Host "================================================================"
 }
 
@@ -781,6 +960,10 @@ function Package-Sample-App {
     # Package React API-based sample
     Write-Host "=== Packaging React API-based sample app ==="
     Package-React-API-Based-Sample
+
+    # Package Wayfinder sample
+    Write-Host "=== Packaging Wayfinder sample app ==="
+    Package-Wayfinder-Sample
 
     Write-Host "================================================================"
 }
@@ -962,6 +1145,83 @@ function Package-React-API-Based-Sample {
     Remove-Item -Path $react_api_sample_app_folder_t -Recurse -Force
 
     Write-Host "✅ React API-based sample app packaged successfully as $zipFile"
+}
+
+function Package-Wayfinder-Sample {
+    $dist_folder = Join-Path $DIST_DIR $WAYFINDER_SAMPLE_APP_FOLDER
+    New-Item -Path $dist_folder -ItemType Directory -Force | Out-Null
+
+    # Frontend built ahead of time; api/mcp/ai-agent ship as source because
+    # pkg cannot bundle Node 22's node:sqlite binding and the chat agent
+    # needs runtime LLM keys from .env.
+    $frontendDist = Join-Path $WAYFINDER_SAMPLE_APP_DIR "frontend/dist"
+    if (-not (Test-Path $frontendDist)) {
+        throw "Wayfinder sample frontend build output not found at $frontendDist"
+    }
+    Write-Host "Copying Wayfinder sample frontend build output..."
+    $frontendDest = Join-Path $dist_folder "frontend"
+    New-Item -Path $frontendDest -ItemType Directory -Force | Out-Null
+    Copy-Item -Path $frontendDist -Destination $frontendDest -Recurse -Force
+    foreach ($item in @("package.json", "package-lock.json", "index.html", "vite.config.js", ".env.example", "README.md")) {
+        $src = Join-Path $WAYFINDER_SAMPLE_APP_DIR "frontend/$item"
+        if (Test-Path $src) { Copy-Item -Path $src -Destination $frontendDest -Force }
+    }
+    foreach ($subdir in @("src", "public")) {
+        $src = Join-Path $WAYFINDER_SAMPLE_APP_DIR "frontend/$subdir"
+        if (Test-Path $src) { Copy-Item -Path $src -Destination $frontendDest -Recurse -Force }
+    }
+
+    foreach ($svc in @("api", "mcp", "ai-agent")) {
+        $svcSrc = Join-Path $WAYFINDER_SAMPLE_APP_DIR $svc
+        $svcDest = Join-Path $dist_folder $svc
+        Write-Host "Copying Wayfinder sample $svc source..."
+        New-Item -Path $svcDest -ItemType Directory -Force | Out-Null
+        foreach ($item in @("package.json", "package-lock.json", "tsconfig.json", "README.md", ".env.example", "server.ts", "agent.ts")) {
+            $src = Join-Path $svcSrc $item
+            if (Test-Path $src) { Copy-Item -Path $src -Destination $svcDest -Force }
+        }
+        foreach ($subdir in @("src", "scripts")) {
+            $src = Join-Path $svcSrc $subdir
+            if (Test-Path $src) { Copy-Item -Path $src -Destination $svcDest -Recurse -Force }
+        }
+    }
+
+    if (Test-Path (Join-Path $WAYFINDER_SAMPLE_APP_DIR "README.md")) {
+        Copy-Item -Path (Join-Path $WAYFINDER_SAMPLE_APP_DIR "README.md") -Destination $dist_folder -Force
+    }
+    if (Test-Path (Join-Path $WAYFINDER_SAMPLE_APP_DIR "package.json")) {
+        Copy-Item -Path (Join-Path $WAYFINDER_SAMPLE_APP_DIR "package.json") -Destination $dist_folder -Force
+    }
+
+    if ($SAMPLE_DIST_OS -eq "win") {
+        Write-Host "Including Windows start script (start.ps1)..."
+        Copy-Item -Path (Join-Path $WAYFINDER_SAMPLE_APP_DIR "start.ps1") -Destination $dist_folder -Force
+    }
+    else {
+        Write-Host "Including Unix start script (start.sh)..."
+        Copy-Item -Path (Join-Path $WAYFINDER_SAMPLE_APP_DIR "start.sh") -Destination $dist_folder -Force
+    }
+
+    $thunderConfig = Join-Path $WAYFINDER_SAMPLE_APP_DIR "thunderid-config"
+    if (-not (Test-Path $thunderConfig)) {
+        throw "thunderid-config directory not found at $thunderConfig"
+    }
+    Write-Host "Copying ThunderID config..."
+    Copy-Item -Path $thunderConfig -Destination $dist_folder -Recurse -Force
+
+    Write-Host "Creating Wayfinder sample zip file..."
+    $distAbs = (Resolve-Path -Path $DIST_DIR).Path
+    $zipFile = [System.IO.Path]::Combine($distAbs, "$WAYFINDER_SAMPLE_APP_FOLDER.zip")
+    if (Test-Path $zipFile) {
+        Remove-Item $zipFile -Force
+    }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($dist_folder, $zipFile)
+
+    Remove-Item -Path $dist_folder -Recurse -Force
+
+    Write-Host "✅ Wayfinder sample app packaged successfully as $zipFile"
 }
 
 function Test-Unit {
@@ -1284,7 +1544,7 @@ function Ensure-Certificates {
                 & openssl req -x509 -nodes -days 365 -newkey rsa:2048 `
                     -keyout $local_key_file `
                     -out $local_cert_file `
-                    -subj "/O=WSO2/OU=Thunder/CN=localhost" 2>$null
+                    -subj "/O=WSO2/OU=$PRODUCT_NAME/CN=localhost" 2>$null
                 if ($LASTEXITCODE -ne 0) {
                     throw "Error generating certificates: OpenSSL failed with exit code $LASTEXITCODE"
                 }
@@ -1296,7 +1556,7 @@ function Ensure-Certificates {
                 try {
                     $rsa = [System.Security.Cryptography.RSA]::Create(2048)
 
-                    $subjectName = New-Object System.Security.Cryptography.X509Certificates.X500DistinguishedName("CN=localhost, O=WSO2, OU=Thunder")
+                    $subjectName = New-Object System.Security.Cryptography.X509Certificates.X500DistinguishedName("CN=localhost, O=WSO2, OU=$PRODUCT_NAME")
                     $certReq = New-Object System.Security.Cryptography.X509Certificates.CertificateRequest($subjectName, $rsa, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
 
                     # Add standard server usages
@@ -1500,14 +1760,14 @@ function Run {
     Write-Host "Running frontend apps..."
     Run-Frontend
 
-    if ($script:CONSENT_ENABLED) {
+    if ($script:CONSENT_ENABLED -and -not $skipConsent) {
         Write-Host "Running consent server..."
         Run-Consent
     }
 
-    # Save original THUNDER_SKIP_SECURITY value and temporarily set to true
-    $script:ORIGINAL_THUNDER_SKIP_SECURITY = $env:THUNDER_SKIP_SECURITY
-    $env:THUNDER_SKIP_SECURITY = "true"
+    # Save original skip security value and temporarily set to true
+    $script:ORIGINAL_SKIP_SECURITY = $env:SKIP_SECURITY
+    $env:SKIP_SECURITY = "true"
     Run-Backend -ShowFinalOutput $false
 
     # Run initial data setup
@@ -1527,7 +1787,7 @@ function Run {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     }
     
-    Write-Host "[INFO] Waiting for Thunder server to be ready..."
+    Write-Host "[INFO] Waiting for $PRODUCT_NAME server to be ready..."
     while ($retries -lt $MAX_RETRIES) {
         try {
             $response = Invoke-WebRequest -Uri "$BASE_URL/health/readiness" -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
@@ -1543,7 +1803,7 @@ function Run {
         $retries++
         if ($retries -ge $MAX_RETRIES) {
             Write-Host "❌ Server did not become ready after $MAX_RETRIES attempts"
-            Write-Host "💡 Please ensure the Thunder server is running at $BASE_URL"
+            Write-Host "💡 Please ensure the $PRODUCT_NAME server is running at $BASE_URL"
             exit 1
         }
         
@@ -1554,7 +1814,9 @@ function Run {
     Write-Host ""
     
     # Run the bootstrap script directly with environment variable and arguments
-    $env:THUNDER_API_BASE = $BASE_URL
+    $env:API_BASE = $BASE_URL
+    $env:SYSTEM_RS_HANDLE = if ($script:SYSTEM_RS_HANDLE) { $script:SYSTEM_RS_HANDLE } else { "" }
+    $env:SYSTEM_RS_IDENTIFIER = if ($script:SYSTEM_RS_IDENTIFIER) { $script:SYSTEM_RS_IDENTIFIER } else { "" }
     $bootstrapScript = Join-Path $BACKEND_BASE_DIR "cmd/server/bootstrap/01-default-resources.ps1"
     & $bootstrapScript -ConsoleRedirectUris "https://localhost:${CONSOLE_APP_DEFAULT_PORT}/console"
 
@@ -1565,12 +1827,12 @@ function Run {
     }
 
     Write-Host "🔒 Restoring security setting and restarting backend..."
-    # Restore original THUNDER_SKIP_SECURITY value
-    if (![string]::IsNullOrEmpty($script:ORIGINAL_THUNDER_SKIP_SECURITY)) {
-        $env:THUNDER_SKIP_SECURITY = $script:ORIGINAL_THUNDER_SKIP_SECURITY
+    # Restore original skip security value
+    if (![string]::IsNullOrEmpty($script:ORIGINAL_SKIP_SECURITY)) {
+        $env:SKIP_SECURITY = $script:ORIGINAL_SKIP_SECURITY
     }
     else {
-        Remove-Item Env:\THUNDER_SKIP_SECURITY -ErrorAction SilentlyContinue
+        Remove-Item Env:\SKIP_SECURITY -ErrorAction SilentlyContinue
     }
     # Start backend with initial output but without final output/wait
     Start-Backend -ShowFinalOutput $false
@@ -1620,6 +1882,11 @@ function Run-Backend {
     Write-Host "Initializing databases..."
     Initialize-Databases
 
+    if ($script:CONSENT_ENABLED -and -not $skipConsent -and -not $script:CONSENT_PROCESS) {
+        Write-Host "Running consent server..."
+        Run-Consent
+    }
+
     Start-Backend -ShowFinalOutput $ShowFinalOutput
 }
 
@@ -1664,11 +1931,14 @@ function Start-Backend {
         }
         catch [System.Management.Automation.PipelineStoppedException] {
             Write-Host ""
-            Write-Host "🛑 Shutting down backend server..."
+            Write-Host "🛑 Shutting down servers..."
             if ($script:BACKEND_PID) { 
                 Stop-Process -Id $script:BACKEND_PID -Force -ErrorAction SilentlyContinue
             }
-            Write-Host "✅ Backend server stopped successfully."
+            if ($script:CONSENT_PROCESS -and -not $script:CONSENT_PROCESS.HasExited) {
+                Stop-Process -Id $script:CONSENT_PROCESS.Id -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host "✅ Servers stopped successfully."
             exit 0
         }
 
@@ -1679,25 +1949,19 @@ function Start-Backend {
 function Run-Frontend {
     Write-Host "================================================================"
     Write-Host "Running frontend apps..."
+    Ensure-Pnpm
     
-    # Check if pnpm is installed, if not install it
-    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-        Write-Host "pnpm not found, installing..."
-        & npm install -g pnpm
-    }
-    
-    # Navigate to frontend directory and install dependencies
-    Push-Location $FRONTEND_BASE_DIR
+    # Install dependencies
     try {
         Write-Host "Installing frontend dependencies..."
         & pnpm install --frozen-lockfile
         
         Write-Host "Building frontend applications & packages..."
-        & pnpm build
+        & pnpm build:frontend
         
         Write-Host "Starting frontend applications in the background..."
         # Start frontend processes in background
-        $frontendProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "pnpm", "-r", "--parallel", "--filter", "@thunder/console", "--filter", "@thunder/gate", "dev" -PassThru -NoNewWindow
+        $frontendProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "pnpm", "-r", "--parallel", "--filter", "@thunderid/console", "--filter", "@thunderid/gate", "dev" -PassThru -NoNewWindow
         $script:FRONTEND_PID = $frontendProcess.Id
     }
     finally {
@@ -1710,15 +1974,9 @@ function Run-Frontend {
 function Run-Docs {
     Write-Host "================================================================"
     Write-Host "Starting documentation development server..."
+    Ensure-Pnpm
     
-    # Check if pnpm is installed, if not install it
-    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-        Write-Host "pnpm not found, installing..."
-        & npm install -g pnpm
-    }
-    
-    # Navigate to frontend directory first to install all dependencies
-    Push-Location $FRONTEND_BASE_DIR
+    # Install dependencies
     try {
         Write-Host "Installing frontend dependencies (required for docs)..."
         & pnpm install --frozen-lockfile
@@ -1796,6 +2054,7 @@ switch ($Command) {
     'build' {
         Build-Backend
         Build-Frontend
+        Build-SDKs
         Package
         Build-Sample-App
         Package-Sample-App
@@ -1809,6 +2068,15 @@ switch ($Command) {
     }
     'build_docs' {
         Build-Docs
+    }
+    'build_sdks' {
+        Build-SDKs
+    }
+    'test_sdks' {
+        Test-SDKs
+    }
+    'lint_sdks' {
+        Lint-SDKs
     }
     'build_samples' {
         Build-Sample-App

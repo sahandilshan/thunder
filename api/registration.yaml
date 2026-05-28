@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Registration API
-  description: This API is used for user registration operations including Passkey registration.
+  description: "Register WebAuthn/FIDO2 passkey credentials for users. Covers the full ceremony: initiate a registration challenge, create the credential on the authenticator, and complete enrollment."
   version: "1.0"
   license:
     name: Apache 2.0
@@ -16,13 +16,19 @@ servers:
       port:
         default: "8090"
 
+tags:
+  - name: Passkeys
+    description: Passkey registration start and finish operations.
+
+security: []
+
 paths:
   /register/passkey/start:
     post:
       summary: Start Passkey credential registration
       description: Initiate Passkey credential creation for a user.
       tags:
-        - Passkey / WebAuthn / FIDO2 Registration
+        - Passkeys
       requestBody:
         description: Passkey credential creation initiation data
         required: true
@@ -38,42 +44,60 @@ paths:
               schema:
                 $ref: '#/components/schemas/PasskeyRegistrationStartResponse'
         "400":
-          description: 'Bad Request: The request body is malformed or contains invalid data'
+          description: 'Bad Request: The request body is malformed or contains invalid data, or the user was not found'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
-              example:
-                code: "AUTHN-1011"
-                message: "Empty user ID"
-                description: "The user ID is required to start registration"
-        "404":
-          description: 'Not Found: The user could not be found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
-              example:
-                code: "AUTHN-1008"
-                message: "User not found"
-                description: "No user found with the provided User ID"
+                $ref: '#/components/schemas/Error'
+              examples:
+                emptyUserId:
+                  value:
+                    code: "PSK-1001"
+                    message:
+                      key: "error.passkeyservice.empty_user_identifier"
+                      defaultValue: "Empty user identifier"
+                    description:
+                      key: "error.passkeyservice.empty_user_identifier_description"
+                      defaultValue: "Either user ID or username must be provided"
+                emptyRelyingPartyId:
+                  value:
+                    code: "PSK-1002"
+                    message:
+                      key: "error.passkeyservice.empty_relying_party_id"
+                      defaultValue: "Empty relying party ID"
+                    description:
+                      key: "error.passkeyservice.empty_relying_party_id_description"
+                      defaultValue: "The relying party ID is required"
+                userNotFound:
+                  value:
+                    code: "PSK-1012"
+                    message:
+                      key: "error.passkeyservice.user_not_found"
+                      defaultValue: "User not found"
+                    description:
+                      key: "error.passkeyservice.user_not_found_description"
+                      defaultValue: "The specified user was not found"
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
   /register/passkey/finish:
     post:
       summary: Finish Passkey credential registration
       description: Complete Passkey credential creation for a user.
       tags:
-        - Passkey / WebAuthn / FIDO2 Registration
+        - Passkeys
       requestBody:
         description: Passkey credential creation completion data
         required: true
@@ -89,62 +113,71 @@ paths:
               schema:
                 $ref: '#/components/schemas/PasskeyRegistrationFinishResponse'
         "400":
-          description: 'Bad Request: The request body is malformed or contains invalid data'
+          description: 'Bad Request: The request body is malformed, contains invalid data, or the session is invalid'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               examples:
-                emptyCredentialId:
-                  value:
-                    code: "AUTHN-1012"
-                    message: "Empty credential ID"
-                    description: "The credential ID is required to complete registration"
-                emptyCredentialType:
-                  value:
-                    code: "AUTHN-1013"
-                    message: "Empty credential type"
-                    description: "The credential type is required to complete registration"
-                invalidAttestationResponse:
-                  value:
-                    code: "AUTHN-1015"
-                    message: "Invalid attestation response"
-                    description: "The attestation response is missing required fields (clientDataJSON or attestationObject)"
                 emptySessionToken:
                   value:
-                    code: "AUTHN-1004"
-                    message: "Empty session token"
-                    description: "The provided session token is empty"
-        "401":
-          description: 'Unauthorized: Passkey registration verification failed'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
-              example:
-                code: "PASS-1009"
-                message: "Invalid attestation"
-                description: "The Passkey attestation verification failed"
-        "404":
-          description: 'Not Found: The user could not be found'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
-              example:
-                code: "AUTHN-1008"
-                message: "User not found"
-                description: "No user found for the provided session"
+                    code: "PSK-1006"
+                    message:
+                      key: "error.passkeyservice.empty_session_token"
+                      defaultValue: "Empty session token"
+                    description:
+                      key: "error.passkeyservice.empty_session_token_description"
+                      defaultValue: "The session token is required"
+                invalidFinishData:
+                  value:
+                    code: "PSK-1007"
+                    message:
+                      key: "error.passkeyservice.invalid_finish_data"
+                      defaultValue: "Invalid finish data"
+                    description:
+                      key: "error.passkeyservice.invalid_finish_data_description"
+                      defaultValue: "The finish data cannot be null"
+                invalidAttestationResponse:
+                  value:
+                    code: "PSK-1011"
+                    message:
+                      key: "error.passkeyservice.invalid_attestation_response"
+                      defaultValue: "Invalid attestation response"
+                    description:
+                      key: "error.passkeyservice.invalid_attestation_response_description"
+                      defaultValue: "The attestation response is missing required fields (clientDataJSON or attestationObject)"
+                userNotFound:
+                  value:
+                    code: "PSK-1012"
+                    message:
+                      key: "error.passkeyservice.user_not_found"
+                      defaultValue: "User not found"
+                    description:
+                      key: "error.passkeyservice.user_not_found_description"
+                      defaultValue: "The specified user was not found"
+                sessionExpired:
+                  value:
+                    code: "PSK-1014"
+                    message:
+                      key: "error.passkeyservice.session_expired"
+                      defaultValue: "Session expired"
+                    description:
+                      key: "error.passkeyservice.session_expired_description"
+                      defaultValue: "The session has expired. Please start a new session"
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "SSE-5000"
-                message: "Internal server error"
-                description: "An unexpected error occurred while processing the request"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the request"
 
 components:
   schemas:
@@ -336,7 +369,7 @@ components:
             attestation: "none"
         sessionToken:
           type: string
-          description: JWT token for the WebAuthn registration session
+          description: Session token for the WebAuthn registration ceremony
           example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
       required:
         - publicKeyCredentialCreationOptions
@@ -347,7 +380,7 @@ components:
       properties:
         publicKeyCredential:
           type: object
-          description: PublicKeyCredential as per Passkey standard
+          description: PublicKeyCredential as per the WebAuthn standard
           properties:
             id:
               type: string
@@ -373,24 +406,14 @@ components:
                   type: string
                   description: Base64url-encoded attestation object
                   example: "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVkBZ0mWDeWIDoxodDQXD2R2YFuP5K65ooYyx5lc87qDHZdjRQAAAAA"
-                transports:
-                  type: array
-                  description: Available transports for this credential
-                  items:
-                    type: string
-                    enum: ["usb", "nfc", "ble", "internal", "hybrid"]
-                  example: ["internal", "hybrid"]
               required:
                 - clientDataJSON
                 - attestationObject
-            authenticatorAttachment:
-              type: string
-              description: Authenticator attachment modality
-              enum: ["platform", "cross-platform"]
-              example: "platform"
+              example:
+                clientDataJSON: "eyJjaGFsbGVuZ2UiOiJaMm95Wm05eVpHOXVRR1Y0WVcxd2JHVXVZMjl0TWpBeU1TMHdNeTB4TWxSeE1qbzBOVG93TUZvIiwidHlwZSI6IndlYmF1dGhuLmNyZWF0ZSIsIm9yaWdpbiI6Imh0dHBzOi8vZXhhbXBsZS5jb20ifQ"
+                attestationObject: "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVkBZ0mWDeWIDoxodDQXD2R2YFuP5K65ooYyx5lc87qDHZdjRQAAAAA"
           required:
             - id
-            - rawId
             - type
             - response
           example:
@@ -400,15 +423,13 @@ components:
             response:
               clientDataJSON: "eyJjaGFsbGVuZ2UiOiJaMm95Wm05eVpHOXVRR1Y0WVcxd2JHVXVZMjl0TWpBeU1TMHdNeTB4TWxSeE1qbzBOVG93TUZvIiwidHlwZSI6IndlYmF1dGhuLmNyZWF0ZSIsIm9yaWdpbiI6Imh0dHBzOi8vZXhhbXBsZS5jb20ifQ"
               attestationObject: "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVkBZ0mWDeWIDoxodDQXD2R2YFuP5K65ooYyx5lc87qDHZdjRQAAAAA"
-              transports: ["internal", "hybrid"]
-            authenticatorAttachment: "platform"
         sessionToken:
           type: string
-          description: JWT token for the Passkey registration session
+          description: Session token from the registration start response
           example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
         credentialName:
           type: string
-          description: User-friendly name for the credential
+          description: User-friendly name for the credential (auto-generated if omitted)
           example: "My iPhone"
       required:
         - publicKeyCredential
@@ -432,31 +453,31 @@ components:
           example: "2024-01-15T10:30:00Z"
       required:
         - credentialId
+        - credentialName
+        - createdAt
 
-    ErrorResponse:
+    Error:
       type: object
       properties:
         code:
           type: string
-          description: Error code
+          description: "Error code. Codes follow the PSK-XXXX convention for passkey errors and SSE-XXXX for server errors."
+          example: "PSK-1001"
         message:
-          type: string
-          description: Error message
+          $ref: '#/components/schemas/I18nMessage'
         description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
           type: string
-          description: Detailed error description
-
-    ClientErrorResponse:
-      allOf:
-        - $ref: '#/components/schemas/ErrorResponse'
-        - type: object
-
-    ServerErrorResponse:
-      allOf:
-        - $ref: '#/components/schemas/ErrorResponse'
-        - type: object
-      example:
-        code: "SSE-5000"
-        message: "Internal server error"
-        description: "An unexpected error occurred while processing the request"
-
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

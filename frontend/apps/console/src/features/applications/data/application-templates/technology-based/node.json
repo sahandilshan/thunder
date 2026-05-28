@@ -1,0 +1,130 @@
+{
+  "id": "node",
+  "displayName": "Node.js",
+  "description": "Backend service built with Node.js",
+  "creationFlow": {
+    "steps": ["STACK", "NAME", "ORGANIZATION_UNIT", "COMPLETE"]
+  },
+  "defaults": {
+    "name": "Node.js Application",
+    "inboundAuthConfig": [
+      {
+        "type": "oauth2",
+        "config": {
+          "grantTypes": ["authorization_code", "refresh_token"],
+          "responseTypes": ["code"],
+          "redirectUris": ["http://localhost:3000/callback"],
+          "pkceRequired": false,
+          "tokenEndpointAuthMethod": "client_secret_basic",
+          "publicClient": false
+        }
+      }
+    ],
+    "allowedUserTypes": []
+  },
+  "fieldConstraints": {
+    "oauth2": {
+      "publicClient": {
+        "readOnly": true,
+        "value": false
+      },
+      "tokenEndpointAuthMethod": {
+        "readOnly": true,
+        "value": "client_secret_basic"
+      }
+    }
+  },
+  "integrationGuides": {
+    "INBUILT": {
+      "llm_prompt": {
+        "id": "llm-prompt",
+        "title": "Integrate with a Coding Agent Prompt",
+        "description": "Use AI to generate integration code for your Node.js application",
+        "type": "llm",
+        "icon": "sparkles",
+        "content": "# Integrate {{productName}} Authentication in a Node.js Application\n\n## Context\nI have a Node.js application and I want to integrate {{productName}} authentication using the @thunderid/node SDK and the built-in http module — no framework required.\n\n## Requirements\n- Use @thunderid/node SDK with the built-in Node.js http module\n- Initialize ThunderIDNodeClient with clientId, clientSecret, baseUrl, afterSignInUrl, afterSignOutUrl\n- Implement /login route to start the sign-in flow (redirects to {{productName}})\n- Implement /callback route to handle the OAuth authorization code exchange\n- Implement /logout route to sign out and clear the session cookie\n- Protect the /profile route using isSignedIn() and display user info with getUser()\n- Manage sessions using a session ID stored in an HttpOnly cookie\n- Keep code minimal and fully runnable with CommonJS require()\n\n## Configuration\n- **Client ID**: {{clientId}}\n- **Client Secret**: `<your-client-secret>`\n- **Base URL**: https://localhost:8090 (or your {{productName}} instance URL)\n- **App URL**: http://localhost:3000\n- **Callback Route**: /callback\n- **SDK**: @thunderid/node\n\n## Important Rules\n- Use CommonJS syntax (require) in index.js\n- Initialize ThunderIDNodeClient with auth.initialize({...}) before starting the server\n- signIn() works in two phases: first call redirects the user (authUrlCallback), second call (with code+state) exchanges the token\n- Store the session ID in a cookie named 'tid_session' with HttpOnly and SameSite=Lax flags\n- Use randomUUID() from the built-in 'crypto' module to generate session IDs\n- Use isSignedIn(sessionId) to guard protected routes\n- Use getUser(sessionId) to retrieve the authenticated user profile\n- Use signOut(sessionId) to get the OIDC end-session URL, then clear the local cookie and redirect\n\n## Implementation Steps\n1. Create a new project: mkdir my-node-app && cd my-node-app && npm init -y\n2. Install @thunderid/node: npm install @thunderid/node\n3. Create index.js with ThunderIDNodeClient initialization\n4. Add /login route: generate session ID cookie and redirect to {{productName}} auth URL\n5. Add /callback route: exchange authorization code for tokens using signIn()\n6. Add /logout route: call signOut() to get end-session URL, clear cookie, redirect\n7. Add / route: show sign-in or profile link based on isSignedIn()\n8. Add /profile route: guard with isSignedIn(), display user info from getUser()\n9. Start the server: node index.js\n\nPlease provide a complete, working index.js file with all routes and the ThunderIDNodeClient wired up correctly."
+      },
+      "manual_steps": [
+        {
+          "step": 1,
+          "title": "Create a Node.js project",
+          "description": "Initialize a new Node.js project:",
+          "code": {
+            "language": "terminal",
+            "content": "mkdir my-node-app\ncd my-node-app\nnpm init -y"
+          }
+        },
+        {
+          "step": 2,
+          "title": "Install @thunderid/node",
+          "description": "The {{productName}} Node.js SDK provides a framework-agnostic authentication client for server-side Node.js applications.",
+          "subDescription": "Run the following command to install the SDK:",
+          "code": {
+            "language": "terminal",
+            "content": "npm install @thunderid/node"
+          }
+        },
+        {
+          "step": 3,
+          "title": "Initialize the client",
+          "description": "Create an index.js file and initialize the ThunderIDNodeClient with your application credentials:",
+          "code": {
+            "language": "javascript",
+            "filename": "index.js",
+            "content": "const http = require('http');\nconst { URL } = require('url');\nconst { randomUUID } = require('crypto');\nconst { ThunderIDNodeClient } = require('@thunderid/node');\n\nconst PORT = 3000;\nconst SESSION_COOKIE = 'tid_session';\n\nconst auth = new ThunderIDNodeClient();\n\nfunction getSessionId(req) {\n  const cookieHeader = req.headers.cookie ?? '';\n  for (const part of cookieHeader.split(';')) {\n    const [name, value] = part.trim().split('=');\n    if (name === SESSION_COOKIE) return decodeURIComponent(value);\n  }\n  return null;\n}\n\nasync function main() {\n  await auth.initialize({\n    clientId: '{{clientId}}',\n    clientSecret: '<your-client-secret>',\n    baseUrl: 'https://localhost:8090',\n    afterSignInUrl: 'http://localhost:3000/callback',\n    afterSignOutUrl: 'http://localhost:3000',\n  });\n\n  const server = http.createServer(async (req, res) => {\n    // routes added in the next step\n  });\n\n  server.listen(PORT, () => {\n    console.log(`Server running on http://localhost:${PORT}`);\n  });\n}\n\nmain();"
+          }
+        },
+        {
+          "step": 4,
+          "title": "Add sign-in, callback, and sign-out routes",
+          "description": "Replace the routes comment in index.js with sign-in, callback, and sign-out handling:",
+          "code": {
+            "language": "javascript",
+            "filename": "index.js",
+            "content": "    const url = new URL(req.url, `http://localhost:${PORT}`);\n\n    try {\n      if (url.pathname === '/login') {\n        let sessionId = getSessionId(req);\n        const extraHeaders = {};\n        if (!sessionId) {\n          sessionId = randomUUID();\n          extraHeaders['Set-Cookie'] =\n            `${SESSION_COOKIE}=${sessionId}; HttpOnly; SameSite=Lax; Path=/`;\n        }\n        await auth.signIn((authUrl) => {\n          res.writeHead(302, { ...extraHeaders, Location: authUrl });\n          res.end();\n        }, sessionId);\n\n      } else if (url.pathname === '/callback') {\n        const code = url.searchParams.get('code');\n        const state = url.searchParams.get('state');\n        const sessionState = url.searchParams.get('session_state');\n        const sessionId = getSessionId(req);\n\n        if (!sessionId || !code || !state) {\n          res.writeHead(400);\n          return res.end('Bad request');\n        }\n\n        await auth.signIn(() => {}, sessionId, code, sessionState, state);\n        res.writeHead(302, { Location: '/profile' });\n        res.end();\n\n      } else if (url.pathname === '/logout') {\n        const sessionId = getSessionId(req);\n        if (!sessionId) {\n          res.writeHead(302, { Location: '/' });\n          return res.end();\n        }\n        const signOutUrl = await auth.signOut(sessionId);\n        res.writeHead(302, {\n          Location: signOutUrl,\n          'Set-Cookie': `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,\n        });\n        res.end();\n      }\n    } catch {\n      res.writeHead(500);\n      res.end('Internal server error');\n    }"
+          }
+        },
+        {
+          "step": 5,
+          "title": "Add protected profile route",
+          "description": "Add the home and profile routes inside the same try block, before the closing }:",
+          "code": {
+            "language": "javascript",
+            "filename": "index.js",
+            "content": "      if (url.pathname === '/') {\n        const sessionId = getSessionId(req);\n        const signedIn = sessionId && (await auth.isSignedIn(sessionId));\n        res.writeHead(200, { 'Content-Type': 'text/html' });\n        res.end(signedIn\n          ? '<a href=\"/profile\">View profile</a> | <a href=\"/logout\">Sign out</a>'\n          : '<a href=\"/login\">Sign in</a>'\n        );\n\n      } else if (url.pathname === '/profile') {\n        const sessionId = getSessionId(req);\n        if (!sessionId || !(await auth.isSignedIn(sessionId))) {\n          res.writeHead(302, { Location: '/login' });\n          return res.end();\n        }\n        const user = await auth.getUser(sessionId);\n        res.writeHead(200, { 'Content-Type': 'text/html' });\n        res.end(`\n          <h1>Welcome, ${user.name || user.username}!</h1>\n          <p><strong>Email:</strong> ${user.email}</p>\n          <p><strong>First name:</strong> ${user.given_name}</p>\n          <p><strong>Last name:</strong> ${user.family_name}</p>\n          <a href=\"/logout\">Sign out</a>\n        `);\n      }"
+          }
+        },
+        {
+          "step": 6,
+          "title": "Update credentials",
+          "description": "Replace the placeholders with your actual application credentials from {{productName}}:",
+          "bullets": [
+            "Replace `{{clientId}}` with your Client ID",
+            "Replace `<your-client-secret>` with your Client Secret",
+            "Ensure your authorized redirect URL is `http://localhost:3000/callback`"
+          ]
+        },
+        {
+          "step": 7,
+          "title": "Run the app",
+          "description": "Start your Node.js server:",
+          "code": {
+            "language": "terminal",
+            "content": "node index.js"
+          }
+        },
+        {
+          "step": 8,
+          "title": "Verify authentication flow",
+          "description": "Test the integration end-to-end:",
+          "bullets": [
+            "Open `http://localhost:3000` and click Sign in to be redirected to {{productName}}",
+            "Authenticate with your test user and confirm redirect back to `/profile`",
+            "Verify user profile details are displayed on the profile page",
+            "Click Sign out and verify the session is cleared"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,35 @@
+name: 'Build Multi-Platform'
+description: 'Builds product frontend and backend for all supported platforms'
+author: 'WSO2'
+
+runs:
+  using: composite
+  steps:
+    - name: 🔨 Build product for all platforms
+      shell: bash
+      run: |
+        # Define platform matrix
+        PLATFORMS=(
+          "windows:amd64"
+          "linux:amd64"
+          "linux:arm64"
+          "darwin:amd64"
+          "darwin:arm64"
+        )
+
+        echo "🏗️ Building product for ${#PLATFORMS[@]} platforms..."
+
+        # Build frontend once (platform-agnostic)
+        echo "🔨 Building frontend..."
+        make build_frontend
+
+        # Build backend for each platform
+        for platform in "${PLATFORMS[@]}"; do
+          OS="${platform%%:*}"
+          ARCH="${platform#*:}"
+          echo "🔨 Building product backend for $OS/$ARCH..."
+          make build_backend OS=$OS ARCH=$ARCH
+          sleep 1
+        done
+
+        echo "✅ Product built for all platforms successfully!"

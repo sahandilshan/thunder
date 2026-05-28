@@ -26,9 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 type ConsentServiceTestSuite struct {
@@ -39,7 +39,7 @@ func TestConsentServiceTestSuite(t *testing.T) {
 	suite.Run(t, new(ConsentServiceTestSuite))
 }
 
-// initConsentRuntime initializes a minimal ThunderRuntime for service tests.
+// initConsentRuntime initializes a minimal server runtime for service tests.
 func initConsentRuntime(t *testing.T, enabled bool, baseURL string) {
 	t.Helper()
 	cfg := &config.Config{
@@ -48,9 +48,9 @@ func initConsentRuntime(t *testing.T, enabled bool, baseURL string) {
 			BaseURL: baseURL,
 		},
 	}
-	config.ResetThunderRuntime()
-	require.NoError(t, config.InitializeThunderRuntime("/tmp/test", cfg))
-	t.Cleanup(config.ResetThunderRuntime)
+	config.ResetServerRuntime()
+	require.NoError(t, config.InitializeServerRuntime("/tmp/test", cfg))
+	t.Cleanup(config.ResetServerRuntime)
 }
 
 // newServiceWithMockClient creates a consentService with the provided mock client and config.
@@ -166,7 +166,7 @@ func (s *ConsentServiceTestSuite) TestListConsentElements_ClientError() {
 	svc := newServiceWithMockClient(s.T(), true, clientMock)
 
 	clientMock.EXPECT().listConsentElements(mock.Anything, "ou1", NamespaceAttribute, "").
-		Return(nil, &serviceerror.InternalServerErrorWithI18n)
+		Return(nil, &serviceerror.InternalServerError)
 
 	result, svcErr := svc.ListConsentElements(context.Background(), "ou1", NamespaceAttribute, "")
 
@@ -223,7 +223,7 @@ func (s *ConsentServiceTestSuite) TestDeleteConsentElement_Success() {
 	svc := newServiceWithMockClient(s.T(), true, clientMock)
 
 	clientMock.EXPECT().deleteConsentElement(mock.Anything, "ou1", "elem-1").Return(
-		(*serviceerror.I18nServiceError)(nil))
+		(*serviceerror.ServiceError)(nil))
 
 	svcErr := svc.DeleteConsentElement(context.Background(), "ou1", "elem-1")
 
@@ -287,7 +287,7 @@ func (s *ConsentServiceTestSuite) TestValidateConsentElements_ClientError() {
 
 	names := []string{"attr1"}
 	clientMock.EXPECT().validateConsentElements(mock.Anything, "ou1", names).
-		Return(nil, &serviceerror.InternalServerErrorWithI18n)
+		Return(nil, &serviceerror.InternalServerError)
 
 	result, svcErr := svc.ValidateConsentElements(context.Background(), "ou1", names)
 
@@ -357,7 +357,7 @@ func (s *ConsentServiceTestSuite) TestListConsentPurposes_ClientError() {
 	svc := newServiceWithMockClient(s.T(), true, clientMock)
 
 	clientMock.EXPECT().listConsentPurposes(mock.Anything, "ou1", "").
-		Return(nil, &serviceerror.InternalServerErrorWithI18n)
+		Return(nil, &serviceerror.InternalServerError)
 
 	result, svcErr := svc.ListConsentPurposes(context.Background(), "ou1", "")
 
@@ -414,7 +414,7 @@ func (s *ConsentServiceTestSuite) TestDeleteConsentPurpose_Success() {
 	svc := newServiceWithMockClient(s.T(), true, clientMock)
 
 	clientMock.EXPECT().deleteConsentPurpose(mock.Anything, "ou1", "purpose-1").Return(
-		(*serviceerror.I18nServiceError)(nil))
+		(*serviceerror.ServiceError)(nil))
 
 	svcErr := svc.DeleteConsentPurpose(context.Background(), "ou1", "purpose-1")
 
@@ -567,7 +567,7 @@ func (s *ConsentServiceTestSuite) TestRevokeConsent_Success() {
 	svc := newServiceWithMockClient(s.T(), true, clientMock)
 
 	payload := &ConsentRevokeRequest{Reason: "user requested"}
-	clientMock.EXPECT().revokeConsent(mock.Anything, "ou1", "c1", payload).Return((*serviceerror.I18nServiceError)(nil))
+	clientMock.EXPECT().revokeConsent(mock.Anything, "ou1", "c1", payload).Return((*serviceerror.ServiceError)(nil))
 
 	svcErr := svc.RevokeConsent(context.Background(), "ou1", "c1", payload)
 

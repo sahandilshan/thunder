@@ -30,6 +30,8 @@ set -euo pipefail
 #   3. AUTHORIZATION_REQUEST
 #   4. WEBAUTHN_SESSION
 #   5. ATTRIBUTE_CACHE
+#   6. PAR_REQUEST
+#   7. JTI_RECORD
 #
 # Usage examples:
 #   # SQLite (local development)
@@ -37,7 +39,7 @@ set -euo pipefail
 #
 #   # PostgreSQL
 #   ./cleanup_runtime_db.sh -type postgres -host localhost -port 5432 \
-#       -name thunderruntime -username thunder -password secret
+#       -name thunderidruntime -username thunderid -password secret
 #
 #   # With options
 #   ./cleanup_runtime_db.sh -type sqlite -path /path/to/runtimedb.db \
@@ -47,10 +49,10 @@ set -euo pipefail
 #   ./cleanup_runtime_db.sh -type sqlite -path /path/to/runtimedb.db -dry_run
 #
 #   # Cron (every 30 minutes)
-#   */30 * * * * /opt/thunder/scripts/cleanup_runtime_db.sh \
-#       -type postgres -host localhost -port 5432 -name thunderruntime \
-#       -username thunder -password "$THUNDER_DB_PASSWORD" \
-#       >> /var/log/thunder-cleanup.log 2>&1
+#   */30 * * * * /opt/thunderid/scripts/cleanup_runtime_db.sh \
+#       -type postgres -host localhost -port 5432 -name thunderidruntime \
+#       -username thunderid -password "$THUNDERID_DB_PASSWORD" \
+#       >> /var/log/thunderid-cleanup.log 2>&1
 # =============================================================================
 
 # Script common variables.
@@ -69,7 +71,7 @@ USERNAME=""
 PASSWORD=""
 
 # Tables to clean (order matters: FLOW_CONTEXT first for cascade).
-TABLES=("FLOW_CONTEXT" "AUTHORIZATION_CODE" "AUTHORIZATION_REQUEST" "WEBAUTHN_SESSION" "ATTRIBUTE_CACHE")
+TABLES=("FLOW_CONTEXT" "AUTHORIZATION_CODE" "AUTHORIZATION_REQUEST" "WEBAUTHN_SESSION" "ATTRIBUTE_CACHE" "PAR_REQUEST" "JTI_RECORD")
 
 # Totals for summary.
 TOTAL_DELETED=0
@@ -367,7 +369,7 @@ cleanup_all_tables() {
 
 main() {
   echo "============================================"
-  echo "Thunder Runtime Database Cleanup"
+  echo "ThunderID Runtime Database Cleanup"
   echo "$(date '+%Y-%m-%d %H:%M:%S')"
   echo "============================================"
   echo ""

@@ -21,18 +21,19 @@ package core
 import (
 	"context"
 
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/flow/common"
+	appmodel "github.com/thunder-id/thunderid/internal/application/model"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/flow/common"
 )
 
 // NodeContext holds the context for a specific node in the flow execution.
 type NodeContext struct {
 	Context context.Context
 
-	FlowID        string
+	ExecutionID   string
 	FlowType      common.FlowType
-	AppID         string
+	EntityID      string
 	Verbose       bool
 	CurrentAction string
 	CurrentNodeID string
@@ -46,6 +47,7 @@ type NodeContext struct {
 
 	Application       appmodel.Application
 	AuthenticatedUser authncm.AuthenticatedUser
+	AuthUser          manager.AuthUser
 	ExecutionHistory  map[string]*common.NodeExecutionRecord
 }
 
@@ -56,4 +58,16 @@ type NodeCondition struct {
 	Key    string
 	Value  string
 	OnSkip string
+}
+
+// Segment represents a contiguous section of a flow graph bounded by display-only prompt nodes.
+type Segment struct {
+	ID          string
+	StartNodeID string
+}
+
+// ExecutionPolicy defines behavioral policies for node execution.
+type ExecutionPolicy struct {
+	SkipChallengeValidation bool
+	AllowSegmentRestart     bool
 }

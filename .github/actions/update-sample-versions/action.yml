@@ -48,4 +48,11 @@ runs:
 
         cd "$GITHUB_WORKSPACE"
 
+        # Update agent-id sample
+        echo "Updating wayfinder-sample..."
+        cd samples/apps/wayfinder-sample
+        npm version "$SAMPLE_VERSION" --no-git-tag-version --allow-same-version
+
+        cd "$GITHUB_WORKSPACE"
+
         echo "✅ Updated all sample apps to version $SAMPLE_VERSION"

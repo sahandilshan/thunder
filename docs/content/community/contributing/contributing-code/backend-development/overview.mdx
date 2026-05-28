@@ -1,0 +1,53 @@
+---
+title: Overview
+description: Backend contribution guidelines for the Go application.
+sidebar_position: 1
+hide_table_of_contents: false
+---
+
+# Backend Contribution Guidelines
+
+The backend is a Go application under `backend/`.
+
+## Project Structure
+
+Each domain package under `internal/` follows a flat structure:
+
+| File | Purpose |
+|------|---------|
+| `service.go` | Service interface + business logic |
+| `handler.go` | HTTP handlers |
+| `store.go` | Data access layer |
+| `model.go` | Domain models and DTOs |
+| `constants.go` | Package constants |
+| `error_constants.go` | Error messages and codes |
+| `store_constants.go` | DB queries and table names |
+| `init.go` | Package initialization and route registration |
+
+## Key Rules
+
+- **File naming**: `snake_case` (e.g., `error_constants.go`)
+- **Exports**: Only export service interface and models used in service. Keep implementations, constants, queries unexported.
+- **Logging**: Use `log` package from `internal/system`. Avoid PII; use `MaskString` for sensitive data.
+
+## Mock Generation
+
+After changing any interface, regenerate mocks:
+
+```bash
+make mockery
+```
+
+:::warning
+CI has a `verify-mocks` job that will fail your build if mocks are out of sync with the interfaces.
+:::
+
+## Testing
+
+| Purpose | Command |
+|---------|---------|
+| Unit tests | `make test_unit` |
+| Integration tests | `make test_integration` |
+| Specific test | `make test_integration RUN="TestName"` |
+| Specific package | `make test_integration PACKAGE="pkg/path"` |
+| All backend tests | `make test` |

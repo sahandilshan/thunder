@@ -1,68 +1,40 @@
 {
   "private": true,
-  "name": "@thunder/frontend",
+  "name": "@thunderid/frontend",
   "version": "0.0.0",
-  "description": "Frontend workspace for ⚡️ Thunder",
+  "description": "Frontend workspace for ⚡️ ThunderID",
   "author": "WSO2",
   "license": "Apache-2.0",
   "type": "module",
-  "homepage": "https://github.com/asgardeo/thunder/tree/main/frontend#readme",
+  "homepage": "https://github.com/thunder-id/thunderid/tree/main/frontend#readme",
   "bugs": {
-    "url": "https://github.com/asgardeo/thunder/issues"
+    "url": "https://github.com/thunder-id/thunderid/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/asgardeo/thunder"
+    "url": "https://github.com/thunder-id/thunderid"
   },
   "keywords": [
-    "asgardeo",
-    "thunder",
+    "thunderid",
     "frontend",
     "workspace",
     "wso2"
   ],
   "scripts": {
-    "build": "nx run-many --target=build --all",
-    "build:apps": "nx run-many --target=build --projects=apps/*",
-    "build:docs": "pnpm run build:packages && node ./scripts/build-docs.js",
-    "build:packages": "nx run-many --target=build --projects=packages/*",
-    "clean": "nx run-many --target=clean --all",
-    "i18n:extract": "pnpm i18next-cli sync",
-    "format:check": "prettier --check --cache .",
-    "format:fix": "prettier --write --cache .",
-    "lint": "nx run-many --target=lint --all --parallel",
-    "lint:fix": "nx run-many --target=fix:lint --all --parallel",
-    "test": "nx run-many --target=test --all --parallel",
-    "typecheck": "nx run-many --target=typecheck --all --parallel"
+    "build:apps": "nx run-many --target=build --projects=frontend/apps/*",
+    "build:packages": "nx run-many --target=build --projects=frontend/packages/*",
+    "clean": "pnpm clean:node_modules",
+    "clean:node_modules": "rimraf node_modules",
+    "dev": "nx run-many --target=dev --projects=frontend/apps/*",
+    "test:packages": "nx run-many --target=test --projects=frontend/packages/*",
+    "i18n:extract": "pnpm i18next-cli sync"
   },
   "devDependencies": {
-    "@thunder/eslint-plugin-thunder": "workspace:^",
-    "@thunder/logger": "workspace:^",
-    "@thunder/prettier-config": "workspace:^",
-    "eslint": "catalog:",
-    "i18next-cli": "^1.51.3",
-    "nx": "22.6.2",
-    "prettier": "catalog:",
-    "rimraf": "catalog:",
-    "tslib": "catalog:",
-    "typescript": "catalog:"
-  },
-  "pnpm": {
-    "overrides": {
-      "flatted@3.3.3": ">=3.4.0",
-      "picomatch": ">=4.0.4",
-      "vite": "catalog:",
-      "nx>axios": ">=1.13.5",
-      "dompurify": ">=3.3.2",
-      "minimatch@>=5.0.0 <5.1.8": ">=5.1.8",
-      "serialize-javascript": ">=7.0.3"
-    },
-    "packageExtensions": {
-      "@hookform/resolvers": {
-        "peerDependencies": {
-          "zod": "*"
-        }
-      }
-    }
+    "@thunderid/eslint-plugin": "workspace:^",
+    "@thunderid/logger": "workspace:^",
+    "@thunderid/prettier-config": "workspace:^",
+    "i18next-cli": "1.51.3",
+    "nx": "catalog:",
+    "rimraf": "catalog:"
   }
 }

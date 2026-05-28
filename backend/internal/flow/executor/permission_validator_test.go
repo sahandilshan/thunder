@@ -25,10 +25,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/security"
-	"github.com/asgardeo/thunder/tests/mocks/flow/coremock"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/security"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
 )
 
 type PermissionValidatorTestSuite struct {
@@ -38,6 +38,8 @@ type PermissionValidatorTestSuite struct {
 }
 
 func (suite *PermissionValidatorTestSuite) SetupTest() {
+	security.InitSystemPermissions("")
+
 	suite.mockFlowFactory = coremock.NewFlowFactoryInterfaceMock(suite.T())
 	mockBaseExecutor := coremock.NewExecutorInterfaceMock(suite.T())
 
@@ -59,8 +61,8 @@ func (suite *PermissionValidatorTestSuite) TestExecute_DefaultScopeCheck_Success
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 	}
 
 	resp, err := suite.executor.Execute(ctx)
@@ -78,8 +80,8 @@ func (suite *PermissionValidatorTestSuite) TestExecute_DefaultScopeCheck_Failure
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 	}
 
 	resp, err := suite.executor.Execute(ctx)
@@ -164,7 +166,7 @@ func (suite *PermissionValidatorTestSuite) TestExecute_CustomScopeCheck_Success(
 			httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 			ctx := &core.NodeContext{
-				FlowID:         "test-flow",
+				ExecutionID:    "test-flow",
 				Context:        httpCtx,
 				NodeProperties: tc.nodeProps,
 			}
@@ -186,8 +188,8 @@ func (suite *PermissionValidatorTestSuite) TestExecute_MultipleRequiredScopes_OR
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 		NodeProperties: map[string]interface{}{
 			propertyKeyRequiredScopes: []interface{}{"scopeA", "scopeB"},
 		},
@@ -208,8 +210,8 @@ func (suite *PermissionValidatorTestSuite) TestExecute_AuthorizedPermissionsChec
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 		NodeProperties: map[string]interface{}{
 			propertyKeyRequiredScopes: []interface{}{"admin"},
 		},
@@ -223,8 +225,8 @@ func (suite *PermissionValidatorTestSuite) TestExecute_AuthorizedPermissionsChec
 
 func (suite *PermissionValidatorTestSuite) TestExecute_NoHTTPContext() {
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: nil,
+		ExecutionID: "test-flow",
+		Context:     nil,
 	}
 
 	resp, err := suite.executor.Execute(ctx)
@@ -243,8 +245,8 @@ func (suite *PermissionValidatorTestSuite) TestExecute_EmptyScopes() {
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 	}
 
 	resp, err := suite.executor.Execute(ctx)
@@ -263,8 +265,8 @@ func (suite *PermissionValidatorTestSuite) TestExecute_NoScopesInContext() {
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 	}
 
 	resp, err := suite.executor.Execute(ctx)
@@ -283,8 +285,8 @@ func (suite *PermissionValidatorTestSuite) TestExecute_ScopesWithUnexpectedType(
 	httpCtx = security.WithSecurityContextTest(httpCtx, authCtx)
 
 	ctx := &core.NodeContext{
-		FlowID:  "test-flow",
-		Context: httpCtx,
+		ExecutionID: "test-flow",
+		Context:     httpCtx,
 	}
 
 	resp, err := suite.executor.Execute(ctx)

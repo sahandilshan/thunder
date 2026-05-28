@@ -16,9 +16,10 @@
  * under the License.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import AuthContext from './AuthContext';
+import { getCurrentUserProfile, type UserProfile } from '../services/userProfileService';
 
 /**
  * AuthProvider component to manage authentication state.
@@ -28,6 +29,9 @@ import AuthContext from './AuthContext';
  */
 const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('authToken'));
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
 
   useEffect(() => {
     if (token === null) {
@@ -37,10 +41,39 @@ const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [token]);
 
-  const clearToken = useCallback(() => setToken(null), []);
+  const refreshUserProfile = useCallback(async () => {
+    if (!token) {
+      setUserProfile(null);
+      return null;
+    }
+
+    const tokenSnapshot = token;
+    const profile = await getCurrentUserProfile(tokenSnapshot);
+
+    if (tokenRef.current === tokenSnapshot) {
+      setUserProfile(profile);
+    }
+    return profile;
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      setUserProfile(null);
+      return;
+    }
+
+    void refreshUserProfile().catch(() => {
+      setUserProfile(null);
+    });
+  }, [refreshUserProfile, token]);
+
+  const clearToken = useCallback(() => {
+    setToken(null);
+    setUserProfile(null);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ token, setToken, clearToken }}>
+    <AuthContext.Provider value={{ token, setToken, clearToken, userProfile, refreshUserProfile }}>
       {children}
     </AuthContext.Provider>
   );

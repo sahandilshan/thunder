@@ -3,7 +3,16 @@
     "hostname": "localhost",
     "port": 8090,
     "http_only": false,
-    "identifier": "default-deployment"
+    "identifier": "default-deployment",
+    "security": {
+      "jwks_cache_ttl": 300,
+      "trusted_issuer": {
+        "issuer": "",
+        "jwks_url": "",
+        "audience": "",
+        "required_claims": []
+      }
+    }
   },
   "gate_client": {
     "hostname": "localhost",
@@ -19,45 +28,55 @@
   "database": {
     "config": {
       "type": "sqlite",
-      "hostname": "",
-      "port": 0,
-      "name": "",
-      "username": "",
-      "password": "",
-      "sslmode": "",
-      "path": "repository/database/configdb.db",
-      "options": "_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)",
-      "max_open_conns": 500,
-      "max_idle_conns": 100,
-      "conn_max_lifetime": 3600
+      "sqlite": {
+        "path": "repository/database/configdb.db",
+        "options": "_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)",
+        "max_open_conns": 500,
+        "max_idle_conns": 100,
+        "conn_max_lifetime": 3600,
+        "max_retries": 3,
+        "min_retry_backoff_ms": 50,
+        "max_retry_backoff_ms": 2000
+      }
     },
     "runtime": {
       "type": "sqlite",
-      "hostname": "",
-      "port": 0,
-      "name": "",
-      "username": "",
-      "password": "",
-      "sslmode": "",
-      "path": "repository/database/runtimedb.db",
-      "options": "_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)",
-      "max_open_conns": 500,
-      "max_idle_conns": 100,
-      "conn_max_lifetime": 3600
+      "sqlite": {
+        "path": "repository/database/runtimedb.db",
+        "options": "_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)",
+        "max_open_conns": 500,
+        "max_idle_conns": 100,
+        "conn_max_lifetime": 3600,
+        "max_retries": 3,
+        "min_retry_backoff_ms": 50,
+        "max_retry_backoff_ms": 2000
+      },
+      "redis": {
+        "address": "",
+        "username": "",
+        "password": "",
+        "db": 0,
+        "key_prefix": "",
+        "max_retries": 5,
+        "min_retry_backoff_ms": 10,
+        "max_retry_backoff_ms": 100,
+        "dial_timeout_ms": 5000,
+        "read_timeout_ms": 3000,
+        "write_timeout_ms": 3000
+      }
     },
     "user": {
       "type": "sqlite",
-      "hostname": "",
-      "port": 0,
-      "name": "",
-      "username": "",
-      "password": "",
-      "sslmode": "",
-      "path": "repository/database/userdb.db",
-      "options": "_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)",
-      "max_open_conns": 500,
-      "max_idle_conns": 100,
-      "conn_max_lifetime": 3600
+      "sqlite": {
+        "path": "repository/database/userdb.db",
+        "options": "_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)",
+        "max_open_conns": 500,
+        "max_idle_conns": 100,
+        "conn_max_lifetime": 3600,
+        "max_retries": 3,
+        "min_retry_backoff_ms": 50,
+        "max_retry_backoff_ms": 2000
+      }
     }
   },
   "cache": {
@@ -70,9 +89,16 @@
     "properties": [],
     "redis": {
       "address": "",
+      "username": "",
       "password": "",
       "db": 0,
-      "key_prefix": "thunder"
+      "key_prefix": "thunderid",
+      "max_retries": 5,
+      "min_retry_backoff_ms": 10,
+      "max_retry_backoff_ms": 100,
+      "dial_timeout_ms": 5000,
+      "read_timeout_ms": 3000,
+      "write_timeout_ms": 3000
     }
   },
   "jwt": {
@@ -91,22 +117,38 @@
     },
     "dcr": {
       "insecure": false
-    }
+    },
+    "par": {
+      "require_par": false,
+      "expires_in": 60
+    },
+    "dpop": {
+      "required": false,
+      "iat_window": 60,
+      "leeway": 5,
+      "allowed_algs": ["ES256", "PS256", "ES384", "ES512", "EdDSA", "RS256"],
+      "max_jti_length": 256
+    },
+    "allow_wildcard_redirect_uri": false
   },
   "flow": {
     "default_auth_flow_handle": "default-basic-flow",
     "user_onboarding_flow_handle": "default-user-onboarding",
     "max_version_history": 10,
-    "auto_infer_registration": true
+    "auto_infer_registration": false,
+    "store": "composite"
   },
   "user": {
-    "indexed_attributes": ["username", "email", "mobileNumber", "sub"]
+    "indexed_attributes": [
+      "username",
+      "email",
+      "mobileNumber",
+      "sub"
+    ],
+    "store": "composite"
   },
   "declarative_resources": {
     "enabled": false
-  },
-  "resource": {
-    "default_delimiter": ":"
   },
   "observability": {
     "enabled": false,
@@ -114,7 +156,9 @@
       "console": {
         "enabled": false,
         "format": "json",
-        "categories": ["observability.all"]
+        "categories": [
+          "observability.all"
+        ]
       }
     }
   },
@@ -147,6 +191,37 @@
         "key_file": "repository/resources/security/signing.key"
       }
     ]
+  },
+  "resource": {
+    "default_delimiter": ":",
+    "store": "composite"
+  },
+  "organization_unit": {
+    "store": "composite"
+  },
+  "identity_provider": {
+    "store": "composite"
+  },
+  "application": {
+    "store": "composite"
+  },
+  "agent": {
+    "store": "composite"
+  },
+  "user_type": {
+    "store": "composite"
+  },
+  "role": {
+    "store": "composite"
+  },
+  "theme": {
+    "store": "composite"
+  },
+  "layout": {
+    "store": "composite"
+  },
+  "translation": {
+    "store": "composite"
   },
   "authn_provider": {
     "type": "default",

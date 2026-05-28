@@ -19,12 +19,18 @@
 // Package common contains the common models and constants for notification package.
 package common
 
-import "github.com/asgardeo/thunder/internal/system/cmodels"
+import "github.com/thunder-id/thunderid/internal/system/cmodels"
 
 // SMSData represents the data structure for a SMS message.
 type SMSData struct {
 	To   string `json:"to"`
 	Body string `json:"body"`
+}
+
+// NotificationData holds the channel-agnostic payload for sending a notification.
+type NotificationData struct {
+	Recipient string
+	Body      string
 }
 
 // OTP represents the data structure for an OTP (One-Time Password).

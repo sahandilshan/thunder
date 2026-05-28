@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -73,6 +73,7 @@ func (suite *FlowMetaAPITestSuite) SetupSuite() {
 	suite.ouID = ouID
 
 	// Create Application
+	testApp.OUID = suite.ouID
 	appID, err := testutils.CreateApplication(testApp)
 	suite.Require().NoError(err, "Failed to create application during setup")
 	suite.appID = appID
@@ -249,7 +250,7 @@ func (suite *FlowMetaAPITestSuite) TestGetFlowMetadataMissingType() {
 	suite.Require().NoError(err)
 
 	suite.Equal("FM-1004", errorResp.Code)
-	suite.Equal("Missing required parameter", errorResp.Message)
+	suite.Equal("Missing required parameter", errorResp.Message.DefaultValue)
 }
 
 // TestGetFlowMetadataMissingID tests GET /flow/meta without id parameter
@@ -274,7 +275,7 @@ func (suite *FlowMetaAPITestSuite) TestGetFlowMetadataMissingID() {
 	suite.Require().NoError(err)
 
 	suite.Equal("FM-1005", errorResp.Code)
-	suite.Equal("Missing required parameter", errorResp.Message)
+	suite.Equal("Missing required parameter", errorResp.Message.DefaultValue)
 }
 
 // TestGetFlowMetadataMissingBothParams tests GET /flow/meta without any parameters.
@@ -328,7 +329,7 @@ func (suite *FlowMetaAPITestSuite) TestGetFlowMetadataInvalidType() {
 	suite.Require().NoError(err)
 
 	suite.Equal("FM-1001", errorResp.Code)
-	suite.Equal("Invalid request", errorResp.Message)
+	suite.Equal("Invalid request", errorResp.Message.DefaultValue)
 }
 
 // TestGetFlowMetadataAppNotFound tests GET /flow/meta with non-existent application ID
@@ -353,7 +354,7 @@ func (suite *FlowMetaAPITestSuite) TestGetFlowMetadataAppNotFound() {
 	suite.Require().NoError(err)
 
 	suite.Equal("FM-1002", errorResp.Code)
-	suite.Equal("Resource not found", errorResp.Message)
+	suite.Equal("Resource not found", errorResp.Message.DefaultValue)
 }
 
 // TestGetFlowMetadataOUNotFound tests GET /flow/meta with non-existent OU ID
@@ -378,7 +379,7 @@ func (suite *FlowMetaAPITestSuite) TestGetFlowMetadataOUNotFound() {
 	suite.Require().NoError(err)
 
 	suite.Equal("FM-1003", errorResp.Code)
-	suite.Equal("Resource not found", errorResp.Message)
+	suite.Equal("Resource not found", errorResp.Message.DefaultValue)
 }
 
 // TestGetFlowMetadataDesignDefaults tests that design metadata returns defaults when no design is configured

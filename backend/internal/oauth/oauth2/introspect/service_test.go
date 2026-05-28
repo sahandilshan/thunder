@@ -19,6 +19,8 @@
 package introspect
 
 import (
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -27,10 +29,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/system/crypto/sign"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/tests/mocks/jose/jwtmock"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/system/cryptolib"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/tests/mocks/jose/jwtmock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -81,10 +83,15 @@ func (s *TokenIntrospectionServiceTestSuite) TestIntrospectToken_PublicKeyNotAva
 	s.jwtServiceMock.On("GetPublicKey").Return(nil).Maybe()
 	s.jwtServiceMock.On("VerifyJWT", mock.Anything, "", "").Return(
 		&serviceerror.ServiceError{
-			Type:             serviceerror.ServerErrorType,
-			Code:             "PUBLIC_KEY_NOT_AVAILABLE",
-			Error:            "Public key not available",
-			ErrorDescription: "The public key is not available for verification",
+			Type: serviceerror.ServerErrorType,
+			Code: "PUBLIC_KEY_NOT_AVAILABLE",
+			Error: core.I18nMessage{
+				Key: "error.test.public_key_not_available", DefaultValue: "Public key not available",
+			},
+			ErrorDescription: core.I18nMessage{
+				Key:          "error.test.the_public_key_is_not_available_for_verification",
+				DefaultValue: "The public key is not available for verification",
+			},
 		})
 
 	response, err := s.introspectService.IntrospectToken(context.Background(), s.validToken, "")
@@ -111,17 +118,22 @@ func (s *TokenIntrospectionServiceTestSuite) TestIntrospectToken_InvalidSignatur
 	claimsEncoded := base64.RawURLEncoding.EncodeToString(claimsBytes)
 
 	signingInput := headerEncoded + "." + claimsEncoded
-	signature, _ := sign.Generate([]byte(signingInput), sign.RSASHA256, differentKey)
+	signature, err := cryptolib.Generate([]byte(signingInput), cryptolib.RSASHA256, differentKey)
+	if err != nil {
+		s.T().Fatal("Error signing token:", err)
+	}
 	signatureEncoded := base64.RawURLEncoding.EncodeToString(signature)
 
 	invalidToken := signingInput + "." + signatureEncoded
 
 	s.jwtServiceMock.On("VerifyJWT", invalidToken, "", "").Return(
 		&serviceerror.ServiceError{
-			Type:             serviceerror.ServerErrorType,
-			Code:             "INVALID_SIGNATURE",
-			Error:            "Invalid signature",
-			ErrorDescription: "The JWT signature is invalid",
+			Type:  serviceerror.ServerErrorType,
+			Code:  "INVALID_SIGNATURE",
+			Error: core.I18nMessage{Key: "error.test.invalid_signature", DefaultValue: "Invalid signature"},
+			ErrorDescription: core.I18nMessage{
+				Key: "error.test.the_jwt_signature_is_invalid", DefaultValue: "The JWT signature is invalid",
+			},
 		})
 
 	// Test with a token having invalid signature
@@ -257,42 +269,65 @@ func (s *TokenIntrospectionServiceTestSuite) TestIntrospectToken() {
 			case "InvalidTokenFormat":
 				s.jwtServiceMock.On("VerifyJWT", token, "", "").Return(
 					&serviceerror.ServiceError{
-						Type:             serviceerror.ServerErrorType,
-						Code:             "INVALID_TOKEN_FORMAT",
-						Error:            "Invalid token format",
-						ErrorDescription: "The token format is invalid",
+						Type: serviceerror.ServerErrorType,
+						Code: "INVALID_TOKEN_FORMAT",
+						Error: core.I18nMessage{
+							Key: "error.test.invalid_token_format", DefaultValue: "Invalid token format",
+						},
+						ErrorDescription: core.I18nMessage{
+							Key: "error.test.the_token_format_is_invalid", DefaultValue: "The token format is invalid",
+						},
 					})
 			case "ExpiredToken":
 				s.jwtServiceMock.On("VerifyJWT", token, "", "").Return(
 					&serviceerror.ServiceError{
-						Type:             serviceerror.ClientErrorType,
-						Code:             "TOKEN_EXPIRED",
-						Error:            "Token has expired",
-						ErrorDescription: "The token has expired",
+						Type: serviceerror.ClientErrorType,
+						Code: "TOKEN_EXPIRED",
+						Error: core.I18nMessage{
+							Key: "error.test.token_has_expired", DefaultValue: "Token has expired",
+						},
+						ErrorDescription: core.I18nMessage{
+							Key: "error.test.the_token_has_expired", DefaultValue: "The token has expired",
+						},
 					})
 			case "FutureToken":
 				s.jwtServiceMock.On("VerifyJWT", token, "", "").Return(
 					&serviceerror.ServiceError{
-						Type:             serviceerror.ClientErrorType,
-						Code:             "TOKEN_NOT_VALID_YET",
-						Error:            "Token not valid yet",
-						ErrorDescription: "The token is not valid yet (nbf)",
+						Type: serviceerror.ClientErrorType,
+						Code: "TOKEN_NOT_VALID_YET",
+						Error: core.I18nMessage{
+							Key: "error.test.token_not_valid_yet", DefaultValue: "Token not valid yet",
+						},
+						ErrorDescription: core.I18nMessage{
+							Key:          "error.test.the_token_is_not_valid_yet_nbf",
+							DefaultValue: "The token is not valid yet (nbf)",
+						},
 					})
 			case "TokenWithMissingExpClaim":
 				s.jwtServiceMock.On("VerifyJWT", token, "", "").Return(
 					&serviceerror.ServiceError{
-						Type:             serviceerror.ClientErrorType,
-						Code:             "MISSING_EXP_CLAIM",
-						Error:            "Missing exp claim",
-						ErrorDescription: "Missing or invalid 'exp' claim",
+						Type: serviceerror.ClientErrorType,
+						Code: "MISSING_EXP_CLAIM",
+						Error: core.I18nMessage{
+							Key: "error.test.missing_exp_claim", DefaultValue: "Missing exp claim",
+						},
+						ErrorDescription: core.I18nMessage{
+							Key:          "error.test.missing_or_invalid_exp_claim",
+							DefaultValue: "Missing or invalid 'exp' claim",
+						},
 					})
 			case "TokenWithMissingNbfClaim":
 				s.jwtServiceMock.On("VerifyJWT", token, "", "").Return(
 					&serviceerror.ServiceError{
-						Type:             serviceerror.ClientErrorType,
-						Code:             "MISSING_NBF_CLAIM",
-						Error:            "Missing nbf claim",
-						ErrorDescription: "Missing or invalid 'nbf' claim",
+						Type: serviceerror.ClientErrorType,
+						Code: "MISSING_NBF_CLAIM",
+						Error: core.I18nMessage{
+							Key: "error.test.missing_nbf_claim", DefaultValue: "Missing nbf claim",
+						},
+						ErrorDescription: core.I18nMessage{
+							Key:          "error.test.missing_or_invalid_nbf_claim",
+							DefaultValue: "Missing or invalid 'nbf' claim",
+						},
 					})
 			case "ValidToken", "TokenWithMissingOptionalClaims":
 				s.jwtServiceMock.On("VerifyJWT", token, "", "").Return(nil)
@@ -341,6 +376,31 @@ func (s *TokenIntrospectionServiceTestSuite) TestIntrospectToken() {
 	}
 }
 
+// TestIntrospectToken_DPoPBoundToken_SurfacesCnfAndDPoPType verifies that a token
+// carrying cnf.jkt is reported with token_type=DPoP and the cnf claim is surfaced.
+func (s *TokenIntrospectionServiceTestSuite) TestIntrospectToken_DPoPBoundToken_SurfacesCnfAndDPoPType() {
+	claims := map[string]any{
+		"exp":       float64(time.Now().Add(time.Hour).Unix()),
+		"nbf":       float64(time.Now().Add(-time.Minute).Unix()),
+		"iat":       float64(time.Now().Unix()),
+		"sub":       "user123",
+		"client_id": "client123",
+		"cnf":       map[string]any{"jkt": "thumbprint-abc"},
+	}
+	token := s.createToken(claims)
+
+	s.jwtServiceMock.On("GetPublicKey").Return(&s.privateKey.PublicKey).Maybe()
+	s.jwtServiceMock.On("VerifyJWT", token, "", "").Return(nil)
+
+	response, err := s.introspectService.IntrospectToken(context.Background(), token, "")
+	assert.NoError(s.T(), err)
+	assert.NotNil(s.T(), response)
+	assert.True(s.T(), response.Active)
+	assert.Equal(s.T(), constants.TokenTypeDPoP, response.TokenType)
+	assert.NotNil(s.T(), response.Cnf)
+	assert.Equal(s.T(), "thumbprint-abc", response.Cnf.Jkt)
+}
+
 // Helper methods to create tokens with specific claims
 func (s *TokenIntrospectionServiceTestSuite) createToken(claims map[string]interface{}) string {
 	header := map[string]interface{}{
@@ -355,7 +415,7 @@ func (s *TokenIntrospectionServiceTestSuite) createToken(claims map[string]inter
 	claimsEncoded := base64.RawURLEncoding.EncodeToString(claimsBytes)
 
 	signingInput := headerEncoded + "." + claimsEncoded
-	signature, err := sign.Generate([]byte(signingInput), sign.RSASHA256, s.privateKey)
+	signature, err := cryptolib.Generate([]byte(signingInput), cryptolib.RSASHA256, s.privateKey)
 	if err != nil {
 		s.T().Fatal("Error signing token:", err)
 	}

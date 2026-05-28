@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // Test Suite
@@ -44,7 +44,7 @@ func TestThemeHandlerTestSuite(t *testing.T) {
 // mockThemeService implements ThemeMgtServiceInterface for handler tests
 type mockThemeService struct {
 	getThemeListFunc func(limit, offset int) (*ThemeList, *serviceerror.ServiceError)
-	createThemeFunc  func(theme CreateThemeRequest) (*Theme, *serviceerror.ServiceError)
+	createThemeFunc  func(theme CreateThemeRequestWithID) (*Theme, *serviceerror.ServiceError)
 	getThemeFunc     func(id string) (*Theme, *serviceerror.ServiceError)
 	updateThemeFunc  func(id string, theme UpdateThemeRequest) (*Theme, *serviceerror.ServiceError)
 	deleteThemeFunc  func(id string) *serviceerror.ServiceError
@@ -55,7 +55,7 @@ func (m *mockThemeService) GetThemeList(limit, offset int) (*ThemeList, *service
 	return m.getThemeListFunc(limit, offset)
 }
 
-func (m *mockThemeService) CreateTheme(theme CreateThemeRequest) (*Theme, *serviceerror.ServiceError) {
+func (m *mockThemeService) CreateTheme(theme CreateThemeRequestWithID) (*Theme, *serviceerror.ServiceError) {
 	return m.createThemeFunc(theme)
 }
 
@@ -236,7 +236,7 @@ func (suite *ThemeHandlerTestSuite) TestHandleThemePostRequest_Success() {
 	}
 
 	mockSvc := &mockThemeService{
-		createThemeFunc: func(theme CreateThemeRequest) (*Theme, *serviceerror.ServiceError) {
+		createThemeFunc: func(theme CreateThemeRequestWithID) (*Theme, *serviceerror.ServiceError) {
 			return createdTheme, nil
 		},
 	}
@@ -276,7 +276,7 @@ func (suite *ThemeHandlerTestSuite) TestHandleThemePostRequest_InvalidJSON() {
 // Test HandleThemePostRequest - Service error
 func (suite *ThemeHandlerTestSuite) TestHandleThemePostRequest_ServiceError() {
 	mockSvc := &mockThemeService{
-		createThemeFunc: func(theme CreateThemeRequest) (*Theme, *serviceerror.ServiceError) {
+		createThemeFunc: func(theme CreateThemeRequestWithID) (*Theme, *serviceerror.ServiceError) {
 			return nil, &serviceerror.InternalServerError
 		},
 	}

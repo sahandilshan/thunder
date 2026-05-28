@@ -16,7 +16,6 @@
  * under the License.
  */
 
-import React from 'react';
 
 export default function MagicLinkIcon({size = 18}: {size?: number}) {
   return (

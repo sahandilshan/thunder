@@ -26,16 +26,26 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/mcp/tool"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/mcp/tool"
 )
 
 // FlowDefinition represents the structure of a flow definition.
 type FlowDefinition struct {
+	ID       string           `json:"id,omitempty" yaml:"id,omitempty" jsonschema:"Optional explicit ID for the flow. When omitted a UUID is generated."`
 	Handle   string           `json:"handle" validate:"required" jsonschema:"Unique identifier for the flow (lowercase, alphanumeric with dashes/underscores). Example: 'basic-login', 'invite-registration'"`
 	Name     string           `json:"name" validate:"required" jsonschema:"Display name for the flow. Example: 'Basic Login Flow', 'Invite Registration'"`
 	FlowType common.FlowType  `json:"flowType" validate:"required" jsonschema:"Type of flow: 'AUTHENTICATION' for login flows or 'REGISTRATION' for signup flows"`
 	Nodes    []NodeDefinition `json:"nodes" validate:"required" jsonschema:"Array of nodes defining the flow steps. Must include START and END nodes. Use get_flow on existing flows to see node structure examples."`
+}
+
+// FlowDefinitionRequest represents the API request body for create/update flow operations.
+// ID is intentionally excluded from API payloads.
+type FlowDefinitionRequest struct {
+	Handle   string           `json:"handle" validate:"required"`
+	Name     string           `json:"name" validate:"required"`
+	FlowType common.FlowType  `json:"flowType" validate:"required"`
+	Nodes    []NodeDefinition `json:"nodes" validate:"required"`
 }
 
 // CompleteFlowDefinition represents a complete flow definition with all details.
@@ -133,6 +143,9 @@ type NodeDefinition struct {
 	Layout       *NodeLayout            `json:"layout,omitempty" yaml:"layout,omitempty" jsonschema:"Optional UI layout information for flow composer (position and size on canvas)"`
 	Meta         interface{}            `json:"meta,omitempty" yaml:"meta,omitempty" jsonschema:"Optional metadata. For PROMPT nodes, must include 'components' array for UI rendering. See existing flows for examples."`
 	Prompts      []PromptDefinition     `json:"prompts,omitempty" yaml:"prompts,omitempty" jsonschema:"For PROMPT nodes: defines user inputs and actions. Each prompt has inputs (form fields) and an action (what happens on submit)."`
+	Variant      common.NodeVariant     `json:"variant,omitempty" yaml:"variant,omitempty" jsonschema:"Optional PROMPT node variant. Use 'LOGIN_OPTIONS' to enable login option filtering on this node."`
+	Next         string                 `json:"next,omitempty" yaml:"next,omitempty" jsonschema:"For display-only PROMPT nodes: ID of the next node. Mutually exclusive with 'prompts'."`
+	Message      string                 `json:"message,omitempty" yaml:"message,omitempty" jsonschema:"For display-only PROMPT nodes: textual message for non-verbose mode."`
 	Properties   map[string]interface{} `json:"properties,omitempty" yaml:"properties,omitempty" jsonschema:"Optional node-specific properties for configuration"`
 	Executor     *ExecutorDefinition    `json:"executor,omitempty" yaml:"executor,omitempty" jsonschema:"For TASK_EXECUTION nodes: defines which executor to run (e.g., 'UsernamePasswordAuthenticator', 'OTPGenerator')"`
 	OnSuccess    string                 `json:"onSuccess,omitempty" yaml:"onSuccess,omitempty" jsonschema:"ID of the next node to execute on successful completion"`
@@ -143,15 +156,27 @@ type NodeDefinition struct {
 
 // InputDefinition represents an input parameter for a node.
 type InputDefinition struct {
-	Ref        string `json:"ref,omitempty" yaml:"ref,omitempty" jsonschema:"Reference ID for the input."`
-	Type       string `json:"type" yaml:"type" jsonschema:"Input type (e.g., 'text', 'password', 'email')."`
-	Identifier string `json:"identifier" yaml:"identifier" jsonschema:"Field identifier or name."`
-	Required   bool   `json:"required" yaml:"required" jsonschema:"Whether this input is mandatory."`
+	Ref        string                     `json:"ref,omitempty" yaml:"ref,omitempty" jsonschema:"Reference ID for the input."`
+	Type       string                     `json:"type" yaml:"type" jsonschema:"Input type (e.g., 'text', 'password', 'email')."`
+	Identifier string                     `json:"identifier" yaml:"identifier" jsonschema:"Field identifier or name."`
+	Required   bool                       `json:"required" yaml:"required" jsonschema:"Whether this input is mandatory."`
+	Validation []ValidationRuleDefinition `json:"validation,omitempty" yaml:"validation,omitempty" jsonschema:"Server-enforced validation rules applied to the submitted value."`
+}
+
+// ValidationRuleDefinition represents a single validation constraint on an input.
+// Type is one of "regex", "minLength", or "maxLength"; Value holds the constraint
+// parameter (string for regex, number for length types); Message is an i18n key or
+// literal string returned in fieldErrors when the rule fails.
+type ValidationRuleDefinition struct {
+	Type    string      `json:"type" yaml:"type" jsonschema:"Rule type: 'regex', 'minLength', or 'maxLength'."`
+	Value   interface{} `json:"value" yaml:"value" jsonschema:"Constraint value: regex pattern (string) or length (number)."`
+	Message string      `json:"message,omitempty" yaml:"message,omitempty" jsonschema:"i18n key or literal message returned when the rule fails."`
 }
 
 // ActionDefinition represents an action to be executed by a node.
 type ActionDefinition struct {
 	Ref      string `json:"ref" yaml:"ref" jsonschema:"Reference ID for the action."`
+	Type     string `json:"type,omitempty" yaml:"type,omitempty" jsonschema:"Action type. Forwarded to next executor to determine the action to take."`
 	NextNode string `json:"nextNode" yaml:"nextNode" jsonschema:"ID of the node to transition to when this action is taken."`
 }
 
@@ -252,4 +277,12 @@ type updateFlowInput struct {
 	ID    string           `json:"id" jsonschema:"The unique identifier of the flow to update. Required."`
 	Name  string           `json:"name" jsonschema:"Display name for the flow. Required for PUT."`
 	Nodes []NodeDefinition `json:"nodes" jsonschema:"Array of nodes defining the flow steps. Required for PUT."`
+}
+
+// segmentBoundary holds the parameters of a segment boundary, which is identified by a display-only prompt node.
+// It contains the ID of the display-only prompt node that serves as the boundary, and the ID of the next node
+// which is the start node of the next segment.
+type segmentBoundary struct {
+	boundaryNodeID string
+	nextNodeID     string
 }

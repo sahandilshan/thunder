@@ -23,9 +23,10 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 type ClientProviderTestSuite struct {
@@ -45,9 +46,9 @@ func (suite *ClientProviderTestSuite) SetupSuite() {
 			},
 		},
 	}
-	err := config.InitializeThunderRuntime("", testConfig)
+	err := config.InitializeServerRuntime("", testConfig)
 	if err != nil {
-		suite.T().Fatalf("Failed to initialize ThunderRuntime: %v", err)
+		suite.T().Fatalf("Failed to initialize server runtime: %v", err)
 	}
 }
 
@@ -62,7 +63,7 @@ func (suite *ClientProviderTestSuite) TestNewNotificationClientProvider() {
 	suite.Implements((*notificationClientProviderInterface)(nil), provider)
 }
 
-func (suite *ClientProviderTestSuite) TestGetMessageClient() {
+func (suite *ClientProviderTestSuite) TestGetClient() {
 	cases := []struct {
 		name     string
 		sender   common.NotificationSenderDTO
@@ -111,7 +112,7 @@ func (suite *ClientProviderTestSuite) TestGetMessageClient() {
 
 	for _, tc := range cases {
 		suite.T().Run(tc.name, func(t *testing.T) {
-			client, err := suite.provider.GetMessageClient(tc.sender)
+			client, err := suite.provider.GetClient(tc.sender)
 			suite.Nil(err)
 			suite.NotNil(client)
 			suite.Equal(tc.expected, client.GetName())
@@ -119,7 +120,7 @@ func (suite *ClientProviderTestSuite) TestGetMessageClient() {
 	}
 }
 
-func (suite *ClientProviderTestSuite) TestGetMessageClientWithError() {
+func (suite *ClientProviderTestSuite) TestGetClientWithError() {
 	makeInvalidSecretProps := func(propName string) []cmodels.Property {
 		jsonStr := `[{"name":"` + propName + `","value":"not-encrypted-value","isSecret":true}` + `]`
 		props, err := cmodels.DeserializePropertiesFromJSON(jsonStr)
@@ -165,23 +166,23 @@ func (suite *ClientProviderTestSuite) TestGetMessageClientWithError() {
 
 	for _, tc := range cases {
 		suite.T().Run(tc.name, func(t *testing.T) {
-			client, err := suite.provider.GetMessageClient(tc.sender)
+			client, err := suite.provider.GetClient(tc.sender)
 			suite.NotNil(err)
 			if err != nil {
-				suite.Equal(ErrorInternalServerError.Code, err.Code)
+				suite.Equal(serviceerror.InternalServerError.Code, err.Code)
 			}
 			suite.Nil(client)
 		})
 	}
 }
 
-func (suite *ClientProviderTestSuite) TestGetMessageClient_InvalidProvider() {
+func (suite *ClientProviderTestSuite) TestGetClient_InvalidProvider() {
 	sender := common.NotificationSenderDTO{
 		Name:     "Test Sender",
 		Provider: "invalid-provider",
 	}
 
-	client, err := suite.provider.GetMessageClient(sender)
+	client, err := suite.provider.GetClient(sender)
 
 	suite.Nil(client)
 	suite.NotNil(err)

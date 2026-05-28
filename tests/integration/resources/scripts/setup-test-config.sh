@@ -19,71 +19,74 @@ if [ "$DB_TYPE" = "postgres" ]; then
   cat >> tests/integration/resources/deployment.yaml <<EOF
   config:
     type: postgres
-    hostname: localhost
-    port: 5432
-    name: configdb
-    username: asgthunder
-    password: asgthunder
-    sslmode: disable
-    path: ""
-    options: ""
+    postgres:
+      hostname: localhost
+      port: 5432
+      name: configdb
+      username: dbuser
+      password: dbpassword
+      sslmode: disable
 
   runtime:
     type: postgres
-    hostname: localhost
-    port: 5432
-    name: runtimedb
-    username: asgthunder
-    password: asgthunder
-    sslmode: disable
-    path: ""
-    options: ""
+    postgres:
+      hostname: localhost
+      port: 5432
+      name: runtimedb
+      username: dbuser
+      password: dbpassword
+      sslmode: disable
 
   user:
     type: postgres
-    hostname: localhost
-    port: 5432
-    name: userdb
-    username: asgthunder
-    password: asgthunder
-    sslmode: disable
-    path: ""
-    options: ""
+    postgres:
+      hostname: localhost
+      port: 5432
+      name: userdb
+      username: dbuser
+      password: dbpassword
+      sslmode: disable
+EOF
+elif [ "$DB_TYPE" = "redis" ]; then
+  cat >> tests/integration/resources/deployment.yaml <<EOF
+  config:
+    type: sqlite
+    sqlite:
+      path: "repository/database/configdb.db"
+      options: "cache=shared"
+
+  runtime:
+    type: redis
+    redis:
+      address: "localhost:6379"
+      db: 0
+      key_prefix: "thunderid"
+
+  user:
+    type: sqlite
+    sqlite:
+      path: "repository/database/userdb.db"
+      options: "cache=shared"
 EOF
 else
   cat >> tests/integration/resources/deployment.yaml <<EOF
   config:
     type: sqlite
-    hostname: ""
-    port: 0
-    name: ""
-    username: ""
-    password: ""
-    sslmode: ""
-    path: "repository/database/configdb.db"
-    options: "cache=shared"
+    sqlite:
+      path: "repository/database/configdb.db"
+      options: "cache=shared"
 
   runtime:
     type: sqlite
-    hostname: ""
-    port: 0
-    name: ""
-    username: ""
-    password: ""
-    sslmode: ""
-    path: "repository/database/runtimedb.db"
-    options: "cache=shared"
+    sqlite:
+      path: "repository/database/runtimedb.db"
+      options: "cache=shared"
 
   user:
     type: sqlite
-    hostname: ""
-    port: 0
-    name: ""
-    username: ""
-    password: ""
-    sslmode: ""
-    path: "repository/database/userdb.db"
-    options: "cache=shared"
+    sqlite:
+      path: "repository/database/userdb.db"
+      options: "cache=shared"
 EOF
 fi
 
@@ -92,4 +95,19 @@ cat >> tests/integration/resources/deployment.yaml <<EOF
 
 flow:
   max_version_history: 3
+
+oauth:
+  allow_wildcard_redirect_uri: true
+  auth_class:
+    amrs:
+      - PWD
+      - OTP
+      - BIO
+    acr_amr:
+      "urn:thunder:acr:password":
+        - PWD
+      "urn:thunder:acr:generated-code":
+        - OTP
+      "urn:thunder:acr:biometrics":
+        - BIO
 EOF

@@ -1,4 +1,4 @@
-# This workflow validates that Thunder content follows the style rules defined in .vale.ini using Vale.
+# This workflow validates that content follows the style rules defined in .vale.ini using Vale.
 # It only runs on changed md and mdx files in pull requests.
 
 name: 🥒 Vale Lint (Changed Markdown Only)

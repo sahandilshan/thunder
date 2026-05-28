@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 type TemplateServiceTestSuite struct {
@@ -46,9 +46,9 @@ func (suite *TemplateServiceTestSuite) SetupTest() {
 
 func (suite *TemplateServiceTestSuite) TestGetTemplateByScenario() {
 	dto := &TemplateDTO{ID: "test-1", Scenario: ScenarioUserInvite}
-	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite).Return(dto, nil)
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite, TemplateTypeEmail).Return(dto, nil)
 
-	res, err := suite.service.GetTemplateByScenario(context.Background(), ScenarioUserInvite)
+	res, err := suite.service.GetTemplateByScenario(context.Background(), ScenarioUserInvite, TemplateTypeEmail)
 	suite.Nil(err)
 	suite.Equal("test-1", res.ID)
 }
@@ -61,9 +61,9 @@ func (suite *TemplateServiceTestSuite) TestRender() {
 		ContentType: "text/html",
 		Body:        "Link: {{ctx(inviteLink)}}",
 	}
-	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite).Return(dto, nil)
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite, TemplateTypeEmail).Return(dto, nil)
 
-	res, err := suite.service.Render(context.Background(), ScenarioUserInvite,
+	res, err := suite.service.Render(context.Background(), ScenarioUserInvite, TemplateTypeEmail,
 		TemplateData{"inviteLink": "http://example.com"})
 	suite.Nil(err)
 	suite.Equal("Test Invite", res.Subject)
@@ -72,9 +72,10 @@ func (suite *TemplateServiceTestSuite) TestRender() {
 }
 
 func (suite *TemplateServiceTestSuite) TestRender_NotFound() {
-	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite).Return(nil, errTemplateNotFound)
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite, TemplateTypeEmail).
+		Return(nil, errTemplateNotFound)
 
-	res, err := suite.service.Render(context.Background(), ScenarioUserInvite, TemplateData{})
+	res, err := suite.service.Render(context.Background(), ScenarioUserInvite, TemplateTypeEmail, TemplateData{})
 	suite.NotNil(err)
 	suite.Equal(&ErrorTemplateNotFound, err)
 	suite.Nil(res)
@@ -82,11 +83,12 @@ func (suite *TemplateServiceTestSuite) TestRender_NotFound() {
 
 func (suite *TemplateServiceTestSuite) TestRender_StoreError() {
 	storeErr := errors.New("store error")
-	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite).Return(nil, storeErr)
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite, TemplateTypeEmail).
+		Return(nil, storeErr)
 
-	res, err := suite.service.Render(context.Background(), ScenarioUserInvite, TemplateData{})
+	res, err := suite.service.Render(context.Background(), ScenarioUserInvite, TemplateTypeEmail, TemplateData{})
 	suite.NotNil(err)
-	suite.Equal(&serviceerror.InternalServerErrorWithI18n, err)
+	suite.Equal(&serviceerror.InternalServerError, err)
 	suite.Nil(res)
 }
 
@@ -98,9 +100,79 @@ func (suite *TemplateServiceTestSuite) TestRender_UnknownPlaceholder() {
 		ContentType: "text/html",
 		Body:        "Unknown: {{ctx(unknownKey)}}",
 	}
-	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite).Return(dto, nil)
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite, TemplateTypeEmail).Return(dto, nil)
 
-	res, err := suite.service.Render(context.Background(), ScenarioUserInvite, TemplateData{})
+	res, err := suite.service.Render(context.Background(), ScenarioUserInvite, TemplateTypeEmail, TemplateData{})
 	suite.Nil(err)
 	suite.Equal("Unknown: {{ctx(unknownKey)}}", res.Body)
+}
+
+func (suite *TemplateServiceTestSuite) TestRender_SubjectPlaceholderReplaced() {
+	dto := &TemplateDTO{
+		ID:          "1",
+		Scenario:    ScenarioSelfRegistration,
+		Subject:     "Complete your registration for {{ctx(appName)}}",
+		ContentType: "text/html",
+		Body:        "Click here: {{ctx(inviteLink)}}",
+	}
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioSelfRegistration, TemplateTypeEmail).
+		Return(dto, nil)
+
+	res, err := suite.service.Render(context.Background(), ScenarioSelfRegistration, TemplateTypeEmail,
+		TemplateData{"appName": "My App", "inviteLink": "https://example.com/invite"})
+	suite.Nil(err)
+	suite.Equal("Complete your registration for My App", res.Subject)
+	suite.Equal("Click here: https://example.com/invite", res.Body)
+}
+
+func (suite *TemplateServiceTestSuite) TestRender_SMSBodyOver160Chars_SucceedsAndReturnsRendered() {
+	longBody := "This is an intentionally long SMS body exceeding 160 characters to verify that rendering " +
+		"succeeds and returns the rendered result without failing or truncating the content."
+	dto := &TemplateDTO{
+		ID:          "sms-1",
+		Scenario:    ScenarioOTP,
+		Type:        TemplateTypeSMS,
+		ContentType: "text/plain",
+		Body:        longBody,
+	}
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioOTP, TemplateTypeSMS).Return(dto, nil)
+
+	res, err := suite.service.Render(context.Background(), ScenarioOTP, TemplateTypeSMS, TemplateData{})
+	suite.Nil(err)
+	suite.Equal(longBody, res.Body)
+}
+
+func (suite *TemplateServiceTestSuite) TestRender_EmailBodyOver160Chars_RendersSuccessfully() {
+	longBody := "This is an intentionally long email body exceeding 160 characters to verify that no SMS " +
+		"segment warning is triggered for non-SMS template types during rendering of the content."
+	dto := &TemplateDTO{
+		ID:          "email-1",
+		Scenario:    ScenarioUserInvite,
+		ContentType: "text/html",
+		Body:        longBody,
+	}
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioUserInvite, TemplateTypeEmail).Return(dto, nil)
+
+	res, err := suite.service.Render(context.Background(), ScenarioUserInvite, TemplateTypeEmail, TemplateData{})
+	suite.Nil(err)
+	suite.Equal(longBody, res.Body)
+}
+
+func (suite *TemplateServiceTestSuite) TestRender_SelfRegistrationScenario() {
+	dto := &TemplateDTO{
+		ID:          "2",
+		Scenario:    ScenarioSelfRegistration,
+		Subject:     "You're invited",
+		ContentType: "text/plain",
+		Body:        "Register at {{ctx(inviteLink)}}",
+	}
+	suite.mockStore.On("GetTemplateByScenario", mock.Anything, ScenarioSelfRegistration, TemplateTypeEmail).
+		Return(dto, nil)
+
+	res, err := suite.service.Render(context.Background(), ScenarioSelfRegistration, TemplateTypeEmail,
+		TemplateData{"inviteLink": "https://example.com/invite"})
+	suite.Nil(err)
+	suite.Equal("You're invited", res.Subject)
+	suite.Equal("Register at https://example.com/invite", res.Body)
+	suite.False(res.IsHTML)
 }

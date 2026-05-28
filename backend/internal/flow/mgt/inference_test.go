@@ -23,8 +23,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/executor"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/executor"
 )
 
 type FlowInferenceServiceTestSuite struct {
@@ -611,6 +611,37 @@ func (s *FlowInferenceServiceTestSuite) TestInsertPhoneInputPromptIfNeeded_Inser
 	s.NotNil(phonePrompt.Layout.Position)
 }
 
+func (s *FlowInferenceServiceTestSuite) TestInsertPhoneInputPromptIfNeeded_UsesExecutorInputIdentifier() {
+	service := s.service.(*flowInferenceService)
+	nodes := []NodeDefinition{
+		{ID: "start", Type: "START", OnSuccess: "sms"},
+		{
+			ID:   "sms",
+			Type: "TASK_EXECUTION",
+			Executor: &ExecutorDefinition{
+				Name: executor.ExecutorNameSMSAuth,
+				Mode: executor.ExecutorModeSend,
+				Inputs: []InputDefinition{
+					{Ref: "phone_input_dvq8", Identifier: "mobile", Type: common.InputTypePhone, Required: true},
+				},
+			},
+			OnSuccess: "end",
+		},
+		{ID: "end", Type: "END"},
+	}
+
+	service.insertPhoneInputPromptIfNeeded(&nodes, false)
+
+	s.Len(nodes, 4, "Phone prompt node should be inserted")
+
+	phonePrompt := s.getNode(nodes, phoneInputPromptNodeID)
+	s.Len(phonePrompt.Prompts[0].Inputs, 1)
+	s.Equal("mobile", phonePrompt.Prompts[0].Inputs[0].Identifier,
+		"Inserted prompt should use identifier from executor inputs")
+	s.Equal("phone_input_dvq8", phonePrompt.Prompts[0].Inputs[0].Ref,
+		"Inserted prompt should use ref from executor inputs")
+}
+
 // Test generateRegistrationFlowName
 
 func (s *FlowInferenceServiceTestSuite) TestGenerateRegistrationFlowName_Authentication() {
@@ -674,6 +705,36 @@ func (s *FlowInferenceServiceTestSuite) TestGenerateRegistrationFlowName_CaseIns
 
 	result := service.generateRegistrationFlowName("basic authentication")
 	s.Equal("basic Registration", result)
+}
+
+// Test replaceAuthLabel
+
+func (s *FlowInferenceServiceTestSuite) TestReplaceAuthLabel_ReplacesKnownTerms() {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"Sign In", "Sign Up"},
+		{"Sign in", "Sign Up"},
+		{"Sign-in", "Sign-up"},
+		{"Login", "Register"},
+		{"Log In", "Register"},
+		{"Log in", "Register"},
+		{"Authenticate", "Register"},
+		{"Authentication", "Registration"},
+	}
+
+	for _, tc := range cases {
+		result, replaced := replaceAuthLabel(tc.input)
+		s.True(replaced, "expected replacement for %q", tc.input)
+		s.Equal(tc.expected, result)
+	}
+}
+
+func (s *FlowInferenceServiceTestSuite) TestReplaceAuthLabel_NoMatchReturnsEmpty() {
+	result, replaced := replaceAuthLabel("Continue")
+	s.False(replaced)
+	s.Empty(result)
 }
 
 // Test cloneNodes
@@ -743,6 +804,114 @@ func (s *FlowInferenceServiceTestSuite) TestCleanAuthenticationProperties_NilPro
 	s.NotPanics(func() {
 		service.cleanAuthenticationProperties(nodes)
 	})
+}
+
+func (s *FlowInferenceServiceTestSuite) TestCleanAuthProperties_PromptNode_UpdatesLabelsAndRemovesSignUpLink() {
+	service := s.service.(*flowInferenceService)
+	signUpLinkLabel := `<p class="rich-text-paragraph">` +
+		`<span class="rich-text-pre-wrap">Don't have an account? </span>` +
+		`<a href="{{meta(application.sign_up_url)}}" target="_blank"` +
+		` rel="noopener noreferrer" class="rich-text-link">` +
+		`<span class="rich-text-pre-wrap">Sign up</span></a></p>`
+	submitBtn := map[string]interface{}{
+		"type":      "ACTION",
+		"id":        "action_1b71",
+		"eventType": "SUBMIT",
+		"label":     "Sign In",
+	}
+	signUpComp := map[string]interface{}{
+		"category": "DISPLAY",
+		"type":     "RICH_TEXT",
+		"id":       "rich_text_p6ae",
+		"label":    signUpLinkLabel,
+	}
+	nodes := []NodeDefinition{
+		{
+			ID:   "prompt1",
+			Type: string(common.NodeTypePrompt),
+			Meta: map[string]interface{}{
+				"components": []interface{}{
+					// Use a random-style ID to confirm matching is by content, not ID
+					map[string]interface{}{
+						"type":    "TEXT",
+						"id":      "text_hexl",
+						"label":   "Sign In",
+						"variant": "HEADING_3",
+					},
+					map[string]interface{}{
+						"type": "BLOCK",
+						"id":   "block_ms6e",
+						"components": []interface{}{
+							map[string]interface{}{"type": "TEXT_INPUT", "id": "input_username"},
+							submitBtn,
+							signUpComp,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	service.cleanAuthenticationProperties(nodes)
+
+	meta := nodes[0].Meta.(map[string]interface{})
+	components := meta["components"].([]interface{})
+
+	// Heading should be updated to "Sign Up"
+	heading := components[0].(map[string]interface{})
+	s.Equal("Sign Up", heading["label"])
+
+	// RICH_TEXT sign-up link should be removed from block (matched by label content, not ID)
+	block := components[1].(map[string]interface{})
+	blockComponents := block["components"].([]interface{})
+	s.Len(blockComponents, 2)
+	for _, bc := range blockComponents {
+		bcMap := bc.(map[string]interface{})
+		s.NotEqual("RICH_TEXT", bcMap["type"])
+	}
+
+	// SUBMIT action button label should be renamed to "Sign Up"
+	var actionComp map[string]interface{}
+	for _, bc := range blockComponents {
+		bcMap := bc.(map[string]interface{})
+		if bcMap["type"] == "ACTION" && bcMap["eventType"] == "SUBMIT" {
+			actionComp = bcMap
+			break
+		}
+	}
+	s.NotNil(actionComp)
+	s.Equal("Sign Up", actionComp["label"])
+}
+
+func (s *FlowInferenceServiceTestSuite) TestCleanAuthenticationProperties_PromptNode_NoSignUpLink() {
+	service := s.service.(*flowInferenceService)
+	nodes := []NodeDefinition{
+		{
+			ID:   "prompt1",
+			Type: string(common.NodeTypePrompt),
+			Meta: map[string]interface{}{
+				"components": []interface{}{
+					map[string]interface{}{
+						"type": "BLOCK",
+						"id":   "block_basic",
+						"components": []interface{}{
+							map[string]interface{}{"type": "TEXT_INPUT", "id": "input_username"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Should not panic when there is no self_sign_up_link
+	s.NotPanics(func() {
+		service.cleanAuthenticationProperties(nodes)
+	})
+
+	meta := nodes[0].Meta.(map[string]interface{})
+	components := meta["components"].([]interface{})
+	block := components[0].(map[string]interface{})
+	s.Len(block["components"].([]interface{}), 1)
 }
 
 // Test findStartNode

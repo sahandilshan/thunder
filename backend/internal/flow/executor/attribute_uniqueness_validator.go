@@ -22,12 +22,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/security"
-	"github.com/asgardeo/thunder/internal/userprovider"
-	"github.com/asgardeo/thunder/internal/userschema"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/security"
 )
 
 // attributeUniquenessValidator checks whether values supplied for unique schema attributes
@@ -36,16 +36,16 @@ import (
 // before any creation executor runs.
 type attributeUniquenessValidator struct {
 	core.ExecutorInterface
-	userSchemaService userschema.UserSchemaServiceInterface
-	userProvider      userprovider.UserProviderInterface
+	entityTypeService entitytype.EntityTypeServiceInterface
+	entityProvider    entityprovider.EntityProviderInterface
 	logger            *log.Logger
 }
 
 // newAttributeUniquenessValidator creates a new instance of attributeUniquenessValidator.
 func newAttributeUniquenessValidator(
 	flowFactory core.FlowFactoryInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
-	userProvider userprovider.UserProviderInterface,
+	entityTypeService entitytype.EntityTypeServiceInterface,
+	entityProvider entityprovider.EntityProviderInterface,
 ) *attributeUniquenessValidator {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, ExecutorNameAttributeUniquenessValidator))
 	prerequisites := []common.Input{
@@ -58,18 +58,18 @@ func newAttributeUniquenessValidator(
 		[]common.Input{}, prerequisites)
 	return &attributeUniquenessValidator{
 		ExecutorInterface: base,
-		userSchemaService: userSchemaService,
-		userProvider:      userProvider,
+		entityTypeService: entityTypeService,
+		entityProvider:    entityProvider,
 		logger:            logger,
 	}
 }
 
-// Execute iterates over the unique attributes defined in the user schema and checks whether
+// Execute iterates over the unique attributes defined in the user type and checks whether
 // any value already present in UserInputs belongs to an existing user.
 // Returns ExecUserInputRequired (triggering onIncomplete routing) with the specific attribute
 // named in FailureReason when a conflict is detected, or ExecComplete when all values are free.
 func (e *attributeUniquenessValidator) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := e.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := e.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing uniqueness checker executor")
 
 	execResp := &common.ExecutorResponse{
@@ -84,10 +84,10 @@ func (e *attributeUniquenessValidator) Execute(ctx *core.NodeContext) (*common.E
 	userType := ctx.RuntimeData[userTypeKey]
 
 	svcCtx := security.WithRuntimeContext(context.Background())
-	uniqueAttrs, svcErr := e.userSchemaService.GetUniqueAttributes(svcCtx, userType)
+	uniqueAttrs, svcErr := e.entityTypeService.GetUniqueAttributes(svcCtx, entitytype.TypeCategoryUser, userType)
 	if svcErr != nil {
 		return nil, fmt.Errorf("failed to retrieve unique attributes from schema for user type %s: %s",
-			userType, svcErr.Error)
+			userType, svcErr.Error.DefaultValue)
 	}
 
 	for _, attr := range uniqueAttrs {
@@ -96,9 +96,9 @@ func (e *attributeUniquenessValidator) Execute(ctx *core.NodeContext) (*common.E
 			continue
 		}
 
-		userID, svcErr := e.userProvider.IdentifyUser(map[string]interface{}{attr: value})
+		userID, svcErr := e.entityProvider.IdentifyEntity(map[string]interface{}{attr: value})
 		if svcErr != nil {
-			if svcErr.Code == userprovider.ErrorCodeUserNotFound {
+			if svcErr.Code == entityprovider.ErrorCodeEntityNotFound {
 				continue
 			}
 			return nil, fmt.Errorf("failed to check uniqueness for attribute %s: %s", attr, svcErr.Message)

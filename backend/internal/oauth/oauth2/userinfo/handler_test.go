@@ -21,14 +21,16 @@ package userinfo
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 type UserInfoHandlerTestSuite struct {
@@ -43,7 +45,8 @@ func TestUserInfoHandlerTestSuite(t *testing.T) {
 
 func (s *UserInfoHandlerTestSuite) SetupTest() {
 	s.mockService = new(userInfoServiceInterfaceMock)
-	s.handler = newUserInfoHandler(s.mockService)
+	s.handler = newUserInfoHandler(s.mockService, "https://example.com/oauth2/userinfo",
+		[]string{"ES256", "PS256"})
 }
 
 // TestHandleUserInfo_MissingAuthorizationHeader tests missing Authorization header.
@@ -107,15 +110,18 @@ func (s *UserInfoHandlerTestSuite) TestHandleUserInfo_ServerError() {
 	rr := httptest.NewRecorder()
 
 	expectedError := serviceerror.CustomServiceError(serviceerror.InternalServerError,
-		"An error occurred while fetching user attributes or groups")
+		core.I18nMessage{
+			Key:          "error.test.fetch_userinfo_attributes_or_groups",
+			DefaultValue: "An error occurred while fetching user attributes or groups",
+		})
 	s.mockService.On("GetUserInfo", mock.Anything, "token123").Return(nil, expectedError)
 
 	s.handler.HandleUserInfo(rr, req)
 
 	assert.Equal(s.T(), http.StatusInternalServerError, rr.Code)
 	assert.Contains(s.T(), rr.Body.String(), "server_error")
-	assert.Contains(s.T(), rr.Body.String(), serviceerror.InternalServerError.Error)
-	assert.NotContains(s.T(), rr.Body.String(), expectedError.ErrorDescription)
+	assert.Contains(s.T(), rr.Body.String(), serviceerror.InternalServerError.Error.DefaultValue)
+	assert.NotContains(s.T(), rr.Body.String(), expectedError.ErrorDescription.DefaultValue)
 	// Server errors should not include WWW-Authenticate
 	assert.Empty(s.T(), rr.Header().Get("WWW-Authenticate"))
 	s.mockService.AssertExpectations(s.T())
@@ -284,7 +290,7 @@ func (s *UserInfoHandlerTestSuite) TestHandleUserInfo_EncodingError() {
 	// With buffer approach, encoding fails BEFORE headers are sent, so we get HTTP 500
 	assert.Equal(s.T(), http.StatusInternalServerError, rr.Code)
 	// Verify that encoding error message is returned
-	assert.Contains(s.T(), rr.Body.String(), serviceerror.ErrorEncodingError)
+	assert.Contains(s.T(), rr.Body.String(), serviceerror.ErrorEncodingError.Code)
 	s.mockService.AssertExpectations(s.T())
 }
 
@@ -296,9 +302,11 @@ func (s *UserInfoHandlerTestSuite) TestWriteServiceErrorResponse_DefaultCase() {
 
 	// Create a service error with an unknown type (not ClientErrorType or ServerErrorType)
 	unknownError := &serviceerror.ServiceError{
-		Type:             "UnknownErrorType", // Unknown type
-		Code:             "unknown_error",
-		ErrorDescription: "An unknown error occurred",
+		Type: "UnknownErrorType", // Unknown type
+		Code: "unknown_error",
+		ErrorDescription: core.I18nMessage{
+			Key: "error.test.an_unknown_error_occurred", DefaultValue: "An unknown error occurred",
+		},
 	}
 	s.mockService.On("GetUserInfo", mock.Anything, "token123").Return(nil, unknownError)
 
@@ -312,6 +320,95 @@ func (s *UserInfoHandlerTestSuite) TestWriteServiceErrorResponse_DefaultCase() {
 	wwwAuth := rr.Header().Get("WWW-Authenticate")
 	assert.Contains(s.T(), wwwAuth, "Bearer")
 	assert.Contains(s.T(), wwwAuth, "unknown_error")
+	s.mockService.AssertExpectations(s.T())
+}
+
+// TestHandleUserInfo_DPoPScheme_Success verifies the handler dispatches to GetUserInfoForDPoP
+// when the DPoP scheme is used and forwards proof/htm/htu correctly.
+func (s *UserInfoHandlerTestSuite) TestHandleUserInfo_DPoPScheme_Success() {
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/userinfo", nil)
+	req.Header.Set("Authorization", "DPoP valid-token")
+	req.Header.Set("DPoP", "proof-jwt")
+	rr := httptest.NewRecorder()
+
+	userInfo := map[string]any{"sub": "user123"}
+	s.mockService.On("GetUserInfoForDPoP", mock.Anything, "valid-token", "proof-jwt",
+		http.MethodGet, "https://example.com/oauth2/userinfo").
+		Return(jsonResponse(userInfo), nil)
+
+	s.handler.HandleUserInfo(rr, req)
+
+	assert.Equal(s.T(), http.StatusOK, rr.Code)
+	assert.Contains(s.T(), rr.Body.String(), `"sub":"user123"`)
+	s.mockService.AssertExpectations(s.T())
+}
+
+// TestHandleUserInfo_DPoPScheme_MissingDPoPHeader rejects requests under the DPoP scheme
+// that omit the DPoP proof header.
+func (s *UserInfoHandlerTestSuite) TestHandleUserInfo_DPoPScheme_MissingDPoPHeader() {
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/userinfo", nil)
+	req.Header.Set("Authorization", "DPoP valid-token")
+	rr := httptest.NewRecorder()
+
+	s.handler.HandleUserInfo(rr, req)
+
+	assert.Equal(s.T(), http.StatusUnauthorized, rr.Code)
+	assert.Contains(s.T(), rr.Body.String(), "invalid_token")
+	wwwAuth := rr.Header().Get("WWW-Authenticate")
+	assert.Contains(s.T(), wwwAuth, "DPoP")
+	assert.Contains(s.T(), wwwAuth, `algs="ES256 PS256"`)
+}
+
+// TestHandleUserInfo_DPoPScheme_MultipleDPoPHeaders rejects requests with more than one
+// DPoP proof header.
+func (s *UserInfoHandlerTestSuite) TestHandleUserInfo_DPoPScheme_MultipleDPoPHeaders() {
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/userinfo", nil)
+	req.Header.Set("Authorization", "DPoP valid-token")
+	req.Header.Add("DPoP", "proof-1")
+	req.Header.Add("DPoP", "proof-2")
+	rr := httptest.NewRecorder()
+
+	s.handler.HandleUserInfo(rr, req)
+
+	assert.Equal(s.T(), http.StatusUnauthorized, rr.Code)
+	assert.Contains(s.T(), rr.Header().Get("WWW-Authenticate"), "DPoP")
+}
+
+// TestHandleUserInfo_DPoPScheme_ServiceError surfaces service errors with WWW-Authenticate: DPoP.
+func (s *UserInfoHandlerTestSuite) TestHandleUserInfo_DPoPScheme_ServiceError() {
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/userinfo", nil)
+	req.Header.Set("Authorization", "DPoP token")
+	req.Header.Set("DPoP", "proof-jwt")
+	rr := httptest.NewRecorder()
+
+	s.mockService.On("GetUserInfoForDPoP", mock.Anything, "token", "proof-jwt",
+		http.MethodGet, "https://example.com/oauth2/userinfo").
+		Return(nil, &errorDPoPProofInvalid)
+
+	s.handler.HandleUserInfo(rr, req)
+
+	assert.Equal(s.T(), http.StatusUnauthorized, rr.Code)
+	wwwAuth := rr.Header().Get("WWW-Authenticate")
+	assert.Contains(s.T(), wwwAuth, "DPoP")
+	assert.Contains(s.T(), wwwAuth, "invalid_token")
+	s.mockService.AssertExpectations(s.T())
+}
+
+// TestHandleUserInfo_BearerDowngrade_DPoPWWWAuth checks that a Bearer-scheme request
+// for a DPoP-bound token returns 401 with WWW-Authenticate: DPoP.
+func (s *UserInfoHandlerTestSuite) TestHandleUserInfo_BearerDowngrade_DPoPWWWAuth() {
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer bound-token")
+	rr := httptest.NewRecorder()
+
+	s.mockService.On("GetUserInfo", mock.Anything, "bound-token").
+		Return(nil, &errorBearerDowngrade)
+
+	s.handler.HandleUserInfo(rr, req)
+
+	assert.Equal(s.T(), http.StatusUnauthorized, rr.Code)
+	assert.Contains(s.T(), rr.Body.String(), "DPoP-bound")
+	assert.True(s.T(), strings.HasPrefix(rr.Header().Get("WWW-Authenticate"), "DPoP"))
 	s.mockService.AssertExpectations(s.T())
 }
 
@@ -329,7 +426,7 @@ func (s *UserInfoHandlerTestSuite) assertServiceErrorResponse(
 
 	assert.Equal(s.T(), expectedStatus, rr.Code)
 	assert.Contains(s.T(), rr.Body.String(), svcErr.Code)
-	assert.Contains(s.T(), rr.Body.String(), svcErr.ErrorDescription)
+	assert.Contains(s.T(), rr.Body.String(), svcErr.ErrorDescription.DefaultValue)
 	// RFC 6750 §3: WWW-Authenticate header must be present on error responses
 	wwwAuth := rr.Header().Get("WWW-Authenticate")
 	assert.Contains(s.T(), wwwAuth, "Bearer")

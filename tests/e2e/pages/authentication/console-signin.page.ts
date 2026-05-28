@@ -113,7 +113,7 @@ export class ConsoleSigninPage extends BasePage {
 
   /** Wait for successful login */
   async waitForLoginSuccess() {
-    await this.page.waitForURL(`**${ConsoleRoutes.home}/**`, { timeout: Timeouts.PAGE_LOAD });
+    await this.page.waitForURL(/\/console(\/|$)/, { timeout: Timeouts.PAGE_LOAD });
     await this.page.waitForLoadState("networkidle");
   }
 

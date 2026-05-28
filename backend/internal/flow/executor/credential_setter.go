@@ -21,23 +21,23 @@ package executor
 import (
 	"encoding/json"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // credentialSetter allows users to set their credentials for an existing user account.
 type credentialSetter struct {
 	core.ExecutorInterface
-	userProvider userprovider.UserProviderInterface
-	logger       *log.Logger
+	entityProvider entityprovider.EntityProviderInterface
+	logger         *log.Logger
 }
 
 // newCredentialSetter creates a new instance of the credential setter executor.
 func newCredentialSetter(
 	flowFactory core.FlowFactoryInterface,
-	userProvider userprovider.UserProviderInterface,
+	entityProvider entityprovider.EntityProviderInterface,
 ) *credentialSetter {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CredentialSetter"))
 	base := flowFactory.CreateExecutor(
@@ -60,14 +60,14 @@ func newCredentialSetter(
 	)
 	return &credentialSetter{
 		ExecutorInterface: base,
-		userProvider:      userProvider,
+		entityProvider:    entityProvider,
 		logger:            logger,
 	}
 }
 
 // Execute sets the password for the user identified by userID in RuntimeData.
 func (e *credentialSetter) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := e.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := e.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing credential set")
 
 	execResp := &common.ExecutorResponse{
@@ -135,15 +135,15 @@ func (e *credentialSetter) Execute(ctx *core.NodeContext) (*common.ExecutorRespo
 	}
 
 	// Update user credentials
-	svcErr := e.userProvider.UpdateUserCredentials(userID, credentials)
+	svcErr := e.entityProvider.UpdateCredentials(userID, credentials)
 	if svcErr != nil {
-		logger.Debug("Failed to update user credentials", log.String("userID", userID))
+		logger.Debug("Failed to update user credentials", log.MaskedString(log.LoggerKeyUserID, userID))
 		execResp.Status = common.ExecFailure
 		execResp.FailureReason = "Failed to set credentials"
 		return execResp, nil
 	}
 
-	logger.Debug("Successfully set credentials for user", log.String("userID", userID))
+	logger.Debug("Successfully set credentials for user", log.MaskedString(log.LoggerKeyUserID, userID))
 	execResp.Status = common.ExecComplete
 	return execResp, nil
 }

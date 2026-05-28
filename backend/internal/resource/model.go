@@ -25,6 +25,7 @@ type ResourceServerResponse struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Handle      string `json:"handle"`
 	Identifier  string `json:"identifier,omitempty"`
 	OUID        string `json:"ouId"`
 	Delimiter   string `json:"delimiter"`
@@ -87,6 +88,7 @@ type ActionListResponse struct {
 type CreateResourceServerRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Handle      string `json:"handle,omitempty"`
 	Identifier  string `json:"identifier,omitempty"`
 	OUID        string `json:"ouId"`
 	Delimiter   string `json:"delimiter,omitempty"`
@@ -96,6 +98,7 @@ type CreateResourceServerRequest struct {
 type UpdateResourceServerRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Handle      string `json:"handle,omitempty"`
 	Identifier  string `json:"identifier,omitempty"`
 	OUID        string `json:"ouId"`
 }
@@ -192,9 +195,11 @@ type ResourceServer struct {
 	ID          string     `yaml:"id" json:"-"`
 	Name        string     `yaml:"name" json:"name"`
 	Description string     `yaml:"description,omitempty" json:"description,omitempty"`
+	Handle      string     `yaml:"handle" json:"handle"`
 	Identifier  string     `yaml:"identifier,omitempty" json:"identifier,omitempty"`
-	OUID        string     `yaml:"ou_id" json:"ouId"`
-	Delimiter   string     `yaml:"delimiter,omitempty" json:"delimiter,omitempty"`
+	OUID        string     `yaml:"ou_id,omitempty" json:"ouId"`
+	OUHandle    string     `yaml:"ou_handle,omitempty" json:"-"`
+	Delimiter   string     `yaml:"delimiter,omitempty" json:"delimiter,omitempty" yamlfmt:"quoted"`
 	IsReadOnly  bool       `yaml:"-" json:"-"`
 	Resources   []Resource `yaml:"resources,omitempty" json:"resources,omitempty"`
 }

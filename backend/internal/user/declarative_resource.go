@@ -23,14 +23,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/crypto/hash"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/cryptolib/hash"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -40,12 +43,13 @@ const (
 
 // userExporter implements declarativeresource.ResourceExporter for users.
 type userExporter struct {
-	service UserServiceInterface
+	service       UserServiceInterface
+	entityService entity.EntityServiceInterface
 }
 
 // newUserExporter creates a new user exporter.
-func newUserExporter(service UserServiceInterface) *userExporter {
-	return &userExporter{service: service}
+func newUserExporter(service UserServiceInterface, entityService entity.EntityServiceInterface) *userExporter {
+	return &userExporter{service: service, entityService: entityService}
 }
 
 // GetResourceType returns the resource type for users.
@@ -72,9 +76,13 @@ func (e *userExporter) GetAllResourceIDs(ctx context.Context) ([]string, *servic
 		}
 
 		for _, user := range users.Users {
-			isDeclarative, svcErr := e.service.IsUserDeclarative(ctx, user.ID)
-			if svcErr != nil {
-				return nil, svcErr
+			isDeclarative, declErr := e.entityService.IsEntityDeclarative(ctx, user.ID)
+			if declErr != nil {
+				if errors.Is(declErr, entity.ErrEntityNotFound) {
+					ids = append(ids, user.ID)
+					continue
+				}
+				return nil, &serviceerror.InternalServerError
 			}
 			if !isDeclarative {
 				ids = append(ids, user.ID)
@@ -151,7 +159,7 @@ func (e *userExporter) ValidateResource(
 
 	if username == "" {
 		logger.Warn("USER_VALIDATION_ERROR: Missing username",
-			log.String("userID", id))
+			log.MaskedString(log.LoggerKeyUserID, id))
 		return "", &declarativeresource.ExportError{
 			ResourceType: resourceTypeUser,
 			ResourceID:   id,
@@ -172,80 +180,123 @@ func (e *userExporter) GetResourceRules() *declarativeresource.ResourceRules {
 	}
 }
 
-// loadDeclarativeResources loads immutable user resources from files.
-// The dbStore parameter is optional (can be nil) and is used for duplicate checking in composite mode.
-func loadDeclarativeResources(fileStore *userFileBasedStore, dbStore userStoreInterface) error {
-	resourceConfig := declarativeresource.ResourceConfig{
-		ResourceType:  "User",
-		DirectoryName: "users",
-		Parser:        parseToUserWrapper,
-		Validator: func(data interface{}) error {
-			return validateUserWrapper(data, fileStore, dbStore)
-		},
-		IDExtractor: func(data interface{}) string {
-			// Use safe type assertion to prevent panic
-			if v, ok := data.(*userResource); ok {
-				return v.User.ID
-			}
-			// Log error and return empty string if type assertion fails
-			log.GetLogger().Error("IDExtractor: type assertion failed for userResource")
-			return ""
-		},
+// makeUserDeclarativeConfig creates the declarative loader configuration for user resources.
+// This provides user-specific parser and validator callbacks to the entity service.
+// When userService is non-nil, ou_handle is resolved to ou_id during parsing.
+func makeUserDeclarativeConfig(userService UserServiceInterface) entity.DeclarativeLoaderConfig {
+	return entity.DeclarativeLoaderConfig{
+		Directory: "users",
+		Category:  entity.EntityCategoryUser,
+		Parser:    makeUserParser(userService),
+		Validator: makeUserValidator(),
 	}
-
-	loader := declarativeresource.NewResourceLoader(resourceConfig, fileStore)
-	if err := loader.LoadResources(); err != nil {
-		return fmt.Errorf("failed to load user resources: %w", err)
-	}
-
-	return nil
 }
 
-// parseToUserWrapper wraps parseToUser to match the expected signature.
-func parseToUserWrapper(data []byte) (interface{}, error) {
-	return parseToUser(data)
+// makeUserParser creates a parser callback that converts YAML data into an Entity with credentials.
+// When userService is non-nil, ou_handle is resolved to ou_id before producing the entity.
+func makeUserParser(
+	userService UserServiceInterface,
+) func(data []byte) (*entity.Entity, json.RawMessage, json.RawMessage, error) {
+	return func(data []byte) (*entity.Entity, json.RawMessage, json.RawMessage, error) {
+		user, creds, err := parseToUser(data)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		if userService != nil {
+			if svcErr := userService.ResolveUserOUHandle(context.Background(), &user); svcErr != nil {
+				return nil, nil, nil, fmt.Errorf(
+					"organization unit with handle %q not found for user '%s'", user.OUHandle, user.ID)
+			}
+		}
+
+		e := userToEntity(&user)
+		systemCreds, err := credentialsToJSON(creds)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to marshal credentials: %w", err)
+		}
+
+		return e, nil, systemCreds, nil
+	}
+}
+
+// makeUserValidator creates a validator callback for declarative user resources.
+func makeUserValidator() func(e *entity.Entity, svc entity.EntityServiceInterface) error {
+	return func(e *entity.Entity, svc entity.EntityServiceInterface) error {
+		if e.ID == "" {
+			return fmt.Errorf("user ID is required")
+		}
+		if e.Type == "" {
+			return fmt.Errorf("user type is required")
+		}
+		if e.OUID == "" {
+			return fmt.Errorf("ou_id or ou_handle is required for user '%s'", e.ID)
+		}
+		if len(e.Attributes) == 0 {
+			return fmt.Errorf("user attributes are required")
+		}
+
+		var attrs map[string]interface{}
+		if err := json.Unmarshal(e.Attributes, &attrs); err != nil {
+			return fmt.Errorf("failed to parse user attributes: %w", err)
+		}
+
+		un, ok := attrs["username"].(string)
+		if !ok || un == "" {
+			return fmt.Errorf("username is required in user attributes")
+		}
+
+		// Check for duplicates in the store (covers both DB and already-loaded file resources)
+		_, err := svc.GetEntity(context.Background(), e.ID)
+		if err == nil {
+			return fmt.Errorf("duplicate user ID '%s': user already exists", e.ID)
+		}
+		if !errors.Is(err, entity.ErrEntityNotFound) {
+			return fmt.Errorf("checking user existence for '%s': %w", e.ID, err)
+		}
+
+		return nil
+	}
 }
 
 type userDeclarativeResource struct {
 	ID          string                 `yaml:"id"`
 	Type        string                 `yaml:"type"`
-	OUID        string                 `yaml:"ou_id"`
+	OUID        string                 `yaml:"ou_id,omitempty"`
+	OUHandle    string                 `yaml:"ou_handle,omitempty"`
 	Attributes  map[string]interface{} `yaml:"attributes"`
 	Credentials map[string]interface{} `yaml:"credentials,omitempty"` // Flexible format for YAML
 }
 
-// parseToUser parses YAML data to userResource.
-func parseToUser(data []byte) (*userResource, error) {
+// parseToUser parses YAML data into a User and its Credentials. The ou_handle from YAML is
+// populated onto User.OUHandle so callers can resolve it to an ou_id via the user service.
+func parseToUser(data []byte) (User, Credentials, error) {
 	var userRes userDeclarativeResource
 	if err := yaml.Unmarshal(data, &userRes); err != nil {
-		return nil, err
+		return User{}, nil, err
 	}
 
 	// Convert attributes map to JSON
 	attributesJSON, err := json.Marshal(userRes.Attributes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal attributes: %w", err)
+		return User{}, nil, fmt.Errorf("failed to marshal attributes: %w", err)
 	}
 
 	user := User{
 		ID:         userRes.ID,
 		Type:       userRes.Type,
 		OUID:       userRes.OUID,
+		OUHandle:   userRes.OUHandle,
 		Attributes: json.RawMessage(attributesJSON),
 	}
 
 	// Parse and hash credentials
 	credentials, err := parseCredentials(userRes.Credentials)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse credentials: %w", err)
+		return User{}, nil, fmt.Errorf("failed to parse credentials: %w", err)
 	}
 
-	resource := &userResource{
-		User:        user,
-		Credentials: credentials,
-	}
-
-	return resource, nil
+	return user, credentials, nil
 }
 
 // parseCredentials parses credentials from YAML and hashes plain text values.
@@ -258,7 +309,11 @@ func parseCredentials(credentialsMap map[string]interface{}) (Credentials, error
 	}
 
 	credentials := make(Credentials)
-	hashService, err := hash.Initialize()
+	hashCfg, err := buildHashCfgForUser()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize hash service: %w", err)
+	}
+	hashService, err := hash.Initialize(hashCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize hash service: %w", err)
 	}
@@ -287,9 +342,11 @@ func parseCredentials(credentialsMap map[string]interface{}) (Credentials, error
 				StorageType: "hash",
 				StorageAlgo: hashedCred.Algorithm,
 				StorageAlgoParams: hash.CredParameters{
-					Iterations: hashedCred.Parameters.Iterations,
-					KeySize:    hashedCred.Parameters.KeySize,
-					Salt:       hashedCred.Parameters.Salt,
+					Iterations:  hashedCred.Parameters.Iterations,
+					Memory:      hashedCred.Parameters.Memory,
+					Parallelism: hashedCred.Parameters.Parallelism,
+					KeySize:     hashedCred.Parameters.KeySize,
+					Salt:        hashedCred.Parameters.Salt,
 				},
 				Value: hashedCred.Hash,
 			}
@@ -369,9 +426,11 @@ func parseCredentialObject(
 			StorageType: "hash",
 			StorageAlgo: hashedCred.Algorithm,
 			StorageAlgoParams: hash.CredParameters{
-				Iterations: hashedCred.Parameters.Iterations,
-				KeySize:    hashedCred.Parameters.KeySize,
-				Salt:       hashedCred.Parameters.Salt,
+				Iterations:  hashedCred.Parameters.Iterations,
+				Memory:      hashedCred.Parameters.Memory,
+				Parallelism: hashedCred.Parameters.Parallelism,
+				KeySize:     hashedCred.Parameters.KeySize,
+				Salt:        hashedCred.Parameters.Salt,
 			},
 			Value: hashedCred.Hash,
 		}, nil
@@ -407,59 +466,21 @@ func parseCredentialObject(
 	}, nil
 }
 
-// validateUserWrapper validates user declarative resources and checks for duplicates.
-func validateUserWrapper(data interface{}, fileStore *userFileBasedStore, dbStore userStoreInterface) error {
-	resource, ok := data.(*userResource)
-	if !ok {
-		return fmt.Errorf("invalid type: expected *userResource")
+// buildHashCfgForUser constructs a hash.HashConfig from the server's password hashing config.
+func buildHashCfgForUser() (hash.HashConfig, error) {
+	cfg := config.GetServerRuntime().Config.Crypto.PasswordHashing
+	alg := hash.CredAlgorithm(strings.ToUpper(cfg.Algorithm))
+	switch alg {
+	case "", hash.SHA256:
+		return hash.HashConfig{Algorithm: hash.SHA256, SaltSize: cfg.SHA256.SaltSize}, nil
+	case hash.PBKDF2:
+		return hash.HashConfig{Algorithm: alg, SaltSize: cfg.PBKDF2.SaltSize,
+			Iterations: cfg.PBKDF2.Iterations, KeySize: cfg.PBKDF2.KeySize}, nil
+	case hash.ARGON2ID:
+		return hash.HashConfig{Algorithm: alg, SaltSize: cfg.Argon2ID.SaltSize,
+			Iterations: cfg.Argon2ID.Iterations, Memory: cfg.Argon2ID.Memory,
+			Parallelism: cfg.Argon2ID.Parallelism, KeySize: cfg.Argon2ID.KeySize}, nil
+	default:
+		return hash.HashConfig{}, fmt.Errorf("unrecognized password hashing algorithm %q", cfg.Algorithm)
 	}
-
-	user := resource.User
-
-	if user.ID == "" {
-		return fmt.Errorf("user ID is required")
-	}
-	if user.Type == "" {
-		return fmt.Errorf("user type is required")
-	}
-	if user.OUID == "" {
-		return fmt.Errorf("organization unit ID is required")
-	}
-
-	// Validate attributes exist
-	if len(user.Attributes) == 0 {
-		return fmt.Errorf("user attributes are required")
-	}
-
-	// Extract and validate username
-	var attrs map[string]interface{}
-	if err := json.Unmarshal(user.Attributes, &attrs); err != nil {
-		return fmt.Errorf("failed to parse user attributes: %w", err)
-	}
-
-	username, hasUsername := attrs["username"]
-	if !hasUsername || username == "" {
-		return fmt.Errorf("username is required in user attributes")
-	}
-
-	// Check for duplicates in file store
-	if fileStore != nil {
-		if existingData, err := fileStore.GenericFileBasedStore.Get(user.ID); err == nil && existingData != nil {
-			return fmt.Errorf("duplicate user ID '%s': user already exists in declarative resources", user.ID)
-		}
-	}
-
-	// Check for duplicates in database store
-	if dbStore != nil {
-		_, err := dbStore.GetUser(context.Background(), user.ID)
-		if err == nil {
-			return fmt.Errorf("duplicate user ID '%s': user already exists in the database store", user.ID)
-		}
-		if !errors.Is(err, ErrUserNotFound) {
-			// Fail loudly on DB errors during duplicate check
-			return fmt.Errorf("checking user existence for '%s': %w", user.ID, err)
-		}
-	}
-
-	return nil
 }

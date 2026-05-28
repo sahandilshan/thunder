@@ -27,12 +27,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/sysauthz"
-	"github.com/asgardeo/thunder/internal/system/utils"
-	"github.com/asgardeo/thunder/tests/mocks/sysauthzmock"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/filter"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/sysauthz"
+	"github.com/thunder-id/thunderid/internal/system/utils"
+	"github.com/thunder-id/thunderid/tests/mocks/sysauthzmock"
 )
 
 type OrganizationUnitServiceTestSuite struct {
@@ -49,18 +51,18 @@ func TestOUService_OrganizationUnitServiceTestSuite_Run(t *testing.T) {
 }
 
 func (suite *OrganizationUnitServiceTestSuite) SetupTest() {
-	// Initialize ThunderRuntime with declarative mode disabled by default
-	config.ResetThunderRuntime()
+	// Initialize server runtime with declarative mode disabled by default
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		DeclarativeResources: config.DeclarativeResources{
 			Enabled: false,
 		},
 	}
-	_ = config.InitializeThunderRuntime("/tmp/test", testConfig)
+	_ = config.InitializeServerRuntime("/tmp/test", testConfig)
 }
 
 func (suite *OrganizationUnitServiceTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 type ouListExpectations struct {
@@ -121,7 +123,7 @@ func runOUPathListTests[Resp any](suite *OrganizationUnitServiceTestSuite, cfg p
 		resp, err := cfg.invoke(service, cfg.validPath, cfg.limit, cfg.offset)
 
 		suite.Require().Nil(resp)
-		suite.Require().Equal(ErrorInternalServerError, *err)
+		suite.Require().Equal(serviceerror.InternalServerError, *err)
 	})
 
 	suite.Run("success", func() {
@@ -149,7 +151,7 @@ func setupDefaultPathSuccess(
 	listReturn interface{},
 	countMethod string,
 	countReturn interface{},
-	extraListArgs ...interface{},
+	extraArgs ...interface{},
 ) {
 	store.On("GetOrganizationUnitByPath", mock.Anything, []string{"root"}).
 		Return(OrganizationUnit{ID: "ou-1"}, nil).
@@ -158,11 +160,13 @@ func setupDefaultPathSuccess(
 		Return(true, nil).
 		Once()
 	listArgs := []interface{}{mock.Anything, "ou-1", limit, offset}
-	listArgs = append(listArgs, extraListArgs...)
+	listArgs = append(listArgs, extraArgs...)
 	store.On(listMethod, listArgs...).
 		Return(listReturn, nil).
 		Once()
-	store.On(countMethod, mock.Anything, "ou-1").
+	countArgs := []interface{}{mock.Anything, "ou-1"}
+	countArgs = append(countArgs, extraArgs...)
+	store.On(countMethod, countArgs...).
 		Return(countReturn, nil).
 		Once()
 }
@@ -199,7 +203,7 @@ func invokeChildrenByPath(
 	path string,
 	limit, offset int,
 ) (*OrganizationUnitListResponse, *serviceerror.ServiceError) {
-	return service.GetOrganizationUnitChildrenByPath(context.Background(), path, limit, offset)
+	return service.GetOrganizationUnitChildrenByPath(context.Background(), path, limit, offset, nil)
 }
 
 func (suite *OrganizationUnitServiceTestSuite) newService(
@@ -274,6 +278,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 		name       string
 		limit      int
 		offset     int
+		filterExpr *filter.FilterGroup
 		setup      func(*organizationUnitStoreInterfaceMock)
 		wantErr    *serviceerror.ServiceError
 		wantResult *ouListExpectations
@@ -283,10 +288,10 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			limit:  2,
 			offset: 1,
 			setup: func(store *organizationUnitStoreInterfaceMock) {
-				store.On("GetOrganizationUnitListCount", mock.Anything).
+				store.On("GetOrganizationUnitListCount", mock.Anything, mock.Anything).
 					Return(3, nil).
 					Once()
-				store.On("GetOrganizationUnitList", mock.Anything, 2, 1).
+				store.On("GetOrganizationUnitList", mock.Anything, 2, 1, mock.Anything).
 					Return([]OrganizationUnitBasic{
 						{ID: "ou-1", Handle: "root", Name: "Root"},
 						{ID: "ou-2", Handle: "child", Name: "Child"},
@@ -313,29 +318,38 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			wantErr: &ErrorInvalidLimit,
 		},
 		{
+			name:   "invalid filter attribute",
+			limit:  5,
+			offset: 0,
+			filterExpr: &filter.FilterGroup{Clauses: []filter.FilterClause{
+				{Expr: filter.FilterExpression{Attribute: "id", Operator: filter.OperatorEq, Value: "ou-1"}},
+			}},
+			wantErr: &ErrorInvalidFilter,
+		},
+		{
 			name:   "count failure",
 			limit:  5,
 			offset: 0,
 			setup: func(store *organizationUnitStoreInterfaceMock) {
-				store.On("GetOrganizationUnitListCount", mock.Anything).
+				store.On("GetOrganizationUnitListCount", mock.Anything, mock.Anything).
 					Return(0, errors.New("count failed")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:   "list failure",
 			limit:  5,
 			offset: 0,
 			setup: func(store *organizationUnitStoreInterfaceMock) {
-				store.On("GetOrganizationUnitListCount", mock.Anything).
+				store.On("GetOrganizationUnitListCount", mock.Anything, mock.Anything).
 					Return(10, nil).
 					Once()
-				store.On("GetOrganizationUnitList", mock.Anything, 5, 0).
+				store.On("GetOrganizationUnitList", mock.Anything, 5, 0, mock.Anything).
 					Return(nil, errors.New("list failed")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 	}
 
@@ -348,7 +362,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			}
 
 			service := suite.newService(store, newAllowAllAuthz(suite.T()))
-			resp, err := service.GetOrganizationUnitList(context.Background(), tc.limit, tc.offset)
+			resp, err := service.GetOrganizationUnitList(context.Background(), tc.limit, tc.offset, tc.filterExpr)
 
 			if tc.wantErr != nil {
 				suite.Require().Nil(resp)
@@ -359,7 +373,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				suite.assertOUListResponse(resp, tc.wantResult)
 			}
 
-			if tc.wantErr == &ErrorInvalidLimit {
+			if tc.wantErr == &ErrorInvalidLimit || tc.wantErr == &ErrorInvalidFilter {
 				store.AssertNumberOfCalls(suite.T(), "GetOrganizationUnitListCount", 0)
 			}
 			store.AssertExpectations(suite.T())
@@ -367,9 +381,22 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 	}
 }
 
+func (suite *OrganizationUnitServiceTestSuite) TestOUService_SetResolvers() {
+	service := &organizationUnitService{}
+
+	userResolver := new(OUUserResolverMock)
+	groupResolver := new(OUGroupResolverMock)
+
+	service.SetOUUserResolver(userResolver)
+	service.SetOUGroupResolver(groupResolver)
+
+	suite.Require().Equal(userResolver, service.userResolver)
+	suite.Require().Equal(groupResolver, service.groupResolver)
+}
+
 func (suite *OrganizationUnitServiceTestSuite) TestOUService_CreateOrganizationUnit() {
 	parentID := testParentOUID
-	validRequest := OrganizationUnitRequest{
+	validRequest := OrganizationUnitRequestWithID{
 		Handle:      "finance",
 		Name:        "Finance",
 		Description: "desc",
@@ -377,23 +404,23 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_CreateOrganizationU
 
 	testCases := []struct {
 		name    string
-		request OrganizationUnitRequest
+		request OrganizationUnitRequestWithID
 		setup   func(*organizationUnitStoreInterfaceMock)
 		wantErr *serviceerror.ServiceError
 	}{
 		{
 			name:    "invalid name",
-			request: OrganizationUnitRequest{Handle: "handle", Name: "  "},
+			request: OrganizationUnitRequestWithID{Handle: "handle", Name: "  "},
 			wantErr: &ErrorInvalidRequestFormat,
 		},
 		{
 			name:    "invalid handle",
-			request: OrganizationUnitRequest{Handle: " ", Name: "Finance"},
+			request: OrganizationUnitRequestWithID{Handle: " ", Name: "Finance"},
 			wantErr: &ErrorInvalidRequestFormat,
 		},
 		{
 			name: "parent existence check error",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "finance",
 				Name:   "Finance",
 				Parent: &parentID,
@@ -403,11 +430,11 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_CreateOrganizationU
 					Return(false, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "parent not found",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "finance",
 				Name:   "Finance",
 				Parent: &parentID,
@@ -437,7 +464,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_CreateOrganizationU
 					Return(false, errors.New("name check failed")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:    "handle conflict",
@@ -463,7 +490,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_CreateOrganizationU
 					Return(false, errors.New("handle check failed")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:    "create failure",
@@ -479,7 +506,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_CreateOrganizationU
 					Return(errors.New("insert failed")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:    "success",
@@ -500,7 +527,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_CreateOrganizationU
 		},
 		{
 			name: "success with design fields",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle:   "finance",
 				Name:     "Finance",
 				ThemeID:  "theme-123",
@@ -584,7 +611,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 					Return(OrganizationUnit{}, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 	}
 
@@ -639,7 +666,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 					Return(OrganizationUnit{}, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "success",
@@ -701,7 +728,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_IsOrganizationUnitE
 					Return(false, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 	}
 
@@ -811,7 +838,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_IsParent() {
 		result, err := service.IsParent(context.Background(), parentID, childID)
 
 		suite.Require().False(result)
-		suite.Require().Equal(ErrorInternalServerError, *err)
+		suite.Require().Equal(serviceerror.InternalServerError, *err)
 	})
 }
 
@@ -820,7 +847,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 	tests := []struct {
 		name    string
 		id      string
-		request OrganizationUnitRequest
+		request OrganizationUnitRequestWithID
 		setup   func(*organizationUnitStoreInterfaceMock)
 		wantErr *serviceerror.ServiceError
 		assert  func(OrganizationUnit)
@@ -828,7 +855,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "success",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle:      "root",
 				Name:        "Root",
 				Description: "updated",
@@ -846,13 +873,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).
 					Once()
-				store.On("UpdateOrganizationUnit", mock.Anything, OrganizationUnit{
-					ID:          "ou-1",
-					Handle:      "root",
-					Name:        "Root",
-					Description: "updated",
-					Parent:      nil,
-				}).
+				store.On("UpdateOrganizationUnit", mock.Anything, mock.Anything).
 					Return(nil).
 					Once()
 			},
@@ -863,7 +884,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "success with design fields",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle:   "root",
 				Name:     "Root",
 				ThemeID:  "theme-new",
@@ -885,14 +906,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).
 					Once()
-				store.On("UpdateOrganizationUnit", mock.Anything, OrganizationUnit{
-					ID:       "ou-1",
-					Handle:   "root",
-					Name:     "Root",
-					ThemeID:  "theme-new",
-					LayoutID: "layout-new",
-					LogoURL:  "https://example.com/new-logo.png",
-				}).
+				store.On("UpdateOrganizationUnit", mock.Anything, mock.Anything).
 					Return(nil).
 					Once()
 			},
@@ -905,7 +919,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "not found on fetch",
 			id:   "missing",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Root",
 			},
@@ -919,7 +933,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "fetch failure",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Root",
 			},
@@ -928,12 +942,12 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 					Return(OrganizationUnit{}, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "invalid handle",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: " ",
 				Name:   "Root",
 			},
@@ -951,7 +965,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "parent existence check failure",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Root",
 				Parent: &parentID,
@@ -968,12 +982,12 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 					Return(false, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "parent not found",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Root",
 				Parent: &parentID,
@@ -995,7 +1009,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "circular dependency",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Root",
 				Parent: &testOUID,
@@ -1017,7 +1031,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "name conflict",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Finance",
 			},
@@ -1038,7 +1052,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "name conflict check failure",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Finance",
 			},
@@ -1054,12 +1068,12 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 					Return(false, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "handle conflict",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "finance",
 				Name:   "Root",
 			},
@@ -1080,7 +1094,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "handle conflict check failure",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "finance",
 				Name:   "Root",
 			},
@@ -1096,12 +1110,12 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 					Return(false, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "update returns not found",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Root",
 			},
@@ -1122,7 +1136,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		{
 			name: "update failure",
 			id:   "ou-1",
-			request: OrganizationUnitRequest{
+			request: OrganizationUnitRequestWithID{
 				Handle: "root",
 				Name:   "Root",
 			},
@@ -1138,7 +1152,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 					Return(errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 	}
 
@@ -1169,7 +1183,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 }
 
 func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationUnitByPath() {
-	request := OrganizationUnitRequest{Handle: "root", Name: "Root"}
+	request := OrganizationUnitRequestWithID{Handle: "root", Name: "Root"}
 
 	suite.Run("invalid path", func() {
 		store := newOrganizationUnitStoreInterfaceMock(suite.T())
@@ -1202,7 +1216,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 		service := suite.newService(store, newAllowAllAuthz(suite.T()))
 		_, err := service.UpdateOrganizationUnitByPath(context.Background(), "root", request)
 
-		suite.Require().Equal(ErrorInternalServerError, *err)
+		suite.Require().Equal(serviceerror.InternalServerError, *err)
 	})
 
 	suite.Run("success", func() {
@@ -1262,7 +1276,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 					Return(false, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "not found",
@@ -1280,7 +1294,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 					Return(true, nil).Once()
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(1, nil).Once()
 			},
 			wantErr: &ErrorCannotDeleteOrganizationUnit,
@@ -1292,10 +1306,10 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 					Return(true, nil).Once()
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(0, errors.New("boom")).Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "has users",
@@ -1304,7 +1318,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 					Return(true, nil).Once()
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(0, nil).Once()
 			},
 			resolverSetup: func(rs *resolverSetup) {
@@ -1320,7 +1334,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 					Return(true, nil).Once()
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(0, nil).Once()
 			},
 			resolverSetup: func(rs *resolverSetup) {
@@ -1338,7 +1352,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 					Return(true, nil).Once()
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(0, nil).Once()
 				store.On("DeleteOrganizationUnit", mock.Anything, "ou-1").
 					Return(errors.New("boom")).Once()
@@ -1349,7 +1363,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 				rs.groupResolver.On("GetGroupCountByOUID", mock.Anything, "ou-1").
 					Return(0, nil).Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name: "delete not found",
@@ -1358,7 +1372,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 					Return(true, nil).Once()
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(0, nil).Once()
 				store.On("DeleteOrganizationUnit", mock.Anything, "ou-1").
 					Return(ErrOrganizationUnitNotFound).Once()
@@ -1378,7 +1392,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 					Return(true, nil).Once()
 				store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 					Return(false).Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(0, nil).Once()
 				store.On("DeleteOrganizationUnit", mock.Anything, "ou-1").
 					Return(nil).Once()
@@ -1452,7 +1466,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 		service := suite.newService(store, newAllowAllAuthz(suite.T()))
 		err := service.DeleteOrganizationUnitByPath(context.Background(), "root")
 
-		suite.Require().Equal(ErrorInternalServerError, *err)
+		suite.Require().Equal(serviceerror.InternalServerError, *err)
 	})
 
 	suite.Run("cannot delete - has child OUs", func() {
@@ -1461,7 +1475,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 			Return(OrganizationUnit{ID: "ou-1"}, nil).Once()
 		store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 			Return(false).Twice()
-		store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+		store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 			Return(1, nil).Once()
 
 		userRes := new(OUUserResolverMock)
@@ -1480,7 +1494,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_DeleteOrganizationU
 			Return(OrganizationUnit{ID: "ou-1"}, nil).Once()
 		store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").
 			Return(false).Twice()
-		store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+		store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 			Return(0, nil).Once()
 		store.On("DeleteOrganizationUnit", mock.Anything, "ou-1").
 			Return(nil).Once()
@@ -1519,6 +1533,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 		name       string
 		limit      int
 		offset     int
+		filterExpr *filter.FilterGroup
 		setup      func(*organizationUnitStoreInterfaceMock)
 		wantErr    *serviceerror.ServiceError
 		wantResult *ouListExpectations
@@ -1528,6 +1543,14 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			limit:   0,
 			offset:  0,
 			wantErr: &ErrorInvalidLimit,
+		},
+		{
+			name:  "invalid filter attribute",
+			limit: 5,
+			filterExpr: &filter.FilterGroup{Clauses: []filter.FilterClause{
+				{Expr: filter.FilterExpression{Attribute: "id", Operator: filter.OperatorEq, Value: "ou-1"}},
+			}},
+			wantErr: &ErrorInvalidFilter,
 		},
 		{
 			name:  "ou not found",
@@ -1547,7 +1570,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 					Return(false, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:  "list failure",
@@ -1556,11 +1579,24 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				store.On("IsOrganizationUnitExists", mock.Anything, "ou-1").
 					Return(true, nil).
 					Once()
-				store.On("GetOrganizationUnitChildrenList", mock.Anything, "ou-1", 5, 0).
+				store.On("GetOrganizationUnitChildrenList", mock.Anything, "ou-1", 5, 0, mock.Anything).
 					Return(nil, errors.New("list fail")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
+		},
+		{
+			name:  "composite limit exceeded",
+			limit: 5,
+			setup: func(store *organizationUnitStoreInterfaceMock) {
+				store.On("IsOrganizationUnitExists", mock.Anything, "ou-1").
+					Return(true, nil).
+					Once()
+				store.On("GetOrganizationUnitChildrenList", mock.Anything, "ou-1", 5, 0, mock.Anything).
+					Return(nil, ErrResultLimitExceededInCompositeMode).
+					Once()
+			},
+			wantErr: &ErrorResultLimitExceeded,
 		},
 		{
 			name:  "count failure",
@@ -1569,14 +1605,14 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				store.On("IsOrganizationUnitExists", mock.Anything, "ou-1").
 					Return(true, nil).
 					Once()
-				store.On("GetOrganizationUnitChildrenList", mock.Anything, "ou-1", 5, 0).
+				store.On("GetOrganizationUnitChildrenList", mock.Anything, "ou-1", 5, 0, mock.Anything).
 					Return([]OrganizationUnitBasic{}, nil).
 					Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(0, errors.New("count fail")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:  "success",
@@ -1585,12 +1621,12 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				store.On("IsOrganizationUnitExists", mock.Anything, "ou-1").
 					Return(true, nil).
 					Once()
-				store.On("GetOrganizationUnitChildrenList", mock.Anything, "ou-1", 2, 0).
+				store.On("GetOrganizationUnitChildrenList", mock.Anything, "ou-1", 2, 0, mock.Anything).
 					Return([]OrganizationUnitBasic{
 						{ID: "child-1", Handle: "finance", Name: "Finance"},
 					}, nil).
 					Once()
-				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1").
+				store.On("GetOrganizationUnitChildrenCount", mock.Anything, "ou-1", mock.Anything).
 					Return(1, nil).
 					Once()
 			},
@@ -1614,7 +1650,9 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			}
 
 			service := suite.newService(store, newAllowAllAuthz(suite.T()))
-			resp, err := service.GetOrganizationUnitChildren(context.Background(), "ou-1", tc.limit, tc.offset)
+			resp, err := service.GetOrganizationUnitChildren(
+				context.Background(), "ou-1", tc.limit, tc.offset, tc.filterExpr,
+			)
 
 			if tc.wantErr != nil {
 				suite.Require().NotNil(err)
@@ -1624,11 +1662,30 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				suite.assertOUListResponse(resp, tc.wantResult)
 			}
 
-			if tc.wantErr == &ErrorInvalidLimit {
+			if tc.wantErr == &ErrorInvalidLimit || tc.wantErr == &ErrorInvalidFilter {
 				store.AssertNumberOfCalls(suite.T(), "IsOrganizationUnitExists", 0)
 			}
 		})
 	}
+}
+
+func (suite *OrganizationUnitServiceTestSuite) TestOUService_validateOUHandle() {
+	service := &organizationUnitService{}
+
+	suite.Run("blank handle", func() {
+		err := service.validateOUHandle("   ")
+		suite.Require().Equal(ErrorInvalidRequestFormat, *err)
+	})
+
+	suite.Run("handle with slash", func() {
+		err := service.validateOUHandle("root/child")
+		suite.Require().Equal(ErrorInvalidRequestFormat, *err)
+	})
+
+	suite.Run("valid handle", func() {
+		err := service.validateOUHandle("finance")
+		suite.Require().Nil(err)
+	})
 }
 
 func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnitChildrenByPath() {
@@ -1644,6 +1701,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			suite.Require().NotNil(resp)
 		},
 		invokeChildrenByPath,
+		mock.Anything, // filter arg
 	)
 	runOUPathListTests(suite, config)
 }
@@ -1668,7 +1726,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			name:        "nil user resolver",
 			limit:       5,
 			nilResolver: true,
-			wantErr:     &ErrorInternalServerError,
+			wantErr:     &serviceerror.InternalServerError,
 		},
 		{
 			name:  "not found",
@@ -1686,7 +1744,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				store.On("IsOrganizationUnitExists", mock.Anything, "ou-1").
 					Return(false, errors.New("boom")).Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:  "list error",
@@ -1699,7 +1757,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				ur.On("GetUserListByOUID", mock.Anything, "ou-1", 5, 0, false).
 					Return([]User(nil), errors.New("list")).Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:  "count error",
@@ -1714,7 +1772,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				ur.On("GetUserCountByOUID", mock.Anything, "ou-1").
 					Return(0, errors.New("count")).Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:  "success",
@@ -1833,7 +1891,11 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 
 	resp, err := service.GetOrganizationUnitUsers(context.Background(), "ou-1", 5, 0, false)
 	suite.Require().Nil(resp)
-	suite.Require().Equal(serviceerror.ErrorUnauthorized, *err)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Code, err.Code)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Type, err.Type)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Error.DefaultValue, err.Error.DefaultValue)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.ErrorDescription.DefaultValue,
+		err.ErrorDescription.DefaultValue)
 
 	// Verify no store or resolver calls were made
 	store.AssertNumberOfCalls(suite.T(), "IsOrganizationUnitExists", 0)
@@ -1850,7 +1912,11 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 
 	resp, err := service.GetOrganizationUnitGroups(context.Background(), "ou-1", 5, 0)
 	suite.Require().Nil(resp)
-	suite.Require().Equal(serviceerror.ErrorUnauthorized, *err)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Code, err.Code)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Type, err.Type)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Error.DefaultValue, err.Error.DefaultValue)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.ErrorDescription.DefaultValue,
+		err.ErrorDescription.DefaultValue)
 
 	store.AssertNumberOfCalls(suite.T(), "IsOrganizationUnitExists", 0)
 }
@@ -1859,14 +1925,17 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 	store := newOrganizationUnitStoreInterfaceMock(suite.T())
 	authzMock := sysauthzmock.NewSystemAuthorizationServiceInterfaceMock(suite.T())
 	authzMock.On("IsActionAllowed", mock.Anything, mock.Anything, mock.Anything).
-		Return(false, &serviceerror.ServiceError{Code: "500", Error: "authz service unavailable"}).Once()
+		Return(false, &serviceerror.ServiceError{
+			Code:  "500",
+			Error: i18ncore.I18nMessage{DefaultValue: "authz service unavailable"},
+		}).Once()
 
 	userRes := NewOUUserResolverMock(suite.T())
 	service := suite.newServiceWithResolvers(store, authzMock, userRes, nil)
 
 	resp, err := service.GetOrganizationUnitUsers(context.Background(), "ou-1", 5, 0, false)
 	suite.Require().Nil(resp)
-	suite.Require().Equal(ErrorInternalServerError, *err)
+	suite.Require().Equal(serviceerror.InternalServerError, *err)
 }
 
 func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnitChildren_AccessDenied() {
@@ -1877,9 +1946,13 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 
 	service := suite.newService(store, authzMock)
 
-	resp, err := service.GetOrganizationUnitChildren(context.Background(), "ou-1", 5, 0)
+	resp, err := service.GetOrganizationUnitChildren(context.Background(), "ou-1", 5, 0, nil)
 	suite.Require().Nil(resp)
-	suite.Require().Equal(serviceerror.ErrorUnauthorized, *err)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Code, err.Code)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Type, err.Type)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.Error.DefaultValue, err.Error.DefaultValue)
+	suite.Require().Equal(serviceerror.ErrorUnauthorized.ErrorDescription.DefaultValue,
+		err.ErrorDescription.DefaultValue)
 
 	store.AssertNumberOfCalls(suite.T(), "IsOrganizationUnitExists", 0)
 }
@@ -1888,27 +1961,33 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 	store := newOrganizationUnitStoreInterfaceMock(suite.T())
 	authzMock := sysauthzmock.NewSystemAuthorizationServiceInterfaceMock(suite.T())
 	authzMock.On("IsActionAllowed", mock.Anything, mock.Anything, mock.Anything).
-		Return(false, &serviceerror.ServiceError{Code: "500", Error: "authz service unavailable"}).Once()
+		Return(false, &serviceerror.ServiceError{
+			Code:  "500",
+			Error: i18ncore.I18nMessage{DefaultValue: "authz service unavailable"},
+		}).Once()
 
 	service := suite.newService(store, authzMock)
 
-	resp, err := service.GetOrganizationUnitChildren(context.Background(), "ou-1", 5, 0)
+	resp, err := service.GetOrganizationUnitChildren(context.Background(), "ou-1", 5, 0, nil)
 	suite.Require().Nil(resp)
-	suite.Require().Equal(ErrorInternalServerError, *err)
+	suite.Require().Equal(serviceerror.InternalServerError, *err)
 }
 
 func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnitGroups_AuthzError() {
 	store := newOrganizationUnitStoreInterfaceMock(suite.T())
 	authzMock := sysauthzmock.NewSystemAuthorizationServiceInterfaceMock(suite.T())
 	authzMock.On("IsActionAllowed", mock.Anything, mock.Anything, mock.Anything).
-		Return(false, &serviceerror.ServiceError{Code: "500", Error: "authz service unavailable"}).Once()
+		Return(false, &serviceerror.ServiceError{
+			Code:  "500",
+			Error: i18ncore.I18nMessage{DefaultValue: "authz service unavailable"},
+		}).Once()
 
 	groupRes := new(OUGroupResolverMock)
 	service := suite.newServiceWithResolvers(store, authzMock, nil, groupRes)
 
 	resp, err := service.GetOrganizationUnitGroups(context.Background(), "ou-1", 5, 0)
 	suite.Require().Nil(resp)
-	suite.Require().Equal(ErrorInternalServerError, *err)
+	suite.Require().Equal(serviceerror.InternalServerError, *err)
 }
 
 // runResolverPathListTests runs common path-based list tests for user/group resolver-backed endpoints.
@@ -1945,7 +2024,7 @@ func (suite *OrganizationUnitServiceTestSuite) runResolverPathListTests(
 		service := suite.newService(store, newAllowAllAuthz(suite.T()))
 		resp, err := invoke(service, "root", 5, 0)
 		suite.Require().Nil(resp)
-		suite.Require().Equal(ErrorInternalServerError, *err)
+		suite.Require().Equal(serviceerror.InternalServerError, *err)
 	})
 
 	suite.Run("success", func() {
@@ -1975,7 +2054,8 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				Return(0, nil).Once()
 			return userRes, nil
 		},
-		func(svc *organizationUnitService, path string, limit, offset int) (interface{}, *serviceerror.ServiceError) {
+		func(svc *organizationUnitService, path string, limit,
+			offset int) (interface{}, *serviceerror.ServiceError) {
 			return svc.GetOrganizationUnitUsersByPath(context.Background(), path, limit, offset, false)
 		},
 	)
@@ -2039,7 +2119,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			name:        "nil group resolver",
 			limit:       5,
 			nilResolver: true,
-			wantErr:     &ErrorInternalServerError,
+			wantErr:     &serviceerror.InternalServerError,
 		},
 		{
 			name:  "list error",
@@ -2052,7 +2132,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				gr.On("GetGroupListByOUID", mock.Anything, "ou-1", 5, 0).
 					Return([]Group(nil), errors.New("boom")).Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:  "success",
@@ -2126,14 +2206,14 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_BuildGroupListRespo
 	resp, err := buildGroupListResponse("/organization-units", 123, 10, 5, 0)
 	suite.Nil(resp)
 	suite.NotNil(err)
-	suite.Equal(ErrorInternalServerError, *err)
+	suite.Equal(serviceerror.InternalServerError, *err)
 }
 
 func (suite *OrganizationUnitServiceTestSuite) TestOUService_BuildOrganizationUnitListResponse_InvalidType() {
 	resp, err := buildOrganizationUnitListResponse("/organization-units", struct{}{}, 10, 5, 0)
 	suite.Nil(resp)
 	suite.NotNil(err)
-	suite.Equal(ErrorInternalServerError, *err)
+	suite.Equal(serviceerror.InternalServerError, *err)
 }
 
 func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnitGroupsByPath() {
@@ -2146,7 +2226,8 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 				Return(0, nil).Once()
 			return nil, groupRes
 		},
-		func(svc *organizationUnitService, path string, limit, offset int) (interface{}, *serviceerror.ServiceError) {
+		func(svc *organizationUnitService, path string, limit,
+			offset int) (interface{}, *serviceerror.ServiceError) {
 			return svc.GetOrganizationUnitGroupsByPath(context.Background(), path, limit, offset)
 		},
 	)
@@ -2237,7 +2318,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_CheckCircularDepend
 		Once()
 
 	err = service3.checkCircularDependency(context.Background(), "ou-1", &parentID)
-	suite.Require().Equal(&ErrorInternalServerError, err)
+	suite.Require().Equal(&serviceerror.InternalServerError, err)
 }
 
 func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationUnit_SameParent() {
@@ -2272,7 +2353,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 			Once()
 
 		service := suite.newService(store, newAllowAllAuthz(suite.T()))
-		result, err := service.UpdateOrganizationUnit(context.Background(), testOUID, OrganizationUnitRequest{
+		result, err := service.UpdateOrganizationUnit(context.Background(), testOUID, OrganizationUnitRequestWithID{
 			Handle:      "finance",
 			Name:        "Finance",
 			Description: "updated",
@@ -2324,7 +2405,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 			Once()
 
 		service := suite.newService(store, newAllowAllAuthz(suite.T()))
-		result, err := service.UpdateOrganizationUnit(context.Background(), testOUID, OrganizationUnitRequest{
+		result, err := service.UpdateOrganizationUnit(context.Background(), testOUID, OrganizationUnitRequestWithID{
 			Handle: "finance",
 			Name:   "Finance",
 			Parent: &parentID,
@@ -2362,7 +2443,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_UpdateOrganizationU
 			Once()
 
 		service := suite.newService(store, newAllowAllAuthz(suite.T()))
-		result, err := service.UpdateOrganizationUnit(context.Background(), testOUID, OrganizationUnitRequest{
+		result, err := service.UpdateOrganizationUnit(context.Background(), testOUID, OrganizationUnitRequestWithID{
 			Handle: "finance",
 			Name:   "Finance",
 			Parent: nil,
@@ -2418,10 +2499,10 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			offset: 0,
 			setupAuthz: func(authz *sysauthzmock.SystemAuthorizationServiceInterfaceMock) {
 				authz.On("GetAccessibleResources", mock.Anything, mock.Anything, mock.Anything).
-					Return((*sysauthz.AccessibleResources)(nil), &ErrorInternalServerError).
+					Return((*sysauthz.AccessibleResources)(nil), &serviceerror.InternalServerError).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:   "filtered empty",
@@ -2460,8 +2541,8 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 					Once()
 			},
 			setupStore: func(store *organizationUnitStoreInterfaceMock) {
-				store.On("GetOrganizationUnitListCount", mock.Anything).Return(0, nil).Once()
-				store.On("GetOrganizationUnitList", mock.Anything, 10, 0).
+				store.On("GetOrganizationUnitListCount", mock.Anything, mock.Anything).Return(0, nil).Once()
+				store.On("GetOrganizationUnitList", mock.Anything, 10, 0, mock.Anything).
 					Return([]OrganizationUnitBasic{}, ErrResultLimitExceededInCompositeMode).
 					Once()
 			},
@@ -2483,7 +2564,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnit
 			}
 
 			service := &organizationUnitService{ouStore: store, authzService: authz}
-			resp, err := service.GetOrganizationUnitList(context.Background(), tc.limit, tc.offset)
+			resp, err := service.GetOrganizationUnitList(context.Background(), tc.limit, tc.offset, nil)
 
 			if tc.wantErr != nil {
 				suite.Require().NotNil(err)
@@ -2505,6 +2586,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_listAccessibleOrgan
 		ids        []string
 		limit      int
 		offset     int
+		filter     *filter.FilterGroup
 		setupStore func(*organizationUnitStoreInterfaceMock)
 		wantErr    *serviceerror.ServiceError
 		wantTotal  int
@@ -2536,7 +2618,7 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_listAccessibleOrgan
 					Return([]OrganizationUnitBasic{}, errors.New("boom")).
 					Once()
 			},
-			wantErr: &ErrorInternalServerError,
+			wantErr: &serviceerror.InternalServerError,
 		},
 		{
 			name:   "success pagination",
@@ -2551,6 +2633,59 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_listAccessibleOrgan
 			wantTotal: 3,
 			wantCount: 2,
 		},
+		{
+			name:   "filter match — returns filtered subset",
+			ids:    []string{"ou-1", "ou-2"},
+			limit:  10,
+			offset: 0,
+			filter: &filter.FilterGroup{Clauses: []filter.FilterClause{
+				{Expr: filter.FilterExpression{Attribute: "name", Operator: filter.OperatorEq, Value: "Engineering"}},
+			}},
+			setupStore: func(store *organizationUnitStoreInterfaceMock) {
+				store.On("GetOrganizationUnitsByIDs", mock.Anything, []string{"ou-1", "ou-2"}).
+					Return([]OrganizationUnitBasic{
+						{ID: "ou-1", Name: "Engineering"},
+						{ID: "ou-2", Name: "Sales"},
+					}, nil).
+					Once()
+			},
+			wantTotal: 1,
+			wantCount: 1,
+		},
+		{
+			name:   "filter no match — returns empty",
+			ids:    []string{"ou-1", "ou-2"},
+			limit:  10,
+			offset: 0,
+			filter: &filter.FilterGroup{Clauses: []filter.FilterClause{
+				{Expr: filter.FilterExpression{Attribute: "name", Operator: filter.OperatorEq, Value: "__no_match__"}},
+			}},
+			setupStore: func(store *organizationUnitStoreInterfaceMock) {
+				store.On("GetOrganizationUnitsByIDs", mock.Anything, []string{"ou-1", "ou-2"}).
+					Return([]OrganizationUnitBasic{
+						{ID: "ou-1", Name: "Engineering"},
+						{ID: "ou-2", Name: "Sales"},
+					}, nil).
+					Once()
+			},
+			wantTotal: 0,
+			wantCount: 0,
+		},
+		{
+			name:   "filter store error",
+			ids:    []string{"ou-1"},
+			limit:  10,
+			offset: 0,
+			filter: &filter.FilterGroup{Clauses: []filter.FilterClause{
+				{Expr: filter.FilterExpression{Attribute: "name", Operator: filter.OperatorEq, Value: "Engineering"}},
+			}},
+			setupStore: func(store *organizationUnitStoreInterfaceMock) {
+				store.On("GetOrganizationUnitsByIDs", mock.Anything, []string{"ou-1"}).
+					Return(nil, errors.New("db error")).
+					Once()
+			},
+			wantErr: &serviceerror.InternalServerError,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2561,7 +2696,8 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_listAccessibleOrgan
 				tc.setupStore(store)
 			}
 			service := &organizationUnitService{ouStore: store}
-			resp, err := service.listAccessibleOrganizationUnits(context.Background(), tc.ids, tc.limit, tc.offset)
+			resp, err := service.listAccessibleOrganizationUnits(
+				context.Background(), tc.ids, tc.limit, tc.offset, tc.filter)
 
 			if tc.wantErr != nil {
 				suite.Require().NotNil(err)
@@ -2585,4 +2721,46 @@ func (suite *OrganizationUnitServiceTestSuite) TestOUService_IsOrganizationUnitD
 	res := service.IsOrganizationUnitDeclarative(context.Background(), "ou-1")
 	suite.Require().True(res)
 	store.AssertExpectations(suite.T())
+}
+
+func (suite *OrganizationUnitServiceTestSuite) TestOUService_GetOrganizationUnitHandlesByIDs() {
+	suite.Run("empty ids returns empty map", func() {
+		service := &organizationUnitService{}
+		result, svcErr := service.GetOrganizationUnitHandlesByIDs(
+			context.Background(), []string{})
+		suite.Require().Nil(svcErr)
+		suite.Require().Empty(result)
+	})
+
+	suite.Run("success", func() {
+		store := newOrganizationUnitStoreInterfaceMock(suite.T())
+		store.On("GetOrganizationUnitsByIDs", mock.Anything, []string{"ou-1", "ou-2"}).
+			Return([]OrganizationUnitBasic{
+				{ID: "ou-1", Handle: "handle-1"},
+				{ID: "ou-2", Handle: "handle-2"},
+			}, nil).Once()
+
+		service := &organizationUnitService{ouStore: store}
+		result, svcErr := service.GetOrganizationUnitHandlesByIDs(
+			context.Background(), []string{"ou-1", "ou-2"})
+		suite.Require().Nil(svcErr)
+		suite.Require().Len(result, 2)
+		suite.Equal("handle-1", result["ou-1"])
+		suite.Equal("handle-2", result["ou-2"])
+		store.AssertExpectations(suite.T())
+	})
+
+	suite.Run("store error returns internal server error", func() {
+		store := newOrganizationUnitStoreInterfaceMock(suite.T())
+		store.On("GetOrganizationUnitsByIDs", mock.Anything, []string{"ou-1"}).
+			Return(nil, errors.New("db error")).Once()
+
+		service := &organizationUnitService{ouStore: store}
+		result, svcErr := service.GetOrganizationUnitHandlesByIDs(
+			context.Background(), []string{"ou-1"})
+		suite.Require().Nil(result)
+		suite.Require().NotNil(svcErr)
+		suite.Equal(serviceerror.InternalServerError.Code, svcErr.Code)
+		store.AssertExpectations(suite.T())
+	})
 }

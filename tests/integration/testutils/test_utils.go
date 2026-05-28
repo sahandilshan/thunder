@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,7 @@ const (
 	TargetDir                   = "../../target/dist"
 	ExtractedDir                = "../../target/out/.test"
 	TestDeploymentYamlPath      = "./resources/deployment.yaml"
+	DefaultConfigJSONPath       = "../../backend/cmd/server/repository/resources/conf/default.json"
 	TestDatabaseSchemaDirectory = "resources/dbscripts"
 	DatabaseFileBasePath        = "repository/database/"
 )
@@ -47,9 +49,9 @@ var ServerBinary string
 
 func init() {
 	if runtime.GOOS == "windows" {
-		ServerBinary = "thunder.exe"
+		ServerBinary = "thunderid.exe"
 	} else {
-		ServerBinary = "thunder"
+		ServerBinary = "thunderid"
 	}
 }
 
@@ -89,7 +91,7 @@ func GetExtractedProductHome() string {
 	return abs
 }
 
-// GetServerPID returns the PID of the running Thunder server process, or 0 if not started.
+// GetServerPID returns the PID of the running the server process, or 0 if not started.
 // main.go uses this to propagate the PID to test subprocesses via an env var so that
 // they can stop and restart the server when required.
 func GetServerPID() int {
@@ -101,25 +103,25 @@ func GetServerPID() int {
 // test subprocess was started by runTests in main.go), it attempts a lazy
 // initialization from environment variables that main.go exports before running tests:
 //
-//	THUNDER_EXTRACTED_HOME – path to the extracted product directory
-//	THUNDER_SERVER_PORT    – port Thunder is listening on
-//	THUNDER_ZIP_PATTERN    – zip file glob used to locate the product archive
-//	THUNDER_SERVER_PID     – PID of the running Thunder server process
+//	SERVER_EXTRACTED_HOME – path to the extracted product directory
+//	SERVER_PORT    – port the server is listening on
+//	ZIP_PATTERN    – zip file glob used to locate the product archive
+//	SERVER_PID     – PID of the running server process
 func ensureInitialized() {
 	if isInitialized {
 		return
 	}
 
 	// Attempt lazy initialization from environment variables injected by main.go.
-	if home := os.Getenv("THUNDER_EXTRACTED_HOME"); home != "" {
+	if home := os.Getenv("SERVER_EXTRACTED_HOME"); home != "" {
 		extractedProductHome = home
-		serverPort = os.Getenv("THUNDER_SERVER_PORT")
-		zipFilePattern = os.Getenv("THUNDER_ZIP_PATTERN")
+		serverPort = os.Getenv("SERVER_PORT")
+		zipFilePattern = os.Getenv("ZIP_PATTERN")
 		dbType = os.Getenv("DB_TYPE")
 		if dbType == "" {
 			dbType = "sqlite"
 		}
-		if pidStr := os.Getenv("THUNDER_SERVER_PID"); pidStr != "" {
+		if pidStr := os.Getenv("SERVER_PID"); pidStr != "" {
 			if pid, err := strconv.Atoi(pidStr); err == nil {
 				serverPid = pid
 			}
@@ -250,7 +252,7 @@ func findMatchingZipFile(zipFilePattern string) ([]string, error) {
 		return nil, err
 	}
 
-	// Filter the files to only include those that have a version number or 'v' after 'thunder-'
+	// Filter the files to only include those that have a version number or 'v' after 'thunderid-'
 	var matchingFiles []string
 	for _, file := range files {
 		baseName := filepath.Base(file)
@@ -264,7 +266,94 @@ func findMatchingZipFile(zipFilePattern string) ([]string, error) {
 		}
 	}
 
+	// Prefer the newest package version first to avoid selecting stale distributions.
+	sort.SliceStable(matchingFiles, func(i, j int) bool {
+		versionI := extractVersionFromZipName(filepath.Base(matchingFiles[i]))
+		versionJ := extractVersionFromZipName(filepath.Base(matchingFiles[j]))
+
+		cmp := compareVersions(versionI, versionJ)
+		if cmp != 0 {
+			return cmp > 0
+		}
+
+		infoI, errI := os.Stat(matchingFiles[i])
+		infoJ, errJ := os.Stat(matchingFiles[j])
+		if errI == nil && errJ == nil {
+			return infoI.ModTime().After(infoJ.ModTime())
+		}
+
+		return matchingFiles[i] > matchingFiles[j]
+	})
+
 	return matchingFiles, nil
+}
+
+func extractVersionFromZipName(zipName string) string {
+	parts := strings.Split(zipName, "-")
+	if len(parts) < 3 {
+		return ""
+	}
+	return strings.TrimPrefix(parts[1], "v")
+}
+
+// parseVersionSegment splits a segment like "0-rc1" into its numeric value and optional
+// pre-release suffix. A segment with no suffix has preRelease == "".
+func parseVersionSegment(seg string) (numeric int, preRelease string) {
+	if idx := strings.Index(seg, "-"); idx >= 0 {
+		if n, err := strconv.Atoi(seg[:idx]); err == nil {
+			return n, seg[idx+1:]
+		}
+	}
+	if n, err := strconv.Atoi(seg); err == nil {
+		return n, ""
+	}
+	return 0, ""
+}
+
+func compareVersions(versionA string, versionB string) int {
+	segmentsA := strings.Split(versionA, ".")
+	segmentsB := strings.Split(versionB, ".")
+
+	maxLen := len(segmentsA)
+	if len(segmentsB) > maxLen {
+		maxLen = len(segmentsB)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		var segA, segB string
+		if i < len(segmentsA) {
+			segA = segmentsA[i]
+		}
+		if i < len(segmentsB) {
+			segB = segmentsB[i]
+		}
+
+		numA, preA := parseVersionSegment(segA)
+		numB, preB := parseVersionSegment(segB)
+
+		if numA != numB {
+			if numA > numB {
+				return 1
+			}
+			return -1
+		}
+
+		// Same numeric part: release (no suffix) > pre-release (has suffix).
+		if preA == "" && preB != "" {
+			return 1
+		}
+		if preA != "" && preB == "" {
+			return -1
+		}
+		if preA != preB {
+			if preA > preB {
+				return 1
+			}
+			return -1
+		}
+	}
+
+	return 0
 }
 
 func ReplaceResources(zipFilePattern string) error {
@@ -287,6 +376,78 @@ func ReplaceResources(zipFilePattern string) error {
 	err = copyFile(TestDeploymentYamlPath, destPath)
 	if err != nil {
 		return fmt.Errorf("failed to replace deployment.yaml: %v", err)
+	}
+
+	defaultConfigDestPath := filepath.Join(extractedProductHome, "repository", "resources", "conf", "default.json")
+
+	if err := os.MkdirAll(filepath.Dir(defaultConfigDestPath), os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create resources conf directory: %v", err)
+	}
+
+	err = copyFile(DefaultConfigJSONPath, defaultConfigDestPath)
+	if err != nil {
+		return fmt.Errorf("failed to replace default.json: %v", err)
+	}
+
+	return nil
+}
+
+// CopyDeclarativeResources copies declarative resource fixtures from the test resources directory
+// into the extracted product's repository/resources directory.
+// This enables the server to load declarative resources on startup.
+func CopyDeclarativeResources(zipFilePattern string) error {
+	log.Println("Copying declarative resources...")
+
+	srcPath := "./resources/declarative_resources"
+	destPath := filepath.Join(extractedProductHome, "repository", "resources")
+
+	// Check if source directory exists
+	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+		log.Println("No declarative resources directory found, skipping copy")
+		return nil
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(destPath, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create resources directory: %v", err)
+	}
+
+	// Copy each declarative resource subdirectory
+	resourceDirs := []string{
+		"agents",
+		"applications",
+		"flows",
+		"identity_providers",
+		"layouts",
+		"organization_units",
+		"resource_servers",
+		"roles",
+		"themes",
+		"user_types",
+		"users",
+	}
+
+	for _, dir := range resourceDirs {
+		srcSubPath := filepath.Join(srcPath, dir)
+		destSubPath := filepath.Join(destPath, dir)
+
+		// Check if source subdirectory exists
+		if _, err := os.Stat(srcSubPath); os.IsNotExist(err) {
+			log.Printf("Declarative resource directory %s not found, skipping", dir)
+			continue
+		}
+
+		// Create destination subdirectory
+		if err := os.MkdirAll(destSubPath, os.ModePerm); err != nil {
+			return fmt.Errorf("failed to create declarative resource directory %s: %v", dir, err)
+		}
+
+		// Copy the directory contents
+		if err := copyDirectory(srcSubPath, destSubPath); err != nil {
+			return fmt.Errorf("failed to copy declarative resources for %s: %v", dir, err)
+		}
+
+		log.Printf("Copied declarative resources for %s", dir)
 	}
 
 	return nil
@@ -436,17 +597,17 @@ func initSQLiteDB(name, schemaPath, dbPath string) error {
 }
 
 // pidFilePath returns the path to the well-known PID file that always reflects the
-// PID of the currently running Thunder process, even after subprocess restarts.
+// PID of the currently running the server process, even after subprocess restarts.
 // Returns an empty string when extractedProductHome is not yet set, so callers
 // can skip PID-file operations safely.
 func pidFilePath() string {
 	if extractedProductHome == "" {
 		return ""
 	}
-	return filepath.Join(extractedProductHome, "thunder.pid")
+	return filepath.Join(extractedProductHome, "thunderid.pid")
 }
 
-// writePidFile writes the given PID to the Thunder PID file.
+// writePidFile writes the given PID to the the server PID file.
 func writePidFile(pid int) {
 	path := pidFilePath()
 	if path == "" {
@@ -457,7 +618,7 @@ func writePidFile(pid int) {
 	}
 }
 
-// readPidFile reads the PID from the Thunder PID file. Returns 0 if the file does
+// readPidFile reads the PID from the server PID file. Returns 0 if the file does
 // not exist, cannot be parsed, or extractedProductHome is not set.
 func readPidFile() int {
 	path := pidFilePath()
@@ -475,7 +636,7 @@ func readPidFile() int {
 	return pid
 }
 
-// removePidFile deletes the Thunder PID file.
+// removePidFile deletes the server PID file.
 func removePidFile() {
 	path := pidFilePath()
 	if path == "" {
@@ -488,18 +649,18 @@ func StartServer(port string, zipFilePattern string) error {
 	log.Println("Starting server...")
 
 	serverPath := filepath.Join(extractedProductHome, ServerBinary)
-	cmd := exec.Command(serverPath, "-thunderHome="+extractedProductHome)
+	cmd := exec.Command(serverPath, "-serverHome="+extractedProductHome)
 
 	// logFile is non-nil only when subprocessMode opens a log file. The parent
 	// must close its copy after cmd.Start() so it does not leak the FD.
 	var logFile *os.File
 	if subprocessMode {
-		// Running inside a test binary (go test subprocess). Thunder's stdout/stderr
+		// Running inside a test binary (go test subprocess). Server's stdout/stderr
 		// must NOT inherit the test process's pipes — go test waits for all I/O to
-		// drain before declaring the test done, and the long-lived Thunder process
+		// drain before declaring the test done, and the long-lived server process
 		// would keep those pipes open indefinitely, causing a 60s WaitDelay timeout.
 		// Redirect to a log file in the extracted product home so output is not lost.
-		logPath := filepath.Join(extractedProductHome, "thunder-restart.log")
+		logPath := filepath.Join(extractedProductHome, "thunderid-restart.log")
 		var openErr error
 		logFile, openErr = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if openErr != nil {
@@ -599,7 +760,7 @@ func StopServer() {
 	serverCmd = nil
 	serverPid = 0
 
-	// Kill any residual Thunder process that may have been started by a test
+	// Kill any residual the server process that may have been started by a test
 	// subprocess (e.g. after a config swap) whose PID is different from the one
 	// we just killed. The PID file is always updated by StartServer regardless of
 	// which process (parent or subprocess) called it.
@@ -663,7 +824,7 @@ func waitForServerReady(timeout time.Duration) error {
 
 // UpdateDeploymentConfig overwrites the extracted product's deployment.yaml with the
 // file at srcPath. srcPath should be relative to the calling test package's directory.
-// After calling this, restart Thunder with RestartServer for changes to take effect.
+// After calling this, restart the server with RestartServer for changes to take effect.
 func UpdateDeploymentConfig(srcPath string) error {
 	ensureInitialized()
 
@@ -718,6 +879,25 @@ func PatchDeploymentConfig(patch map[string]interface{}) error {
 	return nil
 }
 
+// ReadDeploymentConfigKey returns a top-level key from the deployment.yaml, or nil if missing.
+func ReadDeploymentConfigKey(key string) (interface{}, error) {
+	ensureInitialized()
+
+	configPath := filepath.Join(extractedProductHome, "repository", "conf", "deployment.yaml")
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read deployment.yaml: %w", err)
+	}
+
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse deployment.yaml: %w", err)
+	}
+
+	return cfg[key], nil
+}
+
 // RunSetupScript runs the setup script from the extracted product directory.
 // This script starts the server without security, runs bootstrap scripts, and stops the server.
 func RunSetupScript() error {
@@ -753,7 +933,7 @@ func RunSetupScript() error {
 func GetZipFilePattern() string {
 	goos, goarch := detectOSAndArchitecture()
 	// Use a more general pattern, the filtering will happen in findMatchingZipFile
-	return fmt.Sprintf("thunder-*-%s-%s.zip", goos, goarch)
+	return fmt.Sprintf("thunderid-*-%s-%s.zip", goos, goarch)
 }
 
 // GetDBType returns the configured database type ("sqlite" or "postgres").

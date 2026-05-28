@@ -24,6 +24,7 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -31,8 +32,11 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/system/crypto/sign"
+	"github.com/thunder-id/thunderid/internal/system/cryptolib"
 )
+
+// privateJWKMembers lists JWK parameter names that indicate private-key material.
+var privateJWKMembers = []string{"d", "p", "q", "dp", "dq", "qi", "oth", "k"}
 
 // DecodeHeader decodes the header of a JWS token and returns it as a map.
 func DecodeHeader(token string) (map[string]interface{}, error) {
@@ -55,20 +59,22 @@ func DecodeHeader(token string) (map[string]interface{}, error) {
 }
 
 // MapAlgorithmToSignAlg maps JWS alg header values to internal SignAlgorithm.
-func MapAlgorithmToSignAlg(jwsAlg Algorithm) (sign.SignAlgorithm, error) {
+func MapAlgorithmToSignAlg(jwsAlg Algorithm) (cryptolib.SignAlgorithm, error) {
 	switch jwsAlg {
 	case RS256:
-		return sign.RSASHA256, nil
+		return cryptolib.RSASHA256, nil
 	case RS512:
-		return sign.RSASHA512, nil
+		return cryptolib.RSASHA512, nil
+	case PS256:
+		return cryptolib.RSAPSSSHA256, nil
 	case ES256:
-		return sign.ECDSASHA256, nil
+		return cryptolib.ECDSASHA256, nil
 	case ES384:
-		return sign.ECDSASHA384, nil
+		return cryptolib.ECDSASHA384, nil
 	case ES512:
-		return sign.ECDSASHA512, nil
+		return cryptolib.ECDSASHA512, nil
 	case EdDSA:
-		return sign.ED25519, nil
+		return cryptolib.ED25519, nil
 	default:
 		return "", fmt.Errorf("unsupported JWS alg: %s", jwsAlg)
 	}
@@ -191,4 +197,98 @@ func jwkToOKPPublicKey(jwk map[string]interface{}) (ed25519.PublicKey, error) {
 	default:
 		return nil, fmt.Errorf("unsupported OKP curve: %s", crv)
 	}
+}
+
+// ContainsPrivateMember reports whether the JWK contains any private-key
+// parameter. Returns the offending member name when found.
+func ContainsPrivateMember(jwk map[string]interface{}) (string, bool) {
+	for _, m := range privateJWKMembers {
+		if _, ok := jwk[m]; ok {
+			return m, true
+		}
+	}
+	return "", false
+}
+
+// ComputeJKT computes the RFC 7638 SHA-256 JWK thumbprint of a public key JWK.
+func ComputeJKT(jwk map[string]interface{}) (string, error) {
+	canonical, err := canonicalJWK(jwk)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return base64.RawURLEncoding.EncodeToString(sum[:]), nil
+}
+
+// IsValidJKT reports whether s is a well-formed SHA-256 JWK thumbprint:
+// 43 base64url characters with no padding (RFC 7638 with SHA-256).
+func IsValidJKT(s string) bool {
+	if len(s) != 43 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalJWK(jwk map[string]interface{}) ([]byte, error) {
+	kty, ok := jwk["kty"].(string)
+	if !ok || kty == "" {
+		return nil, errors.New("JWK missing kty")
+	}
+	var ordered []struct{ k, v string }
+	switch kty {
+	case "RSA":
+		e, _ := jwk["e"].(string)
+		n, _ := jwk["n"].(string)
+		if e == "" || n == "" {
+			return nil, errors.New("RSA JWK missing required members e/n")
+		}
+		ordered = []struct{ k, v string }{{"e", e}, {"kty", "RSA"}, {"n", n}}
+	case "EC":
+		crv, _ := jwk["crv"].(string)
+		x, _ := jwk["x"].(string)
+		y, _ := jwk["y"].(string)
+		if crv == "" || x == "" || y == "" {
+			return nil, errors.New("EC JWK missing required members crv/x/y")
+		}
+		ordered = []struct{ k, v string }{{"crv", crv}, {"kty", "EC"}, {"x", x}, {"y", y}}
+	case "OKP":
+		crv, _ := jwk["crv"].(string)
+		x, _ := jwk["x"].(string)
+		if crv == "" || x == "" {
+			return nil, errors.New("OKP JWK missing required members crv/x")
+		}
+		ordered = []struct{ k, v string }{{"crv", crv}, {"kty", "OKP"}, {"x", x}}
+	default:
+		return nil, fmt.Errorf("unsupported JWK kty for thumbprint: %s", kty)
+	}
+
+	buf := make([]byte, 0, 256)
+	buf = append(buf, '{')
+	for i, m := range ordered {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		kBytes, err := json.Marshal(m.k)
+		if err != nil {
+			return nil, err
+		}
+		vBytes, err := json.Marshal(m.v)
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, kBytes...)
+		buf = append(buf, ':')
+		buf = append(buf, vBytes...)
+	}
+	buf = append(buf, '}')
+	return buf, nil
 }

@@ -19,16 +19,16 @@
 package declarativeresource
 
 import (
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // IsDeclarativeModeEnabled checks if declarative resources are enabled in the configuration.
 func IsDeclarativeModeEnabled() bool {
-	return config.GetThunderRuntime().Config.DeclarativeResources.Enabled
+	return config.GetServerRuntime().Config.DeclarativeResources.Enabled
 }
 
-// CheckDeclarativeCreate returns an error if declarative mode is enabled and create operation is attempted.
+// CheckDeclarativeCreate returns an error when declarative read-only mode is active.
 func CheckDeclarativeCreate() *serviceerror.ServiceError {
 	if IsDeclarativeModeEnabled() {
 		return &ErrorDeclarativeResourceCreateOperation
@@ -36,7 +36,7 @@ func CheckDeclarativeCreate() *serviceerror.ServiceError {
 	return nil
 }
 
-// CheckDeclarativeUpdate returns an error if declarative mode is enabled and update operation is attempted.
+// CheckDeclarativeUpdate returns an error when declarative read-only mode is active.
 func CheckDeclarativeUpdate() *serviceerror.ServiceError {
 	if IsDeclarativeModeEnabled() {
 		return &ErrorDeclarativeResourceUpdateOperation
@@ -44,34 +44,10 @@ func CheckDeclarativeUpdate() *serviceerror.ServiceError {
 	return nil
 }
 
-// CheckDeclarativeDelete returns an error if declarative mode is enabled and delete operation is attempted.
+// CheckDeclarativeDelete returns an error when declarative read-only mode is active.
 func CheckDeclarativeDelete() *serviceerror.ServiceError {
 	if IsDeclarativeModeEnabled() {
 		return &ErrorDeclarativeResourceDeleteOperation
-	}
-	return nil
-}
-
-// CheckDeclarativeCreateI18n returns an i18n error if declarative mode is enabled and create operation is attempted.
-func CheckDeclarativeCreateI18n() *serviceerror.I18nServiceError {
-	if IsDeclarativeModeEnabled() {
-		return &I18nErrorDeclarativeResourceCreateOperation
-	}
-	return nil
-}
-
-// CheckDeclarativeUpdateI18n returns an i18n error if declarative mode is enabled and update operation is attempted.
-func CheckDeclarativeUpdateI18n() *serviceerror.I18nServiceError {
-	if IsDeclarativeModeEnabled() {
-		return &I18nErrorDeclarativeResourceUpdateOperation
-	}
-	return nil
-}
-
-// CheckDeclarativeDeleteI18n returns an i18n error if declarative mode is enabled and delete operation is attempted.
-func CheckDeclarativeDeleteI18n() *serviceerror.I18nServiceError {
-	if IsDeclarativeModeEnabled() {
-		return &I18nErrorDeclarativeResourceDeleteOperation
 	}
 	return nil
 }

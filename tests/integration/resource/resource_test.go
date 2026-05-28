@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -56,7 +56,7 @@ func (suite *ResourceAPITestSuite) SetupSuite() {
 	rsReq := CreateResourceServerRequest{
 		Name:               "Resource Test Server",
 		Description:        "Resource server for resource testing",
-		Identifier:         "resource-test-server",
+		Handle:             "resource-test-server",
 		OUID: ouID,
 	}
 	rsID, err := createResourceServer(rsReq)
@@ -94,7 +94,7 @@ func (suite *ResourceAPITestSuite) TestCreateResource() {
 	suite.Equal(req.Handle, res.Handle)
 	suite.Equal(req.Description, res.Description)
 	suite.Nil(res.Parent)
-	suite.Equal("hotels", res.Permission, "Top-level resource permission should be just the handle")
+	suite.Equal("resource-test-server:hotels", res.Permission, "Top-level resource permission should be just the handle")
 }
 
 func (suite *ResourceAPITestSuite) TestCreateResourceWithParent() {
@@ -127,7 +127,7 @@ func (suite *ResourceAPITestSuite) TestCreateResourceWithParent() {
 	suite.Equal(childReq.Handle, child.Handle)
 	suite.NotNil(child.Parent)
 	suite.Equal(parentID, *child.Parent)
-	suite.Equal("bookings:confirmed", child.Permission, "Nested resource permission should be parent:child")
+	suite.Equal("resource-test-server:bookings:confirmed", child.Permission, "Nested resource permission should be parent:child")
 }
 
 func (suite *ResourceAPITestSuite) TestCreateResourceDuplicateHandle() {
@@ -266,12 +266,12 @@ func (suite *ResourceAPITestSuite) TestListResources() {
 		if res.ID == res1ID {
 			foundRes1 = true
 			suite.Equal(res1.Name, res.Name)
-			suite.Equal("list-resource-1", res.Permission, "Permission should be returned in list response")
+			suite.Equal("resource-test-server:list-resource-1", res.Permission, "Permission should be returned in list response")
 		}
 		if res.ID == res2ID {
 			foundRes2 = true
 			suite.Equal(res2.Name, res.Name)
-			suite.Equal("list-resource-2", res.Permission, "Permission should be returned in list response")
+			suite.Equal("resource-test-server:list-resource-2", res.Permission, "Permission should be returned in list response")
 		}
 	}
 	suite.True(foundRes1, "Should find first resource")
@@ -389,7 +389,7 @@ func (suite *ResourceAPITestSuite) TestUpdateResource() {
 	suite.Equal(req.Handle, res.Handle, "Handle should be immutable")
 	suite.Equal(updateReq.Description, res.Description)
 	suite.Nil(res.Parent, "Parent should remain immutable")
-	suite.Equal("update-test-resource", res.Permission, "Permission should be immutable")
+	suite.Equal("resource-test-server:update-test-resource", res.Permission, "Permission should be immutable")
 }
 
 func (suite *ResourceAPITestSuite) TestUpdateResourceHandleIsImmutable() {
@@ -488,6 +488,7 @@ func (suite *ResourceAPITestSuite) TestResourcePermissionDerivationWithCustomDel
 	delimiter := "."
 	rsReq := CreateResourceServerRequest{
 		Name:               "Custom Delimiter Server",
+		Handle:            "custom-delim-server",
 		OUID: suite.ouID,
 		Delimiter:          &delimiter,
 	}
@@ -507,7 +508,7 @@ func (suite *ResourceAPITestSuite) TestResourcePermissionDerivationWithCustomDel
 
 	level1, err := getResource(customRsID, level1ID)
 	suite.Require().NoError(err)
-	suite.Equal("org", level1.Permission, "Top-level resource permission should be just the handle")
+	suite.Equal("custom-delim-server.org", level1.Permission, "Top-level resource permission should be just the handle")
 
 	// Create level 2: org.dept
 	level2Req := CreateResourceRequest{
@@ -521,7 +522,7 @@ func (suite *ResourceAPITestSuite) TestResourcePermissionDerivationWithCustomDel
 
 	level2, err := getResource(customRsID, level2ID)
 	suite.Require().NoError(err)
-	suite.Equal("org.dept", level2.Permission, "Permission should use custom delimiter")
+	suite.Equal("custom-delim-server.org.dept", level2.Permission, "Permission should use custom delimiter")
 
 	// Create level 3: org.dept.team
 	level3Req := CreateResourceRequest{
@@ -535,7 +536,7 @@ func (suite *ResourceAPITestSuite) TestResourcePermissionDerivationWithCustomDel
 
 	level3, err := getResource(customRsID, level3ID)
 	suite.Require().NoError(err)
-	suite.Equal("org.dept.team", level3.Permission, "Deeply nested permission should use custom delimiter")
+	suite.Equal("custom-delim-server.org.dept.team", level3.Permission, "Deeply nested permission should use custom delimiter")
 }
 
 func (suite *ResourceAPITestSuite) TestDeleteResourceWithChildren() {

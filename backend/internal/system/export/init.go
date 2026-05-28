@@ -22,8 +22,8 @@ package export
 import (
 	"net/http"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/middleware"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
 )
 
 // Initialize initializes the export service and registers its routes.
@@ -45,24 +45,25 @@ func Initialize(mux *http.ServeMux, exporters []declarativeresource.ResourceExpo
 
 func registerRoutes(mux *http.ServeMux, exportHandler *exportHandler) {
 	opts := middleware.CORSOptions{
-		AllowedMethods:   "POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
-	// YAML export endpoint - returns application/yaml
+	// JSON export endpoint
 	mux.HandleFunc(middleware.WithCORS("POST /export",
 		exportHandler.HandleExportRequest, opts))
-
-	// JSON export endpoint - returns JSON with files (for backward compatibility)
-	mux.HandleFunc(middleware.WithCORS("POST /export/json",
-		exportHandler.HandleExportJSONRequest, opts))
 
 	// ZIP export endpoint - returns application/zip with individual files
 	mux.HandleFunc(middleware.WithCORS("POST /export/zip",
 		exportHandler.HandleExportZipRequest, opts))
 
 	mux.HandleFunc(middleware.WithCORS("OPTIONS /export",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}, opts))
+	mux.HandleFunc(middleware.WithCORS("OPTIONS /export/zip",
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}, opts))

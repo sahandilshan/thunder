@@ -16,8 +16,8 @@
  * under the License.
  */
 
-import React, {type JSX, ReactNode} from 'react';
 import DocusaurusCodeBlock from '@theme/CodeBlock';
+import React, {type JSX, ReactNode} from 'react';
 
 interface CodeBlockProps {
   /**
@@ -49,7 +49,7 @@ interface CodeBlockProps {
  * @example
  * ```tsx
  * <CodeBlock lang="bash" label="npm">
- *   npm install @asgardeo/react
+ *   npm install @example/react
  * </CodeBlock>
  * ```
  */

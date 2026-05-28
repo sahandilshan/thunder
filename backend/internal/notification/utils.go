@@ -26,9 +26,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 var matchString = regexp.MatchString
@@ -60,7 +61,10 @@ func validateMessageNotificationSender(sender common.NotificationSenderDTO) *ser
 
 	if err := validateMessageNotificationSenderProperties(sender); err != nil {
 		svcErr := ErrorInvalidRequestFormat
-		svcErr.ErrorDescription = err.Error()
+		svcErr.ErrorDescription = core.I18nMessage{
+			Key:          "error.notificationservice.sender_property_validation_failed_description",
+			DefaultValue: err.Error(),
+		}
 		return &svcErr
 	}
 

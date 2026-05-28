@@ -16,18 +16,18 @@
  * under the License.
  */
 
-// Package observability provides observability capabilities for Thunder including
+// Package observability provides observability capabilities for the server including
 // event logging and distributed tracing.
 package observability
 
 import (
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/observability/event"
-	"github.com/asgardeo/thunder/internal/system/observability/publisher"
-	"github.com/asgardeo/thunder/internal/system/observability/subscriber"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/observability/event"
+	"github.com/thunder-id/thunderid/internal/system/observability/publisher"
+	"github.com/thunder-id/thunderid/internal/system/observability/subscriber"
 )
 
 const loggerComponentName = "ObservabilityService"
@@ -59,7 +59,7 @@ func newServiceWithConfig() *Service {
 	// Check if observability is disabled
 
 	logger.Debug("Initializing observability service")
-	config := config.GetThunderRuntime().Config.Observability
+	config := config.GetServerRuntime().Config.Observability
 	if !config.Enabled {
 		logger.Debug("Observability is disabled in configuration")
 		return &Service{

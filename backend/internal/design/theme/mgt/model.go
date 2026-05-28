@@ -86,6 +86,15 @@ type CreateThemeRequest struct {
 	Theme       json.RawMessage `json:"theme"`
 }
 
+// CreateThemeRequestWithID represents the service-level request for creating a theme, including an optional ID.
+type CreateThemeRequestWithID struct {
+	ID          string          `json:"id,omitempty" yaml:"id,omitempty"`
+	Handle      string          `json:"handle"`
+	DisplayName string          `json:"displayName"`
+	Description string          `json:"description"`
+	Theme       json.RawMessage `json:"theme"`
+}
+
 // UpdateThemeRequest represents the request body for updating a theme configuration.
 type UpdateThemeRequest struct {
 	Handle      string          `json:"handle"`

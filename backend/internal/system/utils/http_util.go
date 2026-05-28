@@ -25,13 +25,14 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"unicode"
 
-	"github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // WriteJSONError writes a JSON error response with the given details.
@@ -65,6 +66,167 @@ func ParseURL(urlStr string) (*url.URL, error) {
 		return nil, err
 	}
 	return parsedURL, nil
+}
+
+// MatchURIPattern reports whether incoming matches pattern.
+// In the path component, * matches exactly one segment and ** matches zero or more segments.
+// In the host component, * matches one or more alphanumeric characters within a single
+// DNS label and does not cross label boundaries. Scheme and host comparison is
+// case-insensitive; query must match exactly. Paths are cleaned (resolving . and ..
+// segments) before matching to prevent path traversal. Returns (false, error) for malformed
+// inputs, (false, nil) for no match, (true, nil) for a match.
+func MatchURIPattern(pattern, incoming string) (bool, error) {
+	patternURL, err := url.Parse(pattern)
+	if err != nil || patternURL.Scheme == "" || patternURL.Host == "" {
+		return false, errors.New("invalid pattern URI: missing scheme or host")
+	}
+	incomingURL, err := url.Parse(incoming)
+	if err != nil || incomingURL.Scheme == "" || incomingURL.Host == "" {
+		return false, errors.New("invalid incoming URI: missing scheme or host")
+	}
+
+	if !strings.EqualFold(patternURL.Scheme, incomingURL.Scheme) {
+		return false, nil
+	}
+	if !matchHostPattern(patternURL.Host, incomingURL.Host) {
+		return false, nil
+	}
+	if patternURL.RawQuery != incomingURL.RawQuery {
+		return false, nil
+	}
+	if patternURL.Fragment != "" || incomingURL.Fragment != "" {
+		return false, nil
+	}
+	return matchPathPattern(path.Clean(patternURL.Path), path.Clean(incomingURL.Path)), nil
+}
+
+// matchHostPattern matches incoming host against pattern host. * in the pattern matches
+// one or more alphanumeric characters within a single DNS label. Comparison is
+// case-insensitive. When the pattern contains no *, this is equivalent to strings.EqualFold.
+func matchHostPattern(pattern, incoming string) bool {
+	if !strings.ContainsRune(pattern, '*') {
+		return strings.EqualFold(pattern, incoming)
+	}
+	pattern = strings.ToLower(pattern)
+	incoming = strings.ToLower(incoming)
+	pLabels := strings.Split(pattern, ".")
+	iLabels := strings.Split(incoming, ".")
+	if len(pLabels) != len(iLabels) {
+		return false
+	}
+	for k := range pLabels {
+		if !matchHostLabel(pLabels[k], iLabels[k]) {
+			return false
+		}
+	}
+	return true
+}
+
+// matchHostLabel matches a single host label. * in the pattern matches one or more
+// alphanumeric chars (a-z, 0-9). Both inputs must already be lowercased.
+func matchHostLabel(pat, inc string) bool {
+	return matchHostLabelImpl(pat, inc, 0, 0)
+}
+
+// matchHostLabelImpl is the recursive backtracking matcher for matchHostLabel.
+// pi and ii are the current positions in pat and inc respectively. * is greedy with
+// backtracking so adjacent literals like *foo can match correctly.
+func matchHostLabelImpl(pat, inc string, pi, ii int) bool {
+	for pi < len(pat) {
+		if pat[pi] == '*' {
+			j := ii
+			for j < len(inc) && isHostAlphaNum(inc[j]) {
+				j++
+			}
+			// * must consume at least one character; try the longest match first then backtrack.
+			for k := j; k > ii; k-- {
+				if matchHostLabelImpl(pat, inc, pi+1, k) {
+					return true
+				}
+			}
+			return false
+		}
+		if ii >= len(inc) || pat[pi] != inc[ii] {
+			return false
+		}
+		pi++
+		ii++
+	}
+	return ii == len(inc)
+}
+
+// isHostAlphaNum reports whether the byte is a lowercase letter or a digit.
+// The host matcher lowercases its inputs before comparing, so this is the full
+// character class consumed by * within a host label.
+func isHostAlphaNum(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z')
+}
+
+// matchPathPattern reports whether incomingPath matches patternPath.
+// Wildcards * (one segment) and ** (zero or more segments) are supported in patternPath.
+func matchPathPattern(patternPath, incomingPath string) bool {
+	patSegs := strings.Split(patternPath, "/")
+	incSegs := strings.Split(incomingPath, "/")
+	memo := make(map[[2]int]bool)
+	return matchSegs(patSegs, incSegs, 0, 0, memo)
+}
+
+// matchSegs is a memoized entry point for the recursive segment matching.
+func matchSegs(patSegs, incSegs []string, i, j int, memo map[[2]int]bool) bool {
+	key := [2]int{i, j}
+	if cached, ok := memo[key]; ok {
+		return cached
+	}
+	result := matchSegsImpl(patSegs, incSegs, i, j, memo)
+	memo[key] = result
+	return result
+}
+
+// matchSegsImpl performs the actual recursive segment matching logic.
+func matchSegsImpl(patSegs, incSegs []string, i, j int, memo map[[2]int]bool) bool {
+	// Both exhausted.
+	if i == len(patSegs) && j == len(incSegs) {
+		return true
+	}
+	// Pattern exhausted but incoming still has segments.
+	if i == len(patSegs) {
+		return false
+	}
+	// Incoming exhausted but pattern still has segments:
+	// only true if all remaining pattern segments are "**".
+	if j == len(incSegs) {
+		for k := i; k < len(patSegs); k++ {
+			if patSegs[k] != "**" {
+				return false
+			}
+		}
+		return true
+	}
+
+	pSeg := patSegs[i]
+
+	if pSeg == "**" {
+		// Try consuming zero incoming segments (advance pattern only).
+		if matchSegs(patSegs, incSegs, i+1, j, memo) {
+			return true
+		}
+		// Try consuming one incoming segment (keep pattern position).
+		return matchSegs(patSegs, incSegs, i, j+1, memo)
+	}
+
+	if pSeg == "*" {
+		// Must match exactly one non-empty segment.
+		if incSegs[j] == "" {
+			return false
+		}
+		return matchSegs(patSegs, incSegs, i+1, j+1, memo)
+	}
+
+	// Literal segment: must match exactly.
+	if pSeg != incSegs[j] {
+		return false
+	}
+	return matchSegs(patSegs, incSegs, i+1, j+1, memo)
 }
 
 // IsValidURI checks if the provided URI is valid.
@@ -227,7 +389,15 @@ func WriteSuccessResponse(w http.ResponseWriter, statusCode int, data interface{
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(data); err != nil {
 		logger.Error("Failed to encode response", log.Error(err))
-		http.Error(w, serviceerror.ErrorEncodingError, http.StatusInternalServerError)
+		errResp := apierror.ErrorResponse{
+			Code:        serviceerror.ErrorEncodingError.Code,
+			Message:     serviceerror.ErrorEncodingError.Error,
+			Description: serviceerror.ErrorEncodingError.ErrorDescription,
+		}
+		b, _ := json.Marshal(errResp)
+		w.Header().Set(constants.ContentTypeHeaderName, constants.ContentTypeJSON)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(b)
 		return
 	}
 
@@ -237,33 +407,22 @@ func WriteSuccessResponse(w http.ResponseWriter, statusCode int, data interface{
 	_, _ = w.Write(buf.Bytes())
 }
 
-// WriteErrorResponse writes a JSON error response with the given status code and error details.
+// WriteErrorResponse writes a JSON i18n error response with the given status code and error details.
 func WriteErrorResponse(w http.ResponseWriter, statusCode int, errorResp apierror.ErrorResponse) {
-	logger := log.GetLogger()
-
-	// Encode to buffer first to ensure encoding succeeds before sending headers
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(errorResp); err != nil {
-		logger.Error("Failed to encode error response", log.Error(err))
-		http.Error(w, serviceerror.ErrorEncodingError, http.StatusInternalServerError)
-		return
-	}
-
-	// Encoding succeeded, now safe to send headers and write response
-	w.Header().Set(constants.ContentTypeHeaderName, constants.ContentTypeJSON)
-	w.WriteHeader(statusCode)
-	_, _ = w.Write(buf.Bytes())
-}
-
-// WriteI18nErrorResponse writes a JSON i18n error response with the given status code and error details.
-// This function should be used for services that have been migrated to use I18nErrorResponse.
-func WriteI18nErrorResponse(w http.ResponseWriter, statusCode int, errorResp apierror.I18nErrorResponse) {
 	logger := log.GetLogger()
 	w.Header().Set(constants.ContentTypeHeaderName, constants.ContentTypeJSON)
 	w.WriteHeader(statusCode)
 
 	if err := json.NewEncoder(w).Encode(errorResp); err != nil {
 		logger.Error("Failed to encode i18n error response", log.Error(err))
-		http.Error(w, serviceerror.ErrorEncodingError, http.StatusInternalServerError)
+		errResp := apierror.ErrorResponse{
+			Code:        serviceerror.ErrorEncodingError.Code,
+			Message:     serviceerror.ErrorEncodingError.Error,
+			Description: serviceerror.ErrorEncodingError.ErrorDescription,
+		}
+		b, _ := json.Marshal(errResp)
+		w.Header().Set(constants.ContentTypeHeaderName, constants.ContentTypeJSON)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(b)
 	}
 }

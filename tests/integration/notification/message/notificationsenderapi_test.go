@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -406,9 +406,9 @@ func (ts *NotificationSenderAPITestSuite) TestNotificationSenderCreateDuplicate(
 
 	// Verify the error response
 	var errorResponse struct {
-		Code        string `json:"code"`
-		Message     string `json:"message"`
-		Description string `json:"description"`
+		Code        string                `json:"code"`
+		Message     testutils.I18nMessage `json:"message"`
+		Description testutils.I18nMessage `json:"description"`
 	}
 
 	err = json.NewDecoder(resp.Body).Decode(&errorResponse)
@@ -417,7 +417,7 @@ func (ts *NotificationSenderAPITestSuite) TestNotificationSenderCreateDuplicate(
 	}
 
 	ts.T().Logf("Error response: %+v", errorResponse)
-	ts.Assert().Contains(errorResponse.Description, "already exists",
+	ts.Assert().Contains(errorResponse.Description.DefaultValue, "already exists",
 		"Error description should mention that the name already exists")
 }
 

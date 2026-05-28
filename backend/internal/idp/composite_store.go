@@ -22,8 +22,8 @@ import (
 	"context"
 	"errors"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 )
 
 var (
@@ -120,6 +120,33 @@ func (c *compositeIDPStore) GetIdentityProviderByName(ctx context.Context, idpNa
 		func() (*IDPDTO, error) { return c.fileStore.GetIdentityProviderByName(ctx, idpName) },
 		ErrIDPNotFound,
 	)
+}
+
+// GetIdentityProvidersByProperty retrieves identity providers matching a property from both stores.
+func (c *compositeIDPStore) GetIdentityProvidersByProperty(ctx context.Context,
+	propertyKey, propertyValue string) ([]IDPDTO, error) {
+	var allIDPs []IDPDTO
+
+	dbIDPs, err := c.dbStore.GetIdentityProvidersByProperty(ctx, propertyKey, propertyValue)
+	if err != nil && !errors.Is(err, ErrIDPNotFound) {
+		return nil, err
+	}
+	if dbIDPs != nil {
+		allIDPs = append(allIDPs, dbIDPs...)
+	}
+
+	fileIDPs, err := c.fileStore.GetIdentityProvidersByProperty(ctx, propertyKey, propertyValue)
+	if err != nil && !errors.Is(err, ErrIDPNotFound) {
+		return nil, err
+	}
+	if fileIDPs != nil {
+		allIDPs = append(allIDPs, fileIDPs...)
+	}
+
+	if len(allIDPs) == 0 {
+		return nil, ErrIDPNotFound
+	}
+	return allIDPs, nil
 }
 
 // UpdateIdentityProvider updates an identity provider in the database store only.

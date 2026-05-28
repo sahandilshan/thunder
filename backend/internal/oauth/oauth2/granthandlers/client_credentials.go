@@ -20,30 +20,50 @@ package granthandlers
 
 import (
 	"context"
+	"slices"
 
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/tokenservice"
+	"github.com/thunder-id/thunderid/internal/authz"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/resourceindicators"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
+	"github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // clientCredentialsGrantHandler handles the client credentials grant type.
 type clientCredentialsGrantHandler struct {
-	tokenBuilder tokenservice.TokenBuilderInterface
+	tokenBuilder    tokenservice.TokenBuilderInterface
+	ouService       ou.OrganizationUnitServiceInterface
+	authzService    authz.AuthorizationServiceInterface
+	entityProv      entityprovider.EntityProviderInterface
+	resourceService resource.ResourceServiceInterface
 }
 
 // newClientCredentialsGrantHandler creates a new instance of ClientCredentialsGrantHandler.
 func newClientCredentialsGrantHandler(
 	tokenBuilder tokenservice.TokenBuilderInterface,
+	ouService ou.OrganizationUnitServiceInterface,
+	authzService authz.AuthorizationServiceInterface,
+	entityProv entityprovider.EntityProviderInterface,
+	resourceService resource.ResourceServiceInterface,
 ) GrantHandlerInterface {
 	return &clientCredentialsGrantHandler{
-		tokenBuilder: tokenBuilder,
+		tokenBuilder:    tokenBuilder,
+		ouService:       ouService,
+		authzService:    authzService,
+		entityProv:      entityProv,
+		resourceService: resourceService,
 	}
 }
 
 // ValidateGrant validates the client credentials grant type.
 func (h *clientCredentialsGrantHandler) ValidateGrant(ctx context.Context, tokenRequest *model.TokenRequest,
-	oauthApp *appmodel.OAuthAppConfigProcessedDTO) *model.ErrorResponse {
+	oauthApp *inboundmodel.OAuthClient) *model.ErrorResponse {
 	if constants.GrantType(tokenRequest.GrantType) != constants.GrantTypeClientCredentials {
 		return &model.ErrorResponse{
 			Error:            constants.ErrorUnsupportedGrantType,
@@ -51,25 +71,107 @@ func (h *clientCredentialsGrantHandler) ValidateGrant(ctx context.Context, token
 		}
 	}
 
+	if errResp := resourceindicators.ValidateResourceURIs(tokenRequest.Resources); errResp != nil {
+		return errResp
+	}
+
 	return nil
 }
 
 // HandleGrant handles the client credentials grant type.
 func (h *clientCredentialsGrantHandler) HandleGrant(ctx context.Context, tokenRequest *model.TokenRequest,
-	oauthApp *appmodel.OAuthAppConfigProcessedDTO) (
+	oauthApp *inboundmodel.OAuthClient) (
 	*model.TokenResponseDTO, *model.ErrorResponse) {
-	scopes := tokenservice.ParseScopes(tokenRequest.Scope)
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ClientCredentialsGrantHandler"))
 
-	finalAudience := tokenservice.DetermineAudience("", tokenRequest.Resource, "", tokenRequest.ClientID)
+	scopes := tokenservice.ParseScopes(tokenRequest.Scope)
+	hasResourceParam := len(tokenRequest.Resources) > 0
+
+	// Resolve each requested resource identifier to an internal Resource Server.
+	// Unknown identifiers cause a 400 invalid_target.
+	resolvedRSes, errResp := resourceindicators.ResolveResourceServers(ctx, h.resourceService, tokenRequest.Resources)
+	if errResp != nil {
+		return nil, errResp
+	}
+
+	// Per-RS valid scopes (intersection of requested scopes with the RS's defined permissions).
+	// Scopes not defined on any requested RS are silently dropped.
+	rsValidScopes, errResp := resourceindicators.ComputeRSValidScopes(ctx, h.resourceService, resolvedRSes, scopes)
+	if errResp != nil {
+		return nil, errResp
+	}
+
+	if hasResourceParam {
+		scopes = resourceindicators.UnionScopes(rsValidScopes)
+	}
+
+	if len(scopes) > 0 {
+		var groupIDs []string
+		if h.entityProv != nil {
+			groups, groupErr := h.entityProv.GetTransitiveEntityGroups(oauthApp.ID)
+			if groupErr != nil {
+				// Ignore unimplemented providers to preserve existing behavior.
+				if groupErr.Code != entityprovider.ErrorCodeNotImplemented {
+					logger.Error("Failed to resolve app group memberships",
+						log.String("appID", oauthApp.ID), log.String("error", groupErr.Error()))
+					return nil, &model.ErrorResponse{
+						Error:            constants.ErrorServerError,
+						ErrorDescription: "Failed to generate token",
+					}
+				}
+			} else {
+				for _, group := range groups {
+					if group.ID != "" && !slices.Contains(groupIDs, group.ID) {
+						groupIDs = append(groupIDs, group.ID)
+					}
+				}
+			}
+		}
+
+		authzResp, svcErr := h.authzService.GetAuthorizedPermissions(ctx, authz.GetAuthorizedPermissionsRequest{
+			EntityID:             oauthApp.ID,
+			GroupIDs:             groupIDs,
+			RequestedPermissions: scopes,
+		})
+		if svcErr != nil {
+			logger.Error("Failed to get authorized permissions for app",
+				log.String("appID", oauthApp.ID), log.String("error", svcErr.Error.DefaultValue))
+			return nil, &model.ErrorResponse{
+				Error:            constants.ErrorServerError,
+				ErrorDescription: "Failed to generate token",
+			}
+		}
+
+		scopes = authzResp.AuthorizedPermissions
+	}
+
+	// aud is composed by resourceindicators.ComposeAudiences: RS identifiers when any RS contributes
+	// (explicit resource params or implicit discovery via granted scopes), else clientID fallback.
+	audiences, errResp := resourceindicators.ComposeAudiences(ctx, h.resourceService, tokenRequest.ClientID,
+		resolvedRSes, scopes)
+	if errResp != nil {
+		return nil, errResp
+	}
+
+	clientAttributes, clientAttrErr := tokenservice.BuildClientAttributes(ctx, oauthApp, h.ouService)
+	if clientAttrErr != nil {
+		return nil, &model.ErrorResponse{
+			Error:            constants.ErrorServerError,
+			ErrorDescription: "Failed to generate token",
+		}
+	}
 
 	accessToken, err := h.tokenBuilder.BuildAccessToken(&tokenservice.AccessTokenBuildContext{
-		Subject:        tokenRequest.ClientID,
-		Audience:       finalAudience,
-		ClientID:       tokenRequest.ClientID,
-		Scopes:         scopes,
-		UserAttributes: make(map[string]interface{}),
-		GrantType:      string(constants.GrantTypeClientCredentials),
-		OAuthApp:       oauthApp,
+		Context:          ctx,
+		Subject:          tokenRequest.ClientID,
+		Audiences:        audiences,
+		ClientID:         tokenRequest.ClientID,
+		Scopes:           scopes,
+		UserAttributes:   make(map[string]interface{}),
+		GrantType:        string(constants.GrantTypeClientCredentials),
+		OAuthApp:         oauthApp,
+		ClientAttributes: clientAttributes,
+		DPoPJkt:          dpop.GetJkt(ctx),
 	})
 	if err != nil {
 		return nil, &model.ErrorResponse{

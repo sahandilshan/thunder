@@ -18,7 +18,7 @@
 
 package model
 
-import "github.com/asgardeo/thunder/internal/system/utils"
+import "github.com/thunder-id/thunderid/internal/system/utils"
 
 // OAuthParameters represents the parameters required for OAuth2 authorization.
 type OAuthParameters struct {
@@ -30,10 +30,12 @@ type OAuthParameters struct {
 	PermissionScopes    []string
 	CodeChallenge       string
 	CodeChallengeMethod string
-	Resource            string
+	Resources           []string
 	ClaimsRequest       *ClaimsRequest
 	ClaimsLocales       string
 	Nonce               string
+	AcrValues           string
+	DPoPJkt             string
 }
 
 // ClaimsRequest represents the OIDC claims request parameter structure.

@@ -21,8 +21,8 @@ package attributecache
 import (
 	"errors"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
 )
 
 // Store-level errors.
@@ -34,7 +34,7 @@ var (
 // Client-facing service errors.
 var (
 	// ErrorInvalidRequestFormat is returned when the request format is invalid.
-	ErrorInvalidRequestFormat = serviceerror.I18nServiceError{
+	ErrorInvalidRequestFormat = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "ACS-1001",
 		Error: core.I18nMessage{
@@ -48,7 +48,7 @@ var (
 	}
 
 	// ErrorMissingCacheID is returned when cache ID is missing.
-	ErrorMissingCacheID = serviceerror.I18nServiceError{
+	ErrorMissingCacheID = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "ACS-1002",
 		Error: core.I18nMessage{
@@ -62,7 +62,7 @@ var (
 	}
 
 	// ErrorAttributeCacheNotFound is returned when an attribute cache entry is not found.
-	ErrorAttributeCacheNotFound = serviceerror.I18nServiceError{
+	ErrorAttributeCacheNotFound = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "ACS-1003",
 		Error: core.I18nMessage{
@@ -76,7 +76,7 @@ var (
 	}
 
 	// ErrorMissingAttributes is returned when attributes are missing.
-	ErrorMissingAttributes = serviceerror.I18nServiceError{
+	ErrorMissingAttributes = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "ACS-1004",
 		Error: core.I18nMessage{
@@ -90,7 +90,7 @@ var (
 	}
 
 	// ErrorInvalidExpiryTime is returned when expiry time is invalid.
-	ErrorInvalidExpiryTime = serviceerror.I18nServiceError{
+	ErrorInvalidExpiryTime = serviceerror.ServiceError{
 		Type: serviceerror.ClientErrorType,
 		Code: "ACS-1005",
 		Error: core.I18nMessage{
@@ -100,20 +100,6 @@ var (
 		ErrorDescription: core.I18nMessage{
 			Key:          "error.attributecache.invalid_expiry_time_description",
 			DefaultValue: "Expiry time must be in the future",
-		},
-	}
-
-	// ErrorInternalServerError is returned for internal server errors.
-	ErrorInternalServerError = serviceerror.I18nServiceError{
-		Type: serviceerror.ServerErrorType,
-		Code: "ACS-2001",
-		Error: core.I18nMessage{
-			Key:          "error.attributecache.internal_server_error",
-			DefaultValue: "Internal server error",
-		},
-		ErrorDescription: core.I18nMessage{
-			Key:          "error.attributecache.internal_server_error_description",
-			DefaultValue: "An unexpected error occurred",
 		},
 	}
 )

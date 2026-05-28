@@ -21,7 +21,7 @@ package template
 import (
 	"fmt"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
 
 	"gopkg.in/yaml.v3"
 )
@@ -71,7 +71,7 @@ func validateTemplateDTO(dto interface{}) error {
 	if !IsValidScenario(tmpl.Scenario) {
 		return fmt.Errorf("unsupported template scenario: %s", tmpl.Scenario)
 	}
-	if tmpl.Subject == "" {
+	if tmpl.Type != TemplateTypeSMS && tmpl.Subject == "" {
 		return fmt.Errorf("template subject is required")
 	}
 	if tmpl.Body == "" {

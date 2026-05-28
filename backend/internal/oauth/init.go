@@ -22,35 +22,57 @@ package oauth
 import (
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/application"
-	"github.com/asgardeo/thunder/internal/attributecache"
-	"github.com/asgardeo/thunder/internal/flow/flowexec"
-	"github.com/asgardeo/thunder/internal/oauth/jwks"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/dcr"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/discovery"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/granthandlers"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/introspect"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/token"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/tokenservice"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/userinfo"
-	"github.com/asgardeo/thunder/internal/oauth/scope"
-	"github.com/asgardeo/thunder/internal/ou"
-	"github.com/asgardeo/thunder/internal/system/crypto/pki"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/observability"
+	"github.com/thunder-id/thunderid/internal/application"
+	"github.com/thunder-id/thunderid/internal/attributecache"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/authz"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/flow/flowexec"
+	"github.com/thunder-id/thunderid/internal/idp"
+	"github.com/thunder-id/thunderid/internal/inboundclient"
+	"github.com/thunder-id/thunderid/internal/oauth/jwks"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dcr"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/discovery"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/granthandlers"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/introspect"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/jti"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/jwksresolver"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/par"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/token"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/userinfo"
+	"github.com/thunder-id/thunderid/internal/oauth/scope"
+	"github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	syshttp "github.com/thunder-id/thunderid/internal/system/http"
+	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwe"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	kmprovider "github.com/thunder-id/thunderid/internal/system/kmprovider/common"
+	"github.com/thunder-id/thunderid/internal/system/observability"
 )
 
 // Initialize initializes all OAuth-related services and registers their routes.
 func Initialize(
 	mux *http.ServeMux,
 	applicationService application.ApplicationServiceInterface,
+	inboundClient inboundclient.InboundClientServiceInterface,
+	authnProvider authnprovidermgr.AuthnProviderManagerInterface,
 	jwtService jwt.JWTServiceInterface,
+	jweService jwe.JWEServiceInterface,
 	flowExecService flowexec.FlowExecServiceInterface,
 	observabilitySvc observability.ObservabilityServiceInterface,
-	pkiService pki.PKIServiceInterface,
+	runtimeCrypto kmprovider.RuntimeCryptoProvider,
 	ouService ou.OrganizationUnitServiceInterface,
 	attributeCacheSvc attributecache.AttributeCacheServiceInterface,
+	authzService authz.AuthorizationServiceInterface,
+	entityProvider entityprovider.EntityProviderInterface,
+	resourceService resource.ResourceServiceInterface,
+	i18nService i18nmgt.I18nServiceInterface,
+	idpService idp.IDPServiceInterface,
 ) error {
 	// Fetch runtime transactioner for OAuth services.
 	transactioner, err := provider.GetDBProvider().GetRuntimeDBTransactioner()
@@ -58,21 +80,30 @@ func Initialize(
 		return err
 	}
 
-	jwks.Initialize(mux, pkiService)
-	tokenBuilder, tokenValidator := tokenservice.Initialize(jwtService)
+	jwks.Initialize(mux, runtimeCrypto)
+	httpClient := syshttp.NewHTTPClientWithCheckRedirect(func(req *http.Request, _ []*http.Request) error {
+		return syshttp.IsSSRFSafeURL(req.URL.String())
+	})
+	resolver := jwksresolver.Initialize(httpClient)
+	tokenBuilder, tokenValidator := tokenservice.Initialize(jwtService, jweService, resolver, idpService)
+	scopeValidator := scope.Initialize()
+	discoveryService := discovery.Initialize(mux, runtimeCrypto)
+	jtiStore := jti.Initialize(config.GetServerRuntime().Config.Server.Identifier)
+	dpopVerifier := dpop.Initialize(jtiStore)
+	parService := par.Initialize(mux, inboundClient, authnProvider, jwtService, discoveryService,
+		resourceService, dpopVerifier)
 	grantHandlerProvider, err := granthandlers.Initialize(
-		mux, jwtService, applicationService, flowExecService, tokenBuilder, tokenValidator,
-		attributeCacheSvc)
+		mux, jwtService, inboundClient, flowExecService, tokenBuilder, tokenValidator,
+		attributeCacheSvc, ouService, authzService, entityProvider, resourceService, parService)
 	if err != nil {
 		return err
 	}
-	scopeValidator := scope.Initialize()
-	discoveryService := discovery.Initialize(mux)
-	token.Initialize(mux, jwtService, applicationService, grantHandlerProvider,
-		scopeValidator, observabilitySvc, discoveryService, transactioner)
-	introspect.Initialize(mux, jwtService, applicationService, discoveryService)
-	userinfo.Initialize(mux, jwtService, tokenValidator, applicationService, ouService, attributeCacheSvc,
-		transactioner)
-	dcr.Initialize(mux, applicationService, transactioner)
+	token.Initialize(mux, jwtService, inboundClient, authnProvider, grantHandlerProvider,
+		scopeValidator, observabilitySvc, discoveryService, transactioner, dpopVerifier)
+	introspect.Initialize(mux, jwtService, inboundClient, authnProvider, discoveryService)
+	userinfo.Initialize(mux, jwtService, jweService, resolver,
+		tokenValidator, inboundClient, ouService, attributeCacheSvc, transactioner,
+		discoveryService, dpopVerifier)
+	dcr.Initialize(mux, applicationService, ouService, i18nService, transactioner)
 	return nil
 }

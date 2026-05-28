@@ -1,7 +1,7 @@
 {
-  "name": "e2e-tests-thunder",
+  "name": "@thunderid/e2e",
   "version": "1.0.0",
-  "description": "End-to-end tests for WSO2 Thunder using Playwright",
+  "description": "End-to-end tests for ThunderID using Playwright",
   "main": "index.js",
   "scripts": {
     "pretest": "npm run clean-reports",
@@ -30,7 +30,7 @@
     "playwright",
     "automation",
     "wso2",
-    "thunder"
+    "thunderid"
   ],
   "author": "WSO2 LLC",
   "license": "Apache-2.0",
@@ -44,7 +44,7 @@
     "@typescript-eslint/parser": "8.57.2",
     "eslint": "9.0.0",
     "eslint-plugin-playwright": "2.1.0",
-    "express": "^5.2.1",
+    "express": "5.2.1",
     "prettier": "3.4.2",
     "typescript": "5.7.3"
   },
@@ -52,6 +52,7 @@
     "dotenv": "17.2.3"
   },
   "overrides": {
-    "flatted": ">=3.4.2"
+    "flatted": ">=3.4.2",
+    "path-to-regexp": ">=8.4.0"
   }
 }

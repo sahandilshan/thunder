@@ -21,10 +21,10 @@ package flowexec
 import (
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // FlowExecutionHandler handles flow execution requests.
@@ -50,14 +50,15 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 
 	// Sanitize the input to prevent injection attacks
 	appID := sysutils.SanitizeString(flowR.ApplicationID)
-	flowID := sysutils.SanitizeString(flowR.FlowID)
+	executionID := sysutils.SanitizeString(flowR.ExecutionID)
 	flowTypeStr := sysutils.SanitizeString(flowR.FlowType)
 	verbose := flowR.Verbose
 	action := sysutils.SanitizeString(flowR.Action)
 	inputs := sysutils.SanitizeStringMap(flowR.Inputs)
+	challengeToken := sysutils.SanitizeString(flowR.ChallengeToken)
 
 	flowStep, flowErr := h.flowExecService.Execute(
-		r.Context(), appID, flowID, flowTypeStr, verbose, action, inputs)
+		r.Context(), appID, executionID, flowTypeStr, verbose, action, inputs, challengeToken)
 
 	if flowErr != nil {
 		handleFlowError(w, flowErr)
@@ -65,18 +66,20 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 	}
 
 	flowResp := FlowResponse{
-		FlowID:        flowStep.FlowID,
-		StepID:        flowStep.StepID,
-		FlowStatus:    string(flowStep.Status),
-		Type:          string(flowStep.Type),
-		Data:          flowStep.Data,
-		Assertion:     flowStep.Assertion,
-		FailureReason: flowStep.FailureReason,
+		ExecutionID:    flowStep.ExecutionID,
+		StepID:         flowStep.StepID,
+		FlowStatus:     string(flowStep.Status),
+		Type:           string(flowStep.Type),
+		Data:           flowStep.Data,
+		Assertion:      flowStep.Assertion,
+		FailureReason:  flowStep.FailureReason,
+		ChallengeToken: flowStep.ChallengeToken,
 	}
 
 	sysutils.WriteSuccessResponse(w, http.StatusOK, flowResp)
 
-	logger.Debug("Flow execution request handled successfully", log.String("flowID", flowResp.FlowID))
+	logger.Debug("Flow execution request handled successfully",
+		log.String(log.LoggerKeyExecutionID, flowResp.ExecutionID))
 }
 
 // handleFlowError handles errors that occur during flow execution as an API error response.

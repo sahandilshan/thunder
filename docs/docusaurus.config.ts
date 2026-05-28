@@ -16,40 +16,86 @@
  * under the License.
  */
 
-import {themes as prismThemes} from 'prism-react-renderer';
-import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+import type {Config} from '@docusaurus/types';
+import {themes as prismThemes} from 'prism-react-renderer';
+import productConfig from './docusaurus.product.config';
+import personaPlugin from './plugins/personaPlugin';
+import rehypeProductName from './plugins/rehypeProductName';
 import webpackPlugin from './plugins/webpackPlugin';
-import thunderConfig from './docusaurus.thunder.config';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
-const baseUrl = `/${thunderConfig.documentation.deployment.production.baseUrl}/`;
+/**
+ * Recursively replaces `{{ProductName}}` and `{{productSlug}}` in every string
+ * value inside a frontmatter object so authors can use these placeholders in
+ * frontmatter fields (e.g. `title`, `description`) without hard-coding the
+ * product name or slug.
+ */
+function replaceProductNameInObject(value: unknown, productName: string, productSlug: string): unknown {
+  if (typeof value === 'string') {
+    return value.replaceAll('{{ProductName}}', productName).replaceAll('{{productSlug}}', productSlug);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceProductNameInObject(item, productName, productSlug));
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        replaceProductNameInObject(v, productName, productSlug),
+      ]),
+    );
+  }
+  return value;
+}
+
+const baseUrl =
+  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+  process.env.DOCUSAURUS_BASE_URL ||
+  (productConfig.documentation.deployment.production.baseUrl
+    ? `/${productConfig.documentation.deployment.production.baseUrl}/`
+    : '/');
+
+// eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+const siteUrl = process.env.DOCUSAURUS_URL || productConfig.documentation.deployment.production.url;
 
 const config: Config = {
-  title: thunderConfig.project.name,
-  tagline: thunderConfig.project.description,
-  favicon: 'assets/images/favicon.ico',
+  title: productConfig.project.name,
+  tagline: productConfig.project.description,
+  favicon: 'assets/images/favicon-inverted.ico',
 
-  // Prevent search engine indexing
-  // TODO: Remove this flag when the docs are ready for public access
-  // Tracker: https://github.com/asgardeo/thunder/issues/1209
-  noIndex: true,
+  noIndex: false,
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
     v4: true, // Improve compatibility with the upcoming Docusaurus v4
   },
 
-  url: thunderConfig.documentation.deployment.production.url,
-  // Since we use GitHub pages, the base URL is the repository name.
+  url: siteUrl,
   baseUrl,
+  trailingSlash: true,
 
   // GitHub pages deployment config.
-  organizationName: thunderConfig.project.source.github.owner.name, // Usually your GitHub org/user name.
-  projectName: thunderConfig.project.source.github.name, // Usually your repo name.
+  organizationName: productConfig.project.source.github.owner.name, // Usually your GitHub org/user name.
+  projectName: productConfig.project.source.github.name, // Usually your repo name.
 
-  onBrokenLinks: 'log',
+  onBrokenLinks: 'throw',
+
+  markdown: {
+    // Replace {{ProductName}} placeholders in frontmatter values at build time.
+    // This applies globally to all content (docs, pages, etc.).
+    // See: https://docusaurus.io/docs/api/docusaurus-config#markdown
+    parseFrontMatter: async (params) => {
+      const result = await params.defaultParseFrontMatter(params);
+      result.frontMatter = replaceProductNameInObject(
+        result.frontMatter,
+        productConfig.project.name,
+        productConfig.project.name.toLowerCase(),
+      ) as Record<string, unknown>;
+      return result;
+    },
+  },
 
   // Internationalization (i18n) configuration.
   // See: https://docusaurus.io/docs/i18n/introduction
@@ -63,21 +109,56 @@ const config: Config = {
         htmlLang: 'en-US',
         calendar: 'gregory',
       },
-      // Future locales can be added here. Example:
-      // 'es-ES': {
-      //   label: 'Español',
-      //   direction: 'ltr',
-      //   htmlLang: 'es-ES',
-      // },
-      // 'ja-JP': {
-      //   label: '日本語',
-      //   direction: 'ltr',
-      //   htmlLang: 'ja-JP',
-      // },
     },
   },
 
-  plugins: [webpackPlugin],
+  clientModules: [require.resolve('./src/clientModules/tabTocSync.js')],
+
+  headTags: [
+    {
+      tagName: 'link',
+      attributes: {
+        rel: 'icon',
+        href: '/assets/images/logo-mini.svg',
+        media: '(prefers-color-scheme: light)',
+        type: 'image/svg+xml',
+      },
+    },
+    {
+      tagName: 'link',
+      attributes: {
+        rel: 'icon',
+        href: '/assets/images/logo-mini-inverted.svg',
+        media: '(prefers-color-scheme: dark)',
+        type: 'image/svg+xml',
+      },
+    },
+    {
+      tagName: 'script',
+      attributes: {},
+      innerHTML: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-PTKWJGJL');`,
+    },
+    {
+      tagName: 'script',
+      attributes: {
+        src: 'https://cookie-cdn.cookiepro.com/scripttemplates/otSDKStub.js',
+        type: 'text/javascript',
+        charset: 'UTF-8',
+        'data-domain-script': '019e40cb-79a0-7395-aa5d-5d887b4b8d2d',
+      },
+    },
+    {
+      tagName: 'script',
+      attributes: {type: 'text/javascript'},
+      innerHTML: 'function OptanonWrapper() { }',
+    },
+  ],
+
+  plugins: [webpackPlugin, personaPlugin],
 
   presets: [
     [
@@ -87,7 +168,7 @@ const config: Config = {
           path: 'content',
           sidebarPath: './sidebars.ts',
           // Edit URL for the "edit this page" feature.
-          editUrl: thunderConfig.project.source.github.editUrls.content,
+          editUrl: productConfig.project.source.github.editUrls.content,
           // Versioning.
           lastVersion: 'current',
           versions: {
@@ -96,19 +177,27 @@ const config: Config = {
               path: 'next',
             },
           },
+          // Replace {{ProductName}}, {{productSlug}}, and local-URL placeholders inside code blocks at build time.
+          rehypePlugins: [
+            [
+              rehypeProductName,
+              {
+                productName: productConfig.project.name,
+                productSlug: productConfig.project.name.toLowerCase(),
+                replacements: {
+                  '{{ConsoleUrl}}': productConfig.local.consoleUrl,
+                  '{{WayFinderSampleUrl}}': productConfig.local.samples.wayfinderUrl,
+                },
+              },
+            ],
+          ],
         },
         blog: {
+          path: 'blog',
+          routeBasePath: 'blog',
           showReadingTime: true,
-          feedOptions: {
-            type: ['rss', 'atom'],
-            xslt: true,
-          },
-          // Blog edit URL.
-          editUrl: thunderConfig.project.source.github.editUrls.blog,
-          // Useful options to enforce blogging best practices
-          onInlineTags: 'warn',
-          onInlineAuthors: 'warn',
-          onUntruncatedBlogPosts: 'warn',
+          blogSidebarTitle: 'All posts',
+          blogSidebarCount: 'ALL',
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -118,12 +207,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    announcementBar: {
-      id: 'docs_wip',
-      content: '🚧 WIP: Docs are under active development and may change frequently.',
-      isCloseable: false,
-    },
-    image: 'assets/images/thunder-social-card.png',
+    image: 'assets/images/social-card.png',
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -133,9 +217,9 @@ const config: Config = {
         href: '/',
         src: '/assets/images/logo.svg',
         srcDark: '/assets/images/logo-inverted.svg',
-        alt: `${thunderConfig.project.name} Logo`,
-        height: '40px',
-        width: '101px',
+        alt: `${productConfig.project.name} Logo`,
+        height: '40',
+        width: '150',
       },
       items: [
         {
@@ -144,12 +228,6 @@ const config: Config = {
           position: 'right',
           label: 'Docs',
           className: 'navbar__link--docs',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'useCasesSidebar',
-          position: 'right',
-          label: 'Use Cases',
         },
         {
           type: 'doc',
@@ -164,28 +242,14 @@ const config: Config = {
           label: 'SDKs',
         },
         {
-          label: 'Resources',
-          type: 'dropdown',
+          to: '/blog',
+          label: 'Blog',
           position: 'right',
-          className: 'navbar__link--dropdown',
-          items: [
-            {
-              type: 'doc',
-              docId: 'releases',
-              label: 'Releases',
-              className: 'navbar-resources__releases',
-            },
-            {
-              label: 'Discussions',
-              href: thunderConfig.project.source.github.discussionsUrl,
-              className: 'navbar-resources__discussions',
-            },
-            {
-              label: 'Report an Issue',
-              href: thunderConfig.project.source.github.issuesUrl,
-              className: 'navbar-resources__issues',
-            },
-          ],
+        },
+        {
+          label: 'Releases',
+          to: productConfig.project.source.github.releasesUrl,
+          position: 'right',
         },
         {
           type: 'docSidebar',
@@ -194,47 +258,38 @@ const config: Config = {
           label: 'Community',
         },
         {
-          href: `https://github.com/${thunderConfig.project.source.github.fullName}`,
-          position: 'right',
-          className: 'navbar__github--link',
-          'aria-label': 'GitHub repository',
-        },
-        // Locale dropdown for i18n support.
-        // Will be visible when multiple locales are configured.
-        {
-          type: 'localeDropdown',
-          position: 'right',
-          dropdownItemsAfter: [
-            {
-              type: 'html',
-              value: '<hr style="margin: 0.3rem 0;">',
-            },
-            {
-              href: 'https://github.com/asgardeo/thunder/issues/1912',
-              label: '🌍 Help translate',
-            },
-          ],
-        },
-        thunderConfig.documentation.versioning.enabled && {
-          type: 'docsVersionDropdown',
+          type: 'custom-GitHubStarButton',
           position: 'right',
         },
-      ].filter(Boolean),
+        ...(productConfig.documentation.versioning.enabled
+          ? [
+              {
+                type: 'docsVersionDropdown',
+                position: 'right' as const,
+              },
+            ]
+          : []),
+      ],
     },
     footer: {
       style: 'dark',
       links: [],
-      copyright: `Copyright © ${new Date().getFullYear()} ${thunderConfig.project.name}.`,
+      copyright: `Copyright © ${new Date().getFullYear()} ${productConfig.project.name}.`,
     },
     prism: {
       theme: prismThemes.nightOwlLight,
       darkTheme: prismThemes.nightOwl,
     },
+    algolia: {
+      appId: 'I2J00F96K6',
+      apiKey: '109b36a4b48dc5da1f24d1f764e7685f',
+      indexName: 'thunderid-docs-prod',
+    },
   } satisfies Preset.ThemeConfig,
 
-  /* -------------------------------- Thunder Config ------------------------------- */
+  /* -------------------------------- Product Config ------------------------------- */
   customFields: {
-    thunder: thunderConfig,
+    product: productConfig,
   },
 };
 

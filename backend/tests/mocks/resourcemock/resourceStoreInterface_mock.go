@@ -7,8 +7,8 @@ package resourcemock
 import (
 	"context"
 
-	"github.com/asgardeo/thunder/internal/resource"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/resource"
 )
 
 // newResourceStoreInterfaceMock creates a new instance of resourceStoreInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -328,6 +328,72 @@ func (_c *resourceStoreInterfaceMock_CheckResourceHasDependencies_Call) Return(b
 }
 
 func (_c *resourceStoreInterfaceMock_CheckResourceHasDependencies_Call) RunAndReturn(run func(ctx context.Context, resID string) (bool, error)) *resourceStoreInterfaceMock_CheckResourceHasDependencies_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CheckResourceServerHandleExists provides a mock function for the type resourceStoreInterfaceMock
+func (_mock *resourceStoreInterfaceMock) CheckResourceServerHandleExists(ctx context.Context, handle string) (bool, error) {
+	ret := _mock.Called(ctx, handle)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckResourceServerHandleExists")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
+		return returnFunc(ctx, handle)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) bool); ok {
+		r0 = returnFunc(ctx, handle)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, handle)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckResourceServerHandleExists'
+type resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call struct {
+	*mock.Call
+}
+
+// CheckResourceServerHandleExists is a helper method to define mock.On call
+//   - ctx context.Context
+//   - handle string
+func (_e *resourceStoreInterfaceMock_Expecter) CheckResourceServerHandleExists(ctx interface{}, handle interface{}) *resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call {
+	return &resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call{Call: _e.mock.On("CheckResourceServerHandleExists", ctx, handle)}
+}
+
+func (_c *resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call) Run(run func(ctx context.Context, handle string)) *resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call) Return(b bool, err error) *resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call) RunAndReturn(run func(ctx context.Context, handle string) (bool, error)) *resourceStoreInterfaceMock_CheckResourceServerHandleExists_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -928,6 +994,74 @@ func (_c *resourceStoreInterfaceMock_DeleteResourceServer_Call) Return(err error
 }
 
 func (_c *resourceStoreInterfaceMock_DeleteResourceServer_Call) RunAndReturn(run func(ctx context.Context, id string) error) *resourceStoreInterfaceMock_DeleteResourceServer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// FindResourceServersByPermissions provides a mock function for the type resourceStoreInterfaceMock
+func (_mock *resourceStoreInterfaceMock) FindResourceServersByPermissions(ctx context.Context, permissions []string) ([]resource.ResourceServer, error) {
+	ret := _mock.Called(ctx, permissions)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindResourceServersByPermissions")
+	}
+
+	var r0 []resource.ResourceServer
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []string) ([]resource.ResourceServer, error)); ok {
+		return returnFunc(ctx, permissions)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []string) []resource.ResourceServer); ok {
+		r0 = returnFunc(ctx, permissions)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]resource.ResourceServer)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []string) error); ok {
+		r1 = returnFunc(ctx, permissions)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// resourceStoreInterfaceMock_FindResourceServersByPermissions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindResourceServersByPermissions'
+type resourceStoreInterfaceMock_FindResourceServersByPermissions_Call struct {
+	*mock.Call
+}
+
+// FindResourceServersByPermissions is a helper method to define mock.On call
+//   - ctx context.Context
+//   - permissions []string
+func (_e *resourceStoreInterfaceMock_Expecter) FindResourceServersByPermissions(ctx interface{}, permissions interface{}) *resourceStoreInterfaceMock_FindResourceServersByPermissions_Call {
+	return &resourceStoreInterfaceMock_FindResourceServersByPermissions_Call{Call: _e.mock.On("FindResourceServersByPermissions", ctx, permissions)}
+}
+
+func (_c *resourceStoreInterfaceMock_FindResourceServersByPermissions_Call) Run(run func(ctx context.Context, permissions []string)) *resourceStoreInterfaceMock_FindResourceServersByPermissions_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []string
+		if args[1] != nil {
+			arg1 = args[1].([]string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_FindResourceServersByPermissions_Call) Return(resourceServers []resource.ResourceServer, err error) *resourceStoreInterfaceMock_FindResourceServersByPermissions_Call {
+	_c.Call.Return(resourceServers, err)
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_FindResourceServersByPermissions_Call) RunAndReturn(run func(ctx context.Context, permissions []string) ([]resource.ResourceServer, error)) *resourceStoreInterfaceMock_FindResourceServersByPermissions_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1610,6 +1744,72 @@ func (_c *resourceStoreInterfaceMock_GetResourceServer_Call) RunAndReturn(run fu
 	return _c
 }
 
+// GetResourceServerByIdentifier provides a mock function for the type resourceStoreInterfaceMock
+func (_mock *resourceStoreInterfaceMock) GetResourceServerByIdentifier(ctx context.Context, identifier string) (resource.ResourceServer, error) {
+	ret := _mock.Called(ctx, identifier)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetResourceServerByIdentifier")
+	}
+
+	var r0 resource.ResourceServer
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (resource.ResourceServer, error)); ok {
+		return returnFunc(ctx, identifier)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) resource.ResourceServer); ok {
+		r0 = returnFunc(ctx, identifier)
+	} else {
+		r0 = ret.Get(0).(resource.ResourceServer)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, identifier)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetResourceServerByIdentifier'
+type resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call struct {
+	*mock.Call
+}
+
+// GetResourceServerByIdentifier is a helper method to define mock.On call
+//   - ctx context.Context
+//   - identifier string
+func (_e *resourceStoreInterfaceMock_Expecter) GetResourceServerByIdentifier(ctx interface{}, identifier interface{}) *resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call {
+	return &resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call{Call: _e.mock.On("GetResourceServerByIdentifier", ctx, identifier)}
+}
+
+func (_c *resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call) Run(run func(ctx context.Context, identifier string)) *resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call) Return(resourceServer resource.ResourceServer, err error) *resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call {
+	_c.Call.Return(resourceServer, err)
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call) RunAndReturn(run func(ctx context.Context, identifier string) (resource.ResourceServer, error)) *resourceStoreInterfaceMock_GetResourceServerByIdentifier_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetResourceServerList provides a mock function for the type resourceStoreInterfaceMock
 func (_mock *resourceStoreInterfaceMock) GetResourceServerList(ctx context.Context, limit int, offset int) ([]resource.ResourceServer, error) {
 	ret := _mock.Called(ctx, limit, offset)
@@ -1948,6 +2148,81 @@ func (_c *resourceStoreInterfaceMock_UpdateAction_Call) RunAndReturn(run func(ct
 	return _c
 }
 
+// UpdateActionPermission provides a mock function for the type resourceStoreInterfaceMock
+func (_mock *resourceStoreInterfaceMock) UpdateActionPermission(ctx context.Context, id string, resServerID string, resID *string, permission string) error {
+	ret := _mock.Called(ctx, id, resServerID, resID, permission)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateActionPermission")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, *string, string) error); ok {
+		r0 = returnFunc(ctx, id, resServerID, resID, permission)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// resourceStoreInterfaceMock_UpdateActionPermission_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateActionPermission'
+type resourceStoreInterfaceMock_UpdateActionPermission_Call struct {
+	*mock.Call
+}
+
+// UpdateActionPermission is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - resServerID string
+//   - resID *string
+//   - permission string
+func (_e *resourceStoreInterfaceMock_Expecter) UpdateActionPermission(ctx interface{}, id interface{}, resServerID interface{}, resID interface{}, permission interface{}) *resourceStoreInterfaceMock_UpdateActionPermission_Call {
+	return &resourceStoreInterfaceMock_UpdateActionPermission_Call{Call: _e.mock.On("UpdateActionPermission", ctx, id, resServerID, resID, permission)}
+}
+
+func (_c *resourceStoreInterfaceMock_UpdateActionPermission_Call) Run(run func(ctx context.Context, id string, resServerID string, resID *string, permission string)) *resourceStoreInterfaceMock_UpdateActionPermission_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 *string
+		if args[3] != nil {
+			arg3 = args[3].(*string)
+		}
+		var arg4 string
+		if args[4] != nil {
+			arg4 = args[4].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+		)
+	})
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_UpdateActionPermission_Call) Return(err error) *resourceStoreInterfaceMock_UpdateActionPermission_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_UpdateActionPermission_Call) RunAndReturn(run func(ctx context.Context, id string, resServerID string, resID *string, permission string) error) *resourceStoreInterfaceMock_UpdateActionPermission_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateResource provides a mock function for the type resourceStoreInterfaceMock
 func (_mock *resourceStoreInterfaceMock) UpdateResource(ctx context.Context, id string, resServerID string, res resource.Resource) error {
 	ret := _mock.Called(ctx, id, resServerID, res)
@@ -2013,6 +2288,75 @@ func (_c *resourceStoreInterfaceMock_UpdateResource_Call) Return(err error) *res
 }
 
 func (_c *resourceStoreInterfaceMock_UpdateResource_Call) RunAndReturn(run func(ctx context.Context, id string, resServerID string, res resource.Resource) error) *resourceStoreInterfaceMock_UpdateResource_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateResourcePermission provides a mock function for the type resourceStoreInterfaceMock
+func (_mock *resourceStoreInterfaceMock) UpdateResourcePermission(ctx context.Context, id string, resServerID string, permission string) error {
+	ret := _mock.Called(ctx, id, resServerID, permission)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateResourcePermission")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = returnFunc(ctx, id, resServerID, permission)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// resourceStoreInterfaceMock_UpdateResourcePermission_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateResourcePermission'
+type resourceStoreInterfaceMock_UpdateResourcePermission_Call struct {
+	*mock.Call
+}
+
+// UpdateResourcePermission is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - resServerID string
+//   - permission string
+func (_e *resourceStoreInterfaceMock_Expecter) UpdateResourcePermission(ctx interface{}, id interface{}, resServerID interface{}, permission interface{}) *resourceStoreInterfaceMock_UpdateResourcePermission_Call {
+	return &resourceStoreInterfaceMock_UpdateResourcePermission_Call{Call: _e.mock.On("UpdateResourcePermission", ctx, id, resServerID, permission)}
+}
+
+func (_c *resourceStoreInterfaceMock_UpdateResourcePermission_Call) Run(run func(ctx context.Context, id string, resServerID string, permission string)) *resourceStoreInterfaceMock_UpdateResourcePermission_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_UpdateResourcePermission_Call) Return(err error) *resourceStoreInterfaceMock_UpdateResourcePermission_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *resourceStoreInterfaceMock_UpdateResourcePermission_Call) RunAndReturn(run func(ctx context.Context, id string, resServerID string, permission string) error) *resourceStoreInterfaceMock_UpdateResourcePermission_Call {
 	_c.Call.Return(run)
 	return _c
 }

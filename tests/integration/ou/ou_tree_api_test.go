@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -130,7 +130,7 @@ func (suite *OUPathAPITestSuite) TestGetOrganizationUnitByInvalidPath() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1003", errorResp.Code)
-	suite.Equal("Organization unit not found", errorResp.Message)
+	suite.Equal("Organization unit not found", errorResp.Message.DefaultValue)
 }
 
 // TestUpdateOrganizationUnitByPath tests updating an organization unit by handle path
@@ -223,7 +223,7 @@ func (suite *OUPathAPITestSuite) TestUpdateOrganizationUnitByInvalidPath() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1003", errorResp.Code)
-	suite.Equal("Organization unit not found", errorResp.Message)
+	suite.Equal("Organization unit not found", errorResp.Message.DefaultValue)
 }
 
 // TestUpdateOrganizationUnitByPathWithInvalidData tests updating an organization unit by path with invalid data
@@ -283,7 +283,7 @@ func (suite *OUPathAPITestSuite) TestDeleteOrganizationUnitByInvalidPath() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1003", errorResp.Code)
-	suite.Equal("Organization unit not found", errorResp.Message)
+	suite.Equal("Organization unit not found", errorResp.Message.DefaultValue)
 }
 
 // TestGetOrganizationUnitChildrenByPath tests retrieving child organization units by handle path
@@ -298,6 +298,7 @@ func (suite *OUPathAPITestSuite) TestGetOrganizationUnitChildrenByPath() {
 		Handle:      "child-engineering",
 		Description: "Child of Engineering Unit",
 		Parent:      &pathTestOUID,
+		LogoURL:     "https://example.com/child-engineering-logo.png",
 	}
 
 	childID, err := createOUForPath(suite, childOU)
@@ -345,6 +346,7 @@ func (suite *OUPathAPITestSuite) TestGetOrganizationUnitChildrenByPath() {
 			suite.Equal(childOU.Name, ou.Name)
 			suite.Equal(childOU.Handle, ou.Handle)
 			suite.Equal(childOU.Description, ou.Description)
+			suite.Equal(childOU.LogoURL, ou.LogoURL)
 			break
 		}
 	}
@@ -376,7 +378,7 @@ func (suite *OUPathAPITestSuite) TestGetOrganizationUnitChildrenByInvalidPath() 
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1003", errorResp.Code)
-	suite.Equal("Organization unit not found", errorResp.Message)
+	suite.Equal("Organization unit not found", errorResp.Message.DefaultValue)
 }
 
 // TestGetOrganizationUnitUsersByPath tests retrieving users by handle path
@@ -438,7 +440,7 @@ func (suite *OUPathAPITestSuite) TestGetOrganizationUnitUsersByInvalidPath() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1003", errorResp.Code)
-	suite.Equal("Organization unit not found", errorResp.Message)
+	suite.Equal("Organization unit not found", errorResp.Message.DefaultValue)
 }
 
 // TestGetOrganizationUnitGroupsByPath tests retrieving groups by handle path
@@ -500,7 +502,7 @@ func (suite *OUPathAPITestSuite) TestGetOrganizationUnitGroupsByInvalidPath() {
 	suite.Require().NoError(err)
 
 	suite.Equal("OU-1003", errorResp.Code)
-	suite.Equal("Organization unit not found", errorResp.Message)
+	suite.Equal("Organization unit not found", errorResp.Message.DefaultValue)
 }
 
 // TestGetOrganizationUnitChildrenByPathWithPagination tests pagination for child organization units by path

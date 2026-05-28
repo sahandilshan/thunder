@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // Test Suite
@@ -73,11 +73,11 @@ func (suite *LayoutInitTestSuite) TestRegisterRoutes() {
 func (suite *LayoutInitTestSuite) TestInitializeStore_CompositeMode() {
 	// Initialize runtime with temp home
 	tempDir := suite.T().TempDir()
-	config.ResetThunderRuntime()
-	err := config.InitializeThunderRuntime(tempDir, &config.Config{})
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime(tempDir, &config.Config{})
 	suite.Require().NoError(err)
 
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Layout.Store = "composite"
 
 	store, err := initializeStore()
@@ -90,11 +90,11 @@ func (suite *LayoutInitTestSuite) TestInitializeStore_CompositeMode() {
 func (suite *LayoutInitTestSuite) TestInitializeStore_DeclarativeMode() {
 	// Initialize runtime with temp home
 	tempDir := suite.T().TempDir()
-	config.ResetThunderRuntime()
-	err := config.InitializeThunderRuntime(tempDir, &config.Config{})
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime(tempDir, &config.Config{})
 	suite.Require().NoError(err)
 
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Layout.Store = "declarative"
 
 	store, err := initializeStore()

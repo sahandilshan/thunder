@@ -26,16 +26,17 @@ import (
 	"strings"
 	"time"
 
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/granthandlers"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	"github.com/asgardeo/thunder/internal/oauth/scope"
-	sysContext "github.com/asgardeo/thunder/internal/system/context"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/observability"
-	"github.com/asgardeo/thunder/internal/system/observability/event"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/granthandlers"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/oauth/scope"
+	sysContext "github.com/thunder-id/thunderid/internal/system/context"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/observability"
+	"github.com/thunder-id/thunderid/internal/system/observability/event"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 // TokenServiceInterface defines the interface for OAuth 2.0 token processing.
@@ -43,7 +44,7 @@ type TokenServiceInterface interface {
 	ProcessTokenRequest(
 		ctx context.Context,
 		tokenRequest *model.TokenRequest,
-		oauthApp *appmodel.OAuthAppConfigProcessedDTO,
+		oauthApp *inboundmodel.OAuthClient,
 	) (*model.TokenResponse, *model.ErrorResponse)
 }
 
@@ -53,6 +54,9 @@ type tokenService struct {
 	scopeValidator       scope.ScopeValidatorInterface
 	observabilitySvc     observability.ObservabilityServiceInterface
 	transactioner        transaction.Transactioner
+	dpopVerifier         dpop.VerifierInterface
+	tokenEndpoint        string
+	dpopRequired         bool
 }
 
 // newTokenService creates a new instance of tokenService.
@@ -61,12 +65,18 @@ func newTokenService(
 	scopeValidator scope.ScopeValidatorInterface,
 	observabilitySvc observability.ObservabilityServiceInterface,
 	transactioner transaction.Transactioner,
+	dpopVerifier dpop.VerifierInterface,
+	tokenEndpoint string,
+	dpopRequired bool,
 ) TokenServiceInterface {
 	return &tokenService{
 		grantHandlerProvider: grantHandlerProvider,
 		scopeValidator:       scopeValidator,
 		observabilitySvc:     observabilitySvc,
 		transactioner:        transactioner,
+		dpopVerifier:         dpopVerifier,
+		tokenEndpoint:        tokenEndpoint,
+		dpopRequired:         dpopRequired,
 	}
 }
 
@@ -74,7 +84,7 @@ func newTokenService(
 func (ts *tokenService) ProcessTokenRequest(
 	ctx context.Context,
 	tokenRequest *model.TokenRequest,
-	oauthApp *appmodel.OAuthAppConfigProcessedDTO,
+	oauthApp *inboundmodel.OAuthClient,
 ) (*model.TokenResponse, *model.ErrorResponse) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "TokenService"))
 
@@ -156,6 +166,13 @@ func (ts *tokenService) ProcessTokenRequest(
 	}
 	tokenRequest.Scope = validScopes
 
+	dpopErr := ts.verifyDPoPProof(&ctx, oauthApp)
+	if dpopErr != nil {
+		publishTokenIssuanceFailedEvent(ts.observabilitySvc, ctx, clientID, grantTypeStr, scopeStr,
+			400, dpopErr.ErrorDescription, startTime)
+		return nil, dpopErr
+	}
+
 	// Delegate to the grant handler for token generation.
 	tokenRespDTO, tokenError := grantHandler.HandleGrant(ctx, tokenRequest, oauthApp)
 	if tokenError != nil {
@@ -209,10 +226,14 @@ func (ts *tokenService) ProcessTokenRequest(
 			}
 		}
 
+		refreshAudiences := tokenRespDTO.AccessToken.Audiences
+		if len(tokenRespDTO.AccessToken.OriginalAudiences) > 0 {
+			refreshAudiences = tokenRespDTO.AccessToken.OriginalAudiences
+		}
 		refreshTokenError := refreshGrantHandlerTyped.IssueRefreshToken(
 			ctx,
 			tokenRespDTO, oauthApp,
-			tokenRespDTO.AccessToken.Subject, tokenRespDTO.AccessToken.Audience,
+			tokenRespDTO.AccessToken.Subject, refreshAudiences,
 			grantTypeStr, tokenRespDTO.AccessToken.Scopes, tokenRespDTO.AccessToken.ClaimsRequest,
 			tokenRespDTO.AccessToken.ClaimsLocales, tokenRespDTO.AccessToken.AttributeCacheID,
 		)
@@ -253,6 +274,41 @@ func (ts *tokenService) ProcessTokenRequest(
 	ts.publishTokenIssuedEvent(ctx, clientID, grantTypeStr, scopes, startTime)
 
 	return tokenResponse, nil
+}
+
+// verifyDPoPProof validates the DPoP proof when present and stores the resulting jkt
+// in ctx for downstream grant handlers. A missing proof is rejected when the client
+// requires dpop-bound access tokens or oauth.dpop.required is true.
+func (ts *tokenService) verifyDPoPProof(ctx *context.Context, oauthApp *inboundmodel.OAuthClient) *model.ErrorResponse {
+	proof := dpop.GetProof(*ctx)
+	if proof == "" {
+		if (oauthApp != nil && oauthApp.DPoPBoundAccessTokens) || ts.dpopRequired {
+			return &model.ErrorResponse{
+				Error:            constants.ErrorInvalidDPoPProof,
+				ErrorDescription: "DPoP proof is required for this client",
+			}
+		}
+		return nil
+	}
+	if ts.dpopVerifier == nil {
+		return &model.ErrorResponse{
+			Error:            constants.ErrorServerError,
+			ErrorDescription: "DPoP verifier not configured",
+		}
+	}
+	result, err := ts.dpopVerifier.Verify(*ctx, dpop.VerifyParams{
+		Proof: proof,
+		HTM:   "POST",
+		HTU:   ts.tokenEndpoint,
+	})
+	if err != nil {
+		return &model.ErrorResponse{
+			Error:            constants.ErrorInvalidDPoPProof,
+			ErrorDescription: err.Error(),
+		}
+	}
+	*ctx = dpop.WithJkt(*ctx, result.JKT)
+	return nil
 }
 
 // publishTokenIssuanceStartedEvent publishes an event indicating that token issuance has started.

@@ -5,10 +5,10 @@
 package coremock
 
 import (
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // NewRepresentationNodeInterfaceMock creates a new instance of RepresentationNodeInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -224,6 +224,52 @@ func (_c *RepresentationNodeInterfaceMock_GetCondition_Call) Return(nodeConditio
 }
 
 func (_c *RepresentationNodeInterfaceMock_GetCondition_Call) RunAndReturn(run func() *core.NodeCondition) *RepresentationNodeInterfaceMock_GetCondition_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetExecutionPolicy provides a mock function for the type RepresentationNodeInterfaceMock
+func (_mock *RepresentationNodeInterfaceMock) GetExecutionPolicy() *core.ExecutionPolicy {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetExecutionPolicy")
+	}
+
+	var r0 *core.ExecutionPolicy
+	if returnFunc, ok := ret.Get(0).(func() *core.ExecutionPolicy); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*core.ExecutionPolicy)
+		}
+	}
+	return r0
+}
+
+// RepresentationNodeInterfaceMock_GetExecutionPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetExecutionPolicy'
+type RepresentationNodeInterfaceMock_GetExecutionPolicy_Call struct {
+	*mock.Call
+}
+
+// GetExecutionPolicy is a helper method to define mock.On call
+func (_e *RepresentationNodeInterfaceMock_Expecter) GetExecutionPolicy() *RepresentationNodeInterfaceMock_GetExecutionPolicy_Call {
+	return &RepresentationNodeInterfaceMock_GetExecutionPolicy_Call{Call: _e.mock.On("GetExecutionPolicy")}
+}
+
+func (_c *RepresentationNodeInterfaceMock_GetExecutionPolicy_Call) Run(run func()) *RepresentationNodeInterfaceMock_GetExecutionPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *RepresentationNodeInterfaceMock_GetExecutionPolicy_Call) Return(executionPolicy *core.ExecutionPolicy) *RepresentationNodeInterfaceMock_GetExecutionPolicy_Call {
+	_c.Call.Return(executionPolicy)
+	return _c
+}
+
+func (_c *RepresentationNodeInterfaceMock_GetExecutionPolicy_Call) RunAndReturn(run func() *core.ExecutionPolicy) *RepresentationNodeInterfaceMock_GetExecutionPolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }

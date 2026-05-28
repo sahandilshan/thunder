@@ -27,9 +27,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const (
@@ -49,7 +51,7 @@ func TestNotificationSenderMgtServiceTestSuite(t *testing.T) {
 }
 
 func (suite *NotificationSenderMgtServiceTestSuite) SetupSuite() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		Crypto: config.CryptoConfig{
 			Encryption: config.EncryptionConfig{
@@ -57,14 +59,14 @@ func (suite *NotificationSenderMgtServiceTestSuite) SetupSuite() {
 			},
 		},
 	}
-	err := config.InitializeThunderRuntime("", testConfig)
+	err := config.InitializeServerRuntime("", testConfig)
 	if err != nil {
-		suite.T().Fatalf("Failed to initialize ThunderRuntime: %v", err)
+		suite.T().Fatalf("Failed to initialize server runtime: %v", err)
 	}
 }
 
 func (suite *NotificationSenderMgtServiceTestSuite) TearDownSuite() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func (suite *NotificationSenderMgtServiceTestSuite) SetupTest() {
@@ -72,6 +74,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) SetupTest() {
 	suite.service = &notificationSenderMgtService{
 		notificationStore: suite.mockStore,
 		transactioner:     &fakeTransactioner{},
+		uuidGenerator:     sysutils.GenerateUUIDv7,
 	}
 }
 
@@ -88,6 +91,39 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender() {
 	suite.NotNil(result)
 	suite.Equal(sender.Name, result.Name)
 	suite.NotEmpty(result.ID)
+}
+
+func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender_WithPresetID() {
+	sender := suite.getValidTwilioSender()
+	presetID := "preset-sender-id-1234"
+	sender.ID = presetID
+
+	suite.mockStore.EXPECT().getSenderByName(mock.Anything, sender.Name).Return(nil, nil).Once()
+	suite.mockStore.EXPECT().createSender(mock.Anything, mock.MatchedBy(func(s common.NotificationSenderDTO) bool {
+		return s.ID == presetID
+	})).Return(nil).Once()
+
+	result, err := suite.service.CreateSender(context.Background(), sender)
+	suite.Nil(err)
+	suite.NotNil(result)
+	suite.Equal(presetID, result.ID)
+}
+
+func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender_UUIDGenerationError() {
+	sender := suite.getValidTwilioSender()
+
+	svc := &notificationSenderMgtService{
+		notificationStore: suite.mockStore,
+		transactioner:     &fakeTransactioner{},
+		uuidGenerator: func() (string, error) {
+			return "", errors.New("entropy source failed")
+		},
+	}
+
+	result, err := svc.CreateSender(context.Background(), sender)
+	suite.Nil(result)
+	suite.NotNil(err)
+	suite.Equal(serviceerror.InternalServerError.Code, err.Code)
 }
 
 func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender_WithFailures() {
@@ -117,7 +153,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender_WithFailure
 			setupMock: func(m *notificationStoreInterfaceMock, s common.NotificationSenderDTO) {
 				m.EXPECT().getSenderByName(mock.Anything, s.Name).Return(nil, errors.New("database error")).Once()
 			},
-			expectedErrCode: ErrorInternalServerError.Code,
+			expectedErrCode: serviceerror.InternalServerError.Code,
 		},
 		{
 			name: "StoreErrorOnCreate",
@@ -128,7 +164,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender_WithFailure
 				m.EXPECT().getSenderByName(mock.Anything, s.Name).Return(nil, nil).Once()
 				m.EXPECT().createSender(mock.Anything, mock.Anything).Return(errors.New("database error")).Once()
 			},
-			expectedErrCode: ErrorInternalServerError.Code,
+			expectedErrCode: serviceerror.InternalServerError.Code,
 		},
 		{
 			name: "InvalidName",
@@ -156,6 +192,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender_WithFailure
 			svc := &notificationSenderMgtService{
 				notificationStore: mockStore,
 				transactioner:     &fakeTransactioner{},
+				uuidGenerator:     sysutils.GenerateUUIDv7,
 			}
 
 			sender := suite.getValidTwilioSender()
@@ -206,7 +243,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestListSenders_StoreError()
 	result, err := suite.service.ListSenders(context.Background())
 	suite.Nil(result)
 	suite.NotNil(err)
-	suite.Equal(ErrorInternalServerError.Code, err.Code)
+	suite.Equal(serviceerror.InternalServerError.Code, err.Code)
 }
 
 func (suite *NotificationSenderMgtServiceTestSuite) TestGetSender() {
@@ -224,8 +261,9 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestGetSender_NotFound() {
 	suite.mockStore.EXPECT().getSenderByID(mock.Anything, testSenderID).Return(nil, nil).Once()
 
 	result, err := suite.service.GetSender(context.Background(), testSenderID)
-	suite.Nil(err)
 	suite.Nil(result)
+	suite.NotNil(err)
+	suite.Equal(ErrorSenderNotFound.Code, err.Code)
 }
 
 func (suite *NotificationSenderMgtServiceTestSuite) TestGetSender_EmptyID() {
@@ -242,7 +280,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestGetSender_StoreError() {
 	result, err := suite.service.GetSender(context.Background(), testSenderID)
 	suite.Nil(result)
 	suite.NotNil(err)
-	suite.Equal(ErrorInternalServerError.Code, err.Code)
+	suite.Equal(serviceerror.InternalServerError.Code, err.Code)
 }
 
 // GetSenderByName Tests
@@ -263,14 +301,6 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestGetSenderByName() {
 			arg:      "Test Twilio Sender",
 			wantName: "Test Twilio Sender",
 		},
-		{
-			name: "SenderNotFound",
-			setup: func(m *notificationStoreInterfaceMock) {
-				m.EXPECT().getSenderByName(mock.Anything, "NonExistent").Return(nil, nil).Once()
-			},
-			arg:      "NonExistent",
-			wantName: "",
-		},
 	}
 
 	for _, tc := range cases {
@@ -279,6 +309,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestGetSenderByName() {
 			svc := &notificationSenderMgtService{
 				notificationStore: mockStore,
 				transactioner:     &fakeTransactioner{},
+				uuidGenerator:     sysutils.GenerateUUIDv7,
 			}
 
 			if tc.setup != nil {
@@ -288,15 +319,25 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestGetSenderByName() {
 			result, err := svc.GetSenderByName(context.Background(), tc.arg)
 			require := require.New(t)
 			require.Nil(err)
-			if tc.wantName == "" {
-				require.Nil(result)
-			} else {
-				require.NotNil(result)
-				require.Equal(tc.wantName, result.Name)
-			}
+			require.NotNil(result)
+			require.Equal(tc.wantName, result.Name)
 			mockStore.AssertExpectations(t)
 		})
 	}
+}
+
+func (suite *NotificationSenderMgtServiceTestSuite) TestGetSenderByName_NotFound() {
+	mockStore := newNotificationStoreInterfaceMock(suite.T())
+	svc := &notificationSenderMgtService{
+		notificationStore: mockStore,
+		transactioner:     &fakeTransactioner{},
+	}
+	mockStore.EXPECT().getSenderByName(mock.Anything, "NonExistent").Return(nil, nil).Once()
+
+	result, err := svc.GetSenderByName(context.Background(), "NonExistent")
+	suite.Nil(result)
+	suite.NotNil(err)
+	suite.Equal(ErrorSenderNotFound.Code, err.Code)
 }
 
 func (suite *NotificationSenderMgtServiceTestSuite) TestGetSenderByName_WithFailure() {
@@ -318,7 +359,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestGetSenderByName_WithFail
 			setup: func(m *notificationStoreInterfaceMock) {
 				m.EXPECT().getSenderByName(mock.Anything, "Test").Return(nil, errors.New("database error")).Once()
 			},
-			expectedErrCode: ErrorInternalServerError.Code,
+			expectedErrCode: serviceerror.InternalServerError.Code,
 		},
 	}
 
@@ -328,6 +369,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestGetSenderByName_WithFail
 			svc := &notificationSenderMgtService{
 				notificationStore: mockStore,
 				transactioner:     &fakeTransactioner{},
+				uuidGenerator:     sysutils.GenerateUUIDv7,
 			}
 
 			if tc.setup != nil {
@@ -390,6 +432,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestUpdateSender() {
 			svc := &notificationSenderMgtService{
 				notificationStore: mockStore,
 				transactioner:     &fakeTransactioner{},
+				uuidGenerator:     sysutils.GenerateUUIDv7,
 			}
 
 			sender := suite.getValidTwilioSender()
@@ -476,7 +519,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestUpdateSender_WithFailure
 				m.EXPECT().getSenderByID(mock.Anything, testSenderID).Return(&existing, nil).Once()
 				m.EXPECT().updateSender(mock.Anything, testSenderID, s).Return(errors.New("database error")).Once()
 			},
-			expectedErrCode: ErrorInternalServerError.Code,
+			expectedErrCode: serviceerror.InternalServerError.Code,
 		},
 		{
 			name: "GetSenderByIDError",
@@ -486,7 +529,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestUpdateSender_WithFailure
 			setupMock: func(m *notificationStoreInterfaceMock, s common.NotificationSenderDTO) {
 				m.EXPECT().getSenderByID(mock.Anything, testSenderID).Return(nil, errors.New("database error")).Once()
 			},
-			expectedErrCode: ErrorInternalServerError.Code,
+			expectedErrCode: serviceerror.InternalServerError.Code,
 		},
 		{
 			name: "GetSenderByNameError",
@@ -502,7 +545,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestUpdateSender_WithFailure
 				m.EXPECT().getSenderByName(mock.Anything, testSenderUpdatedName).
 					Return(nil, errors.New("database error")).Once()
 			},
-			expectedErrCode: ErrorInternalServerError.Code,
+			expectedErrCode: serviceerror.InternalServerError.Code,
 		},
 		{
 			name: "InvalidValidation",
@@ -521,6 +564,7 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestUpdateSender_WithFailure
 			svc := &notificationSenderMgtService{
 				notificationStore: mockStore,
 				transactioner:     &fakeTransactioner{},
+				uuidGenerator:     sysutils.GenerateUUIDv7,
 			}
 
 			sender := suite.getValidTwilioSender()
@@ -566,19 +610,19 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestDeleteSender_StoreError(
 		Return(errors.New("database error")).Once()
 	err := suite.service.DeleteSender(context.Background(), testSenderID)
 	suite.NotNil(err)
-	suite.Equal(ErrorInternalServerError.Code, err.Code)
+	suite.Equal(serviceerror.InternalServerError.Code, err.Code)
 }
 
 // TestCreateSender_DeclarativeResourcesEnabled tests that CreateSender returns error when declarative resources enabled
 func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender_DeclarativeResourcesEnabled() {
 	// Save original config
-	originalConfig := config.GetThunderRuntime().Config
+	originalConfig := config.GetServerRuntime().Config
 	defer func() {
-		config.GetThunderRuntime().Config = originalConfig
+		config.GetServerRuntime().Config = originalConfig
 	}()
 
 	// Enable declarative resources
-	config.GetThunderRuntime().Config.DeclarativeResources.Enabled = true
+	config.GetServerRuntime().Config.DeclarativeResources.Enabled = true
 
 	sender := suite.getValidTwilioSender()
 	result, err := suite.service.CreateSender(context.Background(), sender)
@@ -591,13 +635,13 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestCreateSender_Declarative
 // TestUpdateSender_DeclarativeResourcesEnabled tests that UpdateSender returns error when declarative resources enabled
 func (suite *NotificationSenderMgtServiceTestSuite) TestUpdateSender_DeclarativeResourcesEnabled() {
 	// Save original config
-	originalConfig := config.GetThunderRuntime().Config
+	originalConfig := config.GetServerRuntime().Config
 	defer func() {
-		config.GetThunderRuntime().Config = originalConfig
+		config.GetServerRuntime().Config = originalConfig
 	}()
 
 	// Enable declarative resources
-	config.GetThunderRuntime().Config.DeclarativeResources.Enabled = true
+	config.GetServerRuntime().Config.DeclarativeResources.Enabled = true
 
 	sender := suite.getValidTwilioSender()
 	result, err := suite.service.UpdateSender(context.Background(), testSenderID, sender)
@@ -610,13 +654,13 @@ func (suite *NotificationSenderMgtServiceTestSuite) TestUpdateSender_Declarative
 // TestDeleteSender_DeclarativeResourcesEnabled tests that DeleteSender returns error when declarative resources enabled
 func (suite *NotificationSenderMgtServiceTestSuite) TestDeleteSender_DeclarativeResourcesEnabled() {
 	// Save original config
-	originalConfig := config.GetThunderRuntime().Config
+	originalConfig := config.GetServerRuntime().Config
 	defer func() {
-		config.GetThunderRuntime().Config = originalConfig
+		config.GetServerRuntime().Config = originalConfig
 	}()
 
 	// Enable declarative resources
-	config.GetThunderRuntime().Config.DeclarativeResources.Enabled = true
+	config.GetServerRuntime().Config.DeclarativeResources.Enabled = true
 
 	err := suite.service.DeleteSender(context.Background(), testSenderID)
 

@@ -16,34 +16,24 @@
  * under the License.
  */
 
-import { Route, BrowserRouter as Router, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from 'react-router-dom';
 import HomePage from './pages/HomePage';
+import InvitePage from './pages/InvitePage';
 import LoginPage from './pages/LoginPage';
-import RedirectLoginPage from './pages/RedirectLoginPage';
+import ProfilePage from './pages/ProfilePage';
 import AuthProvider from './contexts/AuthProvider';
 import useAuth from './hooks/useAuth';
-import config from './config';
 import './App.css';
 
 const App = () => {
   const { token } = useAuth();
-  const location = useLocation(); // Get the current location
-
-  const renderContent = () => {
-    if (token) {
-      return <HomePage />;
-    } else {
-      if (config.redirectBasedLogin) {
-        return <RedirectLoginPage />;
-      } else {
-        return <LoginPage />;
-      }
-    }
-  };
+  const location = useLocation();
 
   return (
     <Routes>
-      <Route path="/" element={renderContent()} key={location.key} />
+      <Route path="/" element={token ? <HomePage /> : <LoginPage />} key={location.key} />
+      <Route path="/profile" element={token ? <ProfilePage /> : <Navigate to="/" replace />} />
+      <Route path="/invite" element={<InvitePage />} />
     </Routes>
   );
 };

@@ -22,7 +22,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/asgardeo/thunder/internal/system/cache"
+	"github.com/thunder-id/thunderid/internal/system/cache"
 )
 
 // GraphCacheInterface defines operations for caching graphs.
@@ -38,9 +38,9 @@ type graphCache struct {
 }
 
 // newGraphCache creates a new in-memory cache instance of graphCache.
-func newGraphCache() GraphCacheInterface {
+func newGraphCache(c cache.CacheInterface[*graph]) GraphCacheInterface {
 	return &graphCache{
-		cache: cache.GetInMemoryCache[*graph]("FlowGraphCache"),
+		cache: c,
 	}
 }
 

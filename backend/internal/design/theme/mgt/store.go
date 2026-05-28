@@ -24,8 +24,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
 )
 
 var errThemeNotFound = errors.New("theme not found")
@@ -54,7 +54,7 @@ type themeMgtStore struct {
 func newThemeMgtStore() themeMgtStoreInterface {
 	return &themeMgtStore{
 		dbProvider:   provider.GetDBProvider(),
-		deploymentID: config.GetThunderRuntime().Config.Server.Identifier,
+		deploymentID: config.GetServerRuntime().Config.Server.Identifier,
 	}
 }
 

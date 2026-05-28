@@ -19,33 +19,42 @@
 package token
 
 import (
+	"context"
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/application"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/clientauth"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/discovery"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/granthandlers"
-	"github.com/asgardeo/thunder/internal/oauth/scope"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/middleware"
-	"github.com/asgardeo/thunder/internal/system/observability"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/inboundclient"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/clientauth"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/discovery"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/granthandlers"
+	"github.com/thunder-id/thunderid/internal/oauth/scope"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/system/observability"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 // Initialize initializes the token handler and registers its routes.
 func Initialize(
 	mux *http.ServeMux,
 	jwtService jwt.JWTServiceInterface,
-	appService application.ApplicationServiceInterface,
+	inboundClient inboundclient.InboundClientServiceInterface,
+	authnProvider authnprovidermgr.AuthnProviderManagerInterface,
 	grantHandlerProvider granthandlers.GrantHandlerProviderInterface,
 	scopeValidator scope.ScopeValidatorInterface,
 	observabilitySvc observability.ObservabilityServiceInterface,
 	discoveryService discovery.DiscoveryServiceInterface,
 	transactioner transaction.Transactioner,
+	dpopVerifier dpop.VerifierInterface,
 ) TokenHandlerInterface {
-	tokenSvc := newTokenService(grantHandlerProvider, scopeValidator, observabilitySvc, transactioner)
+	tokenEndpoint := discoveryService.GetOAuth2AuthorizationServerMetadata(context.Background()).TokenEndpoint
+	dpopRequired := config.GetServerRuntime().Config.OAuth.DPoP.Required
+	tokenSvc := newTokenService(grantHandlerProvider, scopeValidator, observabilitySvc, transactioner,
+		dpopVerifier, tokenEndpoint, dpopRequired)
 	tokenHandler := newTokenHandler(tokenSvc, observabilitySvc)
-	registerRoutes(mux, tokenHandler, appService, jwtService, discoveryService)
+	registerRoutes(mux, tokenHandler, inboundClient, authnProvider, jwtService, discoveryService)
 	return tokenHandler
 }
 
@@ -53,17 +62,20 @@ func Initialize(
 func registerRoutes(
 	mux *http.ServeMux,
 	tokenHandler TokenHandlerInterface,
-	appService application.ApplicationServiceInterface,
+	inboundClient inboundclient.InboundClientServiceInterface,
+	authnProvider authnprovidermgr.AuthnProviderManagerInterface,
 	jwtService jwt.JWTServiceInterface,
 	discoveryService discovery.DiscoveryServiceInterface,
 ) {
 	corsOpts := middleware.CORSOptions{
-		AllowedMethods:   "POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
-	clientAuthMiddleware := clientauth.ClientAuthMiddleware(appService, jwtService, discoveryService)
+	endpointURL := discoveryService.GetOAuth2AuthorizationServerMetadata(context.Background()).TokenEndpoint
+	clientAuthMiddleware := clientauth.ClientAuthMiddleware(inboundClient, authnProvider, jwtService, endpointURL)
 	handler := clientAuthMiddleware(http.HandlerFunc(tokenHandler.HandleTokenRequest))
 
 	pattern, wrappedHandler := middleware.WithCORS(

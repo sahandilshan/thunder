@@ -16,11 +16,11 @@
  * under the License.
  */
 
-import React, {useEffect, type ReactNode} from 'react';
-import ColorModeToggle from '@theme-original/ColorModeToggle';
-import type ColorModeToggleType from '@theme/ColorModeToggle';
 import type {WrapperProps} from '@docusaurus/types';
+import type ColorModeToggleType from '@theme/ColorModeToggle';
+import ColorModeToggle from '@theme-original/ColorModeToggle';
 import {useColorScheme} from '@wso2/oxygen-ui';
+import {useEffect, type ReactNode} from 'react';
 
 type Props = WrapperProps<typeof ColorModeToggleType>;
 

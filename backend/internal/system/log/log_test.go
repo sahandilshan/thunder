@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/constants"
 )
 
 type LogTestSuite struct {
@@ -218,7 +218,7 @@ func (suite *LogTestSuite) TestMaskString() {
 
 	for _, tc := range testCases {
 		suite.T().Run(tc.name, func(t *testing.T) {
-			result := MaskString(tc.input)
+			result := maskString(tc.input)
 			assert.Equal(t, tc.expected, result)
 
 			if len(tc.input) > 0 {
@@ -236,6 +236,92 @@ func (suite *LogTestSuite) TestMaskString() {
 			}
 		})
 	}
+}
+
+func (suite *LogTestSuite) TestMaskedString() {
+	testCases := []struct {
+		name     string
+		key      string
+		input    string
+		expected string
+	}{
+		{"Empty", LoggerKeyUserID, "", ""},
+		{"Short", LoggerKeyUserID, "ab", "**"},
+		{"UUID", LoggerKeyUserID, "019d3279-78bc-7af0-8ea8-979a9c9a8cb7", "0**********************************7"},
+		{"CustomKey", "email", "user@example.com", "u**************m"},
+	}
+
+	for _, tc := range testCases {
+		suite.T().Run(tc.name, func(t *testing.T) {
+			field := MaskedString(tc.key, tc.input)
+			assert.Equal(t, tc.key, field.Key)
+			assert.Equal(t, tc.expected, field.Value)
+		})
+	}
+}
+
+func (suite *LogTestSuite) TestMaskedStrings() {
+	suite.T().Run("MasksEachEntry", func(t *testing.T) {
+		field := MaskedStrings("ids", []string{
+			"019d3279-78bc-7af0-8ea8-979a9c9a8cb7",
+			"ab",
+			"user@example.com",
+		})
+		assert.Equal(t, "ids", field.Key)
+		got, ok := field.Value.([]string)
+		assert.True(t, ok, "Value should be a []string")
+		assert.Equal(t, []string{
+			"0**********************************7",
+			"**",
+			"u**************m",
+		}, got)
+	})
+
+	suite.T().Run("EmptySlice", func(t *testing.T) {
+		field := MaskedStrings("ids", []string{})
+		got, ok := field.Value.([]string)
+		assert.True(t, ok)
+		assert.Empty(t, got)
+	})
+
+	suite.T().Run("DoesNotMutateInput", func(t *testing.T) {
+		input := []string{"019d3279-78bc-7af0-8ea8-979a9c9a8cb7"}
+		MaskedStrings("ids", input)
+		assert.Equal(t, "019d3279-78bc-7af0-8ea8-979a9c9a8cb7", input[0])
+	})
+}
+
+func (suite *LogTestSuite) TestMaskedMap() {
+	suite.T().Run("MasksStringsAndReplacesNonStrings", func(t *testing.T) {
+		input := map[string]any{
+			"email":  "alice@example.com",
+			"short":  "ab",
+			"count":  42,
+			"active": true,
+		}
+		field := MaskedMap("filters", input)
+
+		assert.Equal(t, "filters", field.Key)
+		got, ok := field.Value.(map[string]any)
+		assert.True(t, ok, "Value should be a map[string]any")
+		assert.Equal(t, "a***************m", got["email"])
+		assert.Equal(t, "**", got["short"])
+		assert.Equal(t, "***", got["count"])
+		assert.Equal(t, "***", got["active"])
+	})
+
+	suite.T().Run("EmptyMap", func(t *testing.T) {
+		field := MaskedMap("filters", map[string]any{})
+		got, ok := field.Value.(map[string]any)
+		assert.True(t, ok)
+		assert.Empty(t, got)
+	})
+
+	suite.T().Run("DoesNotMutateInput", func(t *testing.T) {
+		input := map[string]any{"email": "alice@example.com"}
+		MaskedMap("filters", input)
+		assert.Equal(t, "alice@example.com", input["email"])
+	})
 }
 
 func (suite *LogTestSuite) TestConvertFields() {

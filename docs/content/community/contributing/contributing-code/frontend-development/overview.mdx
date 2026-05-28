@@ -1,0 +1,56 @@
+---
+title: Overview
+description: Frontend contribution guidelines for the React applications.
+sidebar_position: 1
+hide_table_of_contents: false
+---
+
+# Frontend Contribution Guidelines
+
+The frontend is an Nx-managed monorepo under `frontend/` with two React apps:
+
+| App | Location | Purpose | Development Port |
+|-----|----------|---------|----------|
+| <ProductName /> Gate | `frontend/apps/gate/` | Login, registration, recovery UI | 5190 |
+| <ProductName /> Console | `frontend/apps/console/` | Admin console | 5191 |
+
+## File Naming
+
+- TypeScript files (`.ts`): camelCase (e.g., `useCreateApplication.ts`)
+- React components (`.tsx`): PascalCase (e.g., `MenuButton.tsx`)
+
+## Feature Package Structure
+
+```
+my-feature/
+├── api/          # API hooks (e.g., useGetUsers.ts)
+├── components/   # React components
+├── config/       # Feature configuration
+├── constants/    # Query keys and constants
+├── contexts/     # React context providers
+├── hooks/        # Custom React hooks
+├── models/       # TypeScript interfaces
+├── pages/        # Page-level components
+└── utils/        # Utility functions
+```
+
+## Scaffolding Tool
+
+<ProductName /> includes a CLI scaffolding tool (`@thunderid/create`) that generates production-ready feature packages. See the [Scaffolding Tool](scaffolding-tool.mdx) guide for details.
+
+## Testing
+
+| Purpose | Command |
+|---------|---------|
+| All frontend unit tests | `cd frontend && pnpm test` |
+| Lint frontend | `make lint_frontend` |
+| E2E tests | `cd tests/e2e && npm ci && npx playwright test` |
+| E2E (Chromium only) | `cd tests/e2e && npx playwright test --project=chromium` |
+| E2E (accessibility) | `cd tests/e2e && npx playwright test --grep @accessibility` |
+| E2E (headed/visible) | `cd tests/e2e && npx playwright test --headed` |
+| E2E (debug mode) | `cd tests/e2e && npx playwright test --debug` |
+
+## Recommended VSCode Extensions
+
+- [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
+- [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)

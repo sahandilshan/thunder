@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -94,7 +94,7 @@ const (
 	mockGoogleFlowPort = 8093
 )
 
-var googleUserSchema = testutils.UserSchema{
+var googleEntityType = testutils.UserType{
 	Name: "google_auth_user",
 	Schema: map[string]interface{}{
 		"username": map[string]interface{}{
@@ -142,7 +142,7 @@ type GoogleAuthFlowTestSuite struct {
 	config           *common.TestSuiteConfig
 	mockGoogleServer *testutils.MockGoogleOIDCServer
 	userID           string
-	userSchemaID     string
+	entityTypeID     string
 }
 
 func TestGoogleAuthFlowTestSuite(t *testing.T) {
@@ -180,11 +180,11 @@ func (ts *GoogleAuthFlowTestSuite) SetupSuite() {
 	}
 	googleAuthTestOU.ID = ouID
 
-	// Create user schema
-	googleUserSchema.OUID = ouID
-	schemaID, err := testutils.CreateUserType(googleUserSchema)
-	ts.Require().NoError(err, "Failed to create Google user schema")
-	ts.userSchemaID = schemaID
+	// create user type
+	googleEntityType.OUID = ouID
+	schemaID, err := testutils.CreateUserType(googleEntityType)
+	ts.Require().NoError(err, "Failed to create Google user type")
+	ts.entityTypeID = schemaID
 
 	// Create user
 	userAttributes := map[string]interface{}{
@@ -201,9 +201,9 @@ func (ts *GoogleAuthFlowTestSuite) SetupSuite() {
 
 	// Create user in the pre-configured OU from database scripts
 	user := testutils.User{
-		Type:             googleUserSchema.Name,
-		OUID:             googleUserSchema.OUID,
-		Attributes:       json.RawMessage(attributesJSON),
+		Type:       googleEntityType.Name,
+		OUID:       googleEntityType.OUID,
+		Attributes: json.RawMessage(attributesJSON),
 	}
 
 	userID, err := testutils.CreateUser(user)
@@ -275,6 +275,7 @@ func (ts *GoogleAuthFlowTestSuite) SetupSuite() {
 	googleAuthTestApp.AuthFlowID = flowID
 
 	// Create test application for Google auth tests
+	googleAuthTestApp.OUID = googleAuthTestOU.ID
 	appID, err := testutils.CreateApplication(googleAuthTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
@@ -309,8 +310,8 @@ func (ts *GoogleAuthFlowTestSuite) TearDownSuite() {
 		_ = testutils.DeleteUser(ts.userID)
 	}
 
-	if ts.userSchemaID != "" {
-		_ = testutils.DeleteUserType(ts.userSchemaID)
+	if ts.entityTypeID != "" {
+		_ = testutils.DeleteUserType(ts.entityTypeID)
 	}
 
 	// Stop mock server
@@ -331,7 +332,7 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowInitiation() {
 	// Verify flow status and type
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("REDIRECTION", flowStep.Type, "Expected flow type to be REDIRECT")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Validate redirect information
 	ts.Require().NotEmpty(flowStep.Data, "Flow data should not be empty")
@@ -367,8 +368,8 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowInvalidAppID() {
 	}
 
 	ts.Require().Equal("FES-1003", errorResp.Code, "Expected error code for invalid app ID")
-	ts.Require().Equal("Invalid request", errorResp.Message, "Expected error message for invalid request")
-	ts.Require().Equal("Invalid app ID provided in the request", errorResp.Description,
+	ts.Require().Equal("Invalid request", errorResp.Message.DefaultValue, "Expected error message for invalid request")
+	ts.Require().Equal("Invalid app ID provided in the request", errorResp.Description.DefaultValue,
 		"Expected error description for invalid app ID")
 }
 
@@ -382,14 +383,14 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowCompleteSuccess() {
 	// Verify flow status and type
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
 	ts.Require().Equal("REDIRECTION", flowStep.Type, "Expected flow type to be REDIRECT")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
-	flowID := flowStep.FlowID
+	ExecutionID := flowStep.ExecutionID
 	redirectURLStr := flowStep.Data.RedirectURL
 	ts.Require().NotEmpty(redirectURLStr, "Redirect URL should not be empty")
 
 	// Step 2: Simulate user authorization at Google (get authorization code)
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
 	if err != nil {
 		ts.T().Fatalf("Failed to simulate Google authorization: %v", err)
 	}
@@ -397,10 +398,11 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowCompleteSuccess() {
 
 	// Step 3: Complete the flow with the authorization code
 	inputs := map[string]string{
-		"code": authCode,
+		"code":  authCode,
+		"state": state,
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowID, inputs, "")
+	completeFlowStep, err := common.CompleteFlow(ExecutionID, inputs, "", flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete Google authentication flow: %v", err)
 	}
@@ -413,7 +415,7 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowCompleteSuccess() {
 	jwtClaims, err := testutils.ValidateJWTAssertionFields(
 		completeFlowStep.Assertion,
 		googleAuthTestAppID,
-		googleUserSchema.Name,
+		googleEntityType.Name,
 		googleAuthTestOU.ID,
 		googleAuthTestOU.Name,
 		googleAuthTestOU.Handle,
@@ -429,14 +431,16 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowCompleteWithInvalidCode() {
 		ts.T().Fatalf("Failed to initiate Google authentication flow: %v", err)
 	}
 
-	flowID := flowStep.FlowID
+	ExecutionID := flowStep.ExecutionID
+	state := testutils.ExtractStateFromRedirectURL(flowStep.Data.RedirectURL)
 
 	// Step 2: Try to complete with invalid authorization code
 	inputs := map[string]string{
-		"code": "invalid-auth-code-12345",
+		"code":  "invalid-auth-code-12345",
+		"state": state,
 	}
 
-	_, err = common.CompleteFlow(flowID, inputs, "")
+	_, err = common.CompleteFlow(ExecutionID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().Error(err, "Should fail with invalid authorization code")
 }
 
@@ -447,14 +451,14 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowCompleteWithMissingCode() {
 		ts.T().Fatalf("Failed to initiate Google authentication flow: %v", err)
 	}
 
-	flowID := flowStep.FlowID
+	ExecutionID := flowStep.ExecutionID
 
 	// Step 2: Try to complete without providing authorization code
 	inputs := map[string]string{}
 
 	// When required inputs are missing, the flow returns INCOMPLETE status (not an error)
 	// and asks for the missing inputs again
-	flowStep, err = common.CompleteFlow(flowID, inputs, "")
+	flowStep, err = common.CompleteFlow(ExecutionID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Should not return error when inputs are missing")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus,
 		"Flow should remain INCOMPLETE when required inputs are missing")
@@ -482,21 +486,22 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowMultipleUsersSuccess() {
 		ts.T().Fatalf("Failed to initiate Google authentication flow: %v", err)
 	}
 
-	flowID := flowStep.FlowID
+	ExecutionID := flowStep.ExecutionID
 	redirectURLStr := flowStep.Data.RedirectURL
 
 	// Step 2: Simulate user authorization at Google
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURLStr)
 	if err != nil {
 		ts.T().Fatalf("Failed to simulate Google authorization: %v", err)
 	}
 
 	// Step 3: Complete the flow with the authorization code
 	inputs := map[string]string{
-		"code": authCode,
+		"code":  authCode,
+		"state": state,
 	}
 
-	completeFlowStep, err := common.CompleteFlow(flowID, inputs, "")
+	completeFlowStep, err := common.CompleteFlow(ExecutionID, inputs, "", flowStep.ChallengeToken)
 	if err != nil {
 		ts.T().Fatalf("Failed to complete Google authentication flow: %v", err)
 	}
@@ -509,7 +514,7 @@ func (ts *GoogleAuthFlowTestSuite) TestGoogleAuthFlowMultipleUsersSuccess() {
 	jwtClaims, err := testutils.ValidateJWTAssertionFields(
 		completeFlowStep.Assertion,
 		googleAuthTestAppID,
-		googleUserSchema.Name,
+		googleEntityType.Name,
 		googleAuthTestOU.ID,
 		googleAuthTestOU.Name,
 		googleAuthTestOU.Handle,

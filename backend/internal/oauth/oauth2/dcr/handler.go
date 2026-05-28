@@ -20,13 +20,12 @@ package dcr
 
 import (
 	"net/http"
-	"slices"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/security"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/security"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // dcrHandler defines the handler for DCR API requests.
@@ -45,14 +44,14 @@ func newDCRHandler(dcrService DCRServiceInterface) *dcrHandler {
 func (dh *dcrHandler) HandleDCRRegistration(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// When DCR is not insecure, require a valid token with required permissions.
-	if !config.GetThunderRuntime().Config.OAuth.DCR.Insecure && !dh.checkDCRAuthorization(r, w) {
+	if !config.GetServerRuntime().Config.OAuth.DCR.Insecure && !dh.checkDCRAuthorization(r, w) {
 		return
 	}
 
 	dcrRequest, err := sysutils.DecodeJSONBody[DCRRegistrationRequest](r)
 	if err != nil {
 		sysutils.WriteJSONError(w, ErrorInvalidRequestFormat.Code,
-			ErrorInvalidRequestFormat.ErrorDescription, http.StatusBadRequest, nil)
+			ErrorInvalidRequestFormat.ErrorDescription.DefaultValue, http.StatusBadRequest, nil)
 		return
 	}
 
@@ -61,9 +60,9 @@ func (dh *dcrHandler) HandleDCRRegistration(w http.ResponseWriter, r *http.Reque
 		if svcErr.Type == serviceerror.ServerErrorType {
 			logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "DCRHandler"))
 			logger.Error("Internal server error processing DCR registration request",
-				log.String("client_name", log.MaskString(dcrRequest.ClientName)),
+				log.MaskedString("client_name", dcrRequest.ClientName),
 				log.String("error_code", svcErr.Code),
-				log.String("error", svcErr.Error),
+				log.String("error", svcErr.Error.DefaultValue),
 			)
 		}
 		dh.writeServiceErrorResponse(w, svcErr)
@@ -76,11 +75,11 @@ func (dh *dcrHandler) HandleDCRRegistration(w http.ResponseWriter, r *http.Reque
 // checkDCRAuthorization verifies that the caller holds required permission.
 // Returns true if authorized, false (and writes an HTTP 401) otherwise.
 func (dh *dcrHandler) checkDCRAuthorization(r *http.Request, w http.ResponseWriter) bool {
-	if slices.Contains(security.GetPermissions(r.Context()), "system") {
+	if security.HasSystemPermission(security.GetPermissions(r.Context())) {
 		return true
 	}
 	sysutils.WriteJSONError(w, ErrorUnauthorized.Code,
-		ErrorUnauthorized.ErrorDescription, http.StatusUnauthorized, nil)
+		ErrorUnauthorized.ErrorDescription.DefaultValue, http.StatusUnauthorized, nil)
 	return false
 }
 
@@ -97,5 +96,5 @@ func (dh *dcrHandler) writeServiceErrorResponse(w http.ResponseWriter, svcErr *s
 		statusCode = http.StatusBadRequest
 	}
 
-	sysutils.WriteJSONError(w, svcErr.Code, svcErr.ErrorDescription, statusCode, nil)
+	sysutils.WriteJSONError(w, svcErr.Code, svcErr.ErrorDescription.DefaultValue, statusCode, nil)
 }

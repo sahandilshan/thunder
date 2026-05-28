@@ -19,12 +19,12 @@
 package subscriber
 
 import (
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/observability/adapter"
-	"github.com/asgardeo/thunder/internal/system/observability/event"
-	"github.com/asgardeo/thunder/internal/system/observability/formatter"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/observability/adapter"
+	"github.com/thunder-id/thunderid/internal/system/observability/event"
+	"github.com/thunder-id/thunderid/internal/system/observability/formatter"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const consoleSubscriberComponentName = "ConsoleSubscriber"
@@ -57,13 +57,13 @@ func NewConsoleSubscriber() *ConsoleSubscriber {
 
 // IsEnabled checks if the console subscriber should be activated based on configuration.
 func (cs *ConsoleSubscriber) IsEnabled() bool {
-	return config.GetThunderRuntime().Config.Observability.Output.Console.Enabled
+	return config.GetServerRuntime().Config.Observability.Output.Console.Enabled
 }
 
 // Initialize sets up the console subscriber with the provided configuration.
 func (cs *ConsoleSubscriber) Initialize() error {
 	// Get config directly from config package (avoid import cycle)
-	consoleConfig := config.GetThunderRuntime().Config.Observability.Output.Console
+	consoleConfig := config.GetServerRuntime().Config.Observability.Output.Console
 
 	// Create formatter based on config using the Initialize pattern
 	fmtr := formatter.Initialize(consoleConfig.Format)

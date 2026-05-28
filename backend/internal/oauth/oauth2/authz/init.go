@@ -22,41 +22,57 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/application"
-	"github.com/asgardeo/thunder/internal/flow/flowexec"
-	"github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/flow/flowexec"
+	"github.com/thunder-id/thunderid/internal/inboundclient"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/par"
+	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 // Initialize initializes the authorization handler and registers its routes.
 func Initialize(
 	mux *http.ServeMux,
-	applicationService application.ApplicationServiceInterface,
+	inboundClient inboundclient.InboundClientServiceInterface,
+	resourceService resource.ResourceServiceInterface,
 	jwtService jwt.JWTServiceInterface,
 	flowExecService flowexec.FlowExecServiceInterface,
+	parService par.PARServiceInterface,
 ) (AuthorizeServiceInterface, error) {
-	authzCodeStore := newAuthorizationCodeStore()
-	authzReqStore := newAuthorizationRequestStore()
-
-	dbProvider := provider.GetDBProvider()
-	runtimeDBClient, err := dbProvider.GetRuntimeDBClient()
+	authzCodeStore, authzReqStore, transactioner, err := initializeAuthorizationStores()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to initialize database client for authorization service")
-	}
-
-	transactioner, err := runtimeDBClient.GetTransactioner()
-	if err != nil {
-		return nil, fmt.Errorf("Failed to initialize database transactioner for authorization service")
+		return nil, fmt.Errorf("failed to initialize authorization stores: %w", err)
 	}
 
 	authzService := newAuthorizeService(
-		applicationService, jwtService, flowExecService, authzCodeStore, authzReqStore, transactioner,
+		inboundClient, resourceService, jwtService, flowExecService,
+		authzCodeStore, authzReqStore, parService, transactioner,
 	)
 	authzHandler := newAuthorizeHandler(authzService)
 	registerRoutes(mux, authzHandler)
 	return authzService, nil
+}
+
+// initializeAuthorizationStores creates the authorization code store, request store, and transactioner.
+func initializeAuthorizationStores() (
+	AuthorizationCodeStoreInterface, authorizationRequestStoreInterface, transaction.Transactioner, error) {
+	if config.GetServerRuntime().Config.Database.Runtime.Type == provider.DataSourceTypeRedis {
+		redisProvider := provider.GetRedisProvider()
+		return newRedisAuthorizationCodeStore(redisProvider),
+			newRedisAuthorizationRequestStore(redisProvider),
+			transaction.NewNoOpTransactioner(),
+			nil
+	}
+	dbProvider := provider.GetDBProvider()
+	transactioner, err := dbProvider.GetRuntimeDBTransactioner()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return newAuthorizationCodeStore(), newAuthorizationRequestStore(), transactioner, nil
 }
 
 // registerRoutes registers the routes for OAuth2 authorization operations.
@@ -67,9 +83,10 @@ func registerRoutes(mux *http.ServeMux, authzHandler AuthorizeHandlerInterface) 
 		withFrameProtection(authzHandler.HandleAuthorizeGetRequest))
 
 	callbackOpts := middleware.CORSOptions{
-		AllowedMethods:   "POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("POST /oauth2/auth/callback",

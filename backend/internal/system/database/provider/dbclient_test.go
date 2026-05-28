@@ -23,12 +23,17 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"net"
+	"os"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 
-	"github.com/asgardeo/thunder/internal/system/database/model"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/database/model"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -53,7 +58,7 @@ func (suite *DBClientTestSuite) SetupTest() {
 	}
 
 	db := model.NewDB(suite.mockDB)
-	suite.dbClient = NewDBClient(db, "mock", "test")
+	suite.dbClient = NewDBClient(db, "mock", "test", retryConfig{})
 }
 
 func (suite *DBClientTestSuite) TearDownTest() {
@@ -320,6 +325,57 @@ func (suite *DBClientTestSuite) TestQueryContextError() {
 	assert.Equal(suite.T(), expectedErr, err)
 }
 
+func (suite *DBClientTestSuite) TestQueryContextRetriesOnTransientError() {
+	retryClient := NewDBClient(model.NewDB(suite.mockDB), "mock", "test", retryConfig{
+		MaxAttempts: 2,
+		MinBackoff:  time.Millisecond,
+		MaxBackoff:  time.Millisecond,
+		RandFloat64: func() float64 { return 0 },
+	})
+
+	testQuery := model.DBQuery{
+		ID:    "test_query_ctx_retry",
+		Query: "SELECT id FROM users WHERE id = ?",
+	}
+
+	suite.mock.ExpectQuery("SELECT id FROM users WHERE id = ?").
+		WithArgs(1).
+		WillReturnError(&net.OpError{
+			Op:  "dial",
+			Net: "tcp",
+			Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED},
+		})
+
+	rows := sqlmock.NewRows([]string{"id"}).AddRow(1)
+	suite.mock.ExpectQuery("SELECT id FROM users WHERE id = ?").
+		WithArgs(1).
+		WillReturnRows(rows)
+
+	results, err := retryClient.QueryContext(context.Background(), testQuery, 1)
+
+	assert.NoError(suite.T(), err)
+	assert.Len(suite.T(), results, 1)
+	assert.Equal(suite.T(), int64(1), results[0]["id"])
+}
+
+func (suite *DBClientTestSuite) TestQueryContextDoesNotRetryOnNonRetryableError() {
+	testQuery := model.DBQuery{
+		ID:    "test_query_ctx_no_retry",
+		Query: "SELECT id FROM users WHERE id = ?",
+	}
+
+	expectedErr := errors.New("syntax error at or near SELECT")
+	suite.mock.ExpectQuery("SELECT id FROM users WHERE id = ?").
+		WithArgs(1).
+		WillReturnError(expectedErr)
+
+	results, err := suite.dbClient.QueryContext(context.Background(), testQuery, 1)
+
+	assert.Error(suite.T(), err)
+	assert.Equal(suite.T(), expectedErr, err)
+	assert.Nil(suite.T(), results)
+}
+
 func (suite *DBClientTestSuite) TestExecuteContextWithoutTransaction() {
 	testQuery := model.DBQuery{
 		ID:    "test_execute_ctx_no_tx",
@@ -394,4 +450,37 @@ func (suite *DBClientTestSuite) TestExecuteContextRowsAffectedError() {
 
 	assert.Error(suite.T(), err)
 	assert.Equal(suite.T(), int64(0), rowsAffected)
+}
+
+func (suite *DBClientTestSuite) TestExecuteContextDoesNotRetryToAvoidDuplicateWrites() {
+	testQuery := model.DBQuery{
+		ID:    "test_execute_ctx_no_retry",
+		Query: "INSERT INTO users(name) VALUES (?)",
+	}
+
+	suite.mock.ExpectExec(`INSERT INTO users\(name\) VALUES \(\?\)`).
+		WithArgs("Alice").
+		WillReturnError(&net.OpError{
+			Op:  "dial",
+			Net: "tcp",
+			Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED},
+		})
+
+	rowsAffected, err := suite.dbClient.ExecuteContext(context.Background(), testQuery, "Alice")
+
+	assert.Error(suite.T(), err)
+	assert.Equal(suite.T(), int64(0), rowsAffected)
+}
+
+func (suite *DBClientTestSuite) TestIsRetryableDBError() {
+	assert.True(suite.T(), isRetryableDBError(driver.ErrBadConn))
+	assert.True(suite.T(), isRetryableDBError(context.DeadlineExceeded))
+	assert.True(suite.T(), isRetryableDBError(&pq.Error{Code: "40P01"}))
+	assert.True(suite.T(), isRetryableDBError(&net.OpError{
+		Op:  "dial",
+		Net: "tcp",
+		Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNRESET},
+	}))
+	assert.False(suite.T(), isRetryableDBError(sql.ErrNoRows))
+	assert.False(suite.T(), isRetryableDBError(errors.New("syntax error near FROM")))
 }

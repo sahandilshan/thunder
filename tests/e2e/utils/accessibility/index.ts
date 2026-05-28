@@ -21,7 +21,7 @@
  *
  * Production-grade a11y testing powered by axe-core.
  * Provides shared helpers for running WCAG compliance audits
- * across Thunder's E2E test suite.
+ * across E2E test suite.
  *
  * @see https://github.com/dequelabs/axe-core
  * @see https://www.w3.org/WAI/WCAG22/quickref/

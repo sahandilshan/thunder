@@ -19,7 +19,7 @@
 package resource
 
 import (
-	dbmodel "github.com/asgardeo/thunder/internal/system/database/model"
+	dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
 )
 
 // Resource Server Queries
@@ -27,24 +27,24 @@ var (
 	// queryCreateResourceServer creates a new resource server.
 	queryCreateResourceServer = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-01",
-		Query: `INSERT INTO RESOURCE_SERVER
-			(ID, OU_ID, NAME, DESCRIPTION, IDENTIFIER, PROPERTIES, DEPLOYMENT_ID)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		Query: `INSERT INTO "RESOURCE_SERVER"
+			(ID, OU_ID, NAME, DESCRIPTION, HANDLE, IDENTIFIER, PROPERTIES, DEPLOYMENT_ID)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 	}
 
 	// queryGetResourceServerByID retrieves a resource server by ID.
 	queryGetResourceServerByID = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-02",
-		Query: `SELECT ID, OU_ID, NAME, DESCRIPTION, IDENTIFIER, PROPERTIES
-			FROM RESOURCE_SERVER
+		Query: `SELECT ID, OU_ID, NAME, DESCRIPTION, HANDLE, IDENTIFIER, PROPERTIES
+			FROM "RESOURCE_SERVER"
 			WHERE ID = $1 AND DEPLOYMENT_ID = $2`,
 	}
 
 	// queryGetResourceServerList retrieves a list of resource servers with pagination.
 	queryGetResourceServerList = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-03",
-		Query: `SELECT ID, OU_ID, NAME, DESCRIPTION, IDENTIFIER, PROPERTIES
-			FROM RESOURCE_SERVER
+		Query: `SELECT ID, OU_ID, NAME, DESCRIPTION, HANDLE, IDENTIFIER, PROPERTIES
+			FROM "RESOURCE_SERVER"
 			WHERE DEPLOYMENT_ID = $3
 			ORDER BY CREATED_AT DESC
 			LIMIT $1 OFFSET $2`,
@@ -53,43 +53,57 @@ var (
 	// queryGetResourceServerListCount retrieves the total count of resource servers.
 	queryGetResourceServerListCount = dbmodel.DBQuery{
 		ID:    "RSQ-RES_MGT-04",
-		Query: `SELECT COUNT(*) as total FROM RESOURCE_SERVER WHERE DEPLOYMENT_ID = $1`,
+		Query: `SELECT COUNT(*) as total FROM "RESOURCE_SERVER" WHERE DEPLOYMENT_ID = $1`,
 	}
 
 	// queryUpdateResourceServer updates a resource server.
 	queryUpdateResourceServer = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-05",
-		Query: `UPDATE RESOURCE_SERVER
-			SET OU_ID = $1, NAME = $2, DESCRIPTION = $3, IDENTIFIER = $4, PROPERTIES = $5
-			WHERE ID = $6 AND DEPLOYMENT_ID = $7`,
+		Query: `UPDATE "RESOURCE_SERVER"
+			SET OU_ID = $1, NAME = $2, DESCRIPTION = $3, HANDLE = $4, IDENTIFIER = $5, PROPERTIES = $6
+			WHERE ID = $7 AND DEPLOYMENT_ID = $8`,
 	}
 
 	// queryDeleteResourceServer deletes a resource server.
 	queryDeleteResourceServer = dbmodel.DBQuery{
 		ID:    "RSQ-RES_MGT-06",
-		Query: `DELETE FROM RESOURCE_SERVER WHERE ID = $1 AND DEPLOYMENT_ID = $2`,
+		Query: `DELETE FROM "RESOURCE_SERVER" WHERE ID = $1 AND DEPLOYMENT_ID = $2`,
 	}
 
 	// queryCheckResourceServerNameExists checks if a resource server name already exists.
 	queryCheckResourceServerNameExists = dbmodel.DBQuery{
 		ID:    "RSQ-RES_MGT-07",
-		Query: `SELECT COUNT(*) as count FROM RESOURCE_SERVER WHERE NAME = $1 AND DEPLOYMENT_ID = $2`,
+		Query: `SELECT COUNT(*) as count FROM "RESOURCE_SERVER" WHERE NAME = $1 AND DEPLOYMENT_ID = $2`,
+	}
+
+	// queryCheckResourceServerHandleExists checks if a resource server handler already exists.
+	queryCheckResourceServerHandleExists = dbmodel.DBQuery{
+		ID:    "RSQ-RES_MGT-08",
+		Query: `SELECT COUNT(*) as count FROM "RESOURCE_SERVER" WHERE HANDLE = $1 AND DEPLOYMENT_ID = $2`,
 	}
 
 	// queryCheckResourceServerIdentifierExists checks if a resource server identifier already exists.
 	queryCheckResourceServerIdentifierExists = dbmodel.DBQuery{
-		ID:    "RSQ-RES_MGT-08",
-		Query: `SELECT COUNT(*) as count FROM RESOURCE_SERVER WHERE IDENTIFIER = $1 AND DEPLOYMENT_ID = $2`,
+		ID:    "RSQ-RES_MGT-33",
+		Query: `SELECT COUNT(*) as count FROM "RESOURCE_SERVER" WHERE IDENTIFIER = $1 AND DEPLOYMENT_ID = $2`,
+	}
+
+	// queryGetResourceServerByIdentifier retrieves a resource server by identifier.
+	queryGetResourceServerByIdentifier = dbmodel.DBQuery{
+		ID: "RSQ-RES_MGT-34",
+		Query: `SELECT ID, OU_ID, NAME, DESCRIPTION, HANDLE, IDENTIFIER, PROPERTIES
+			FROM "RESOURCE_SERVER"
+			WHERE IDENTIFIER = $1 AND DEPLOYMENT_ID = $2`,
 	}
 
 	// queryCheckResourceServerHasDependencies checks if resource server has resources or actions.
 	queryCheckResourceServerHasDependencies = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-09",
 		Query: `SELECT COUNT(*) as count FROM (
-			SELECT 1 FROM RESOURCE r
+			SELECT 1 FROM "RESOURCE" r
 				WHERE r.RESOURCE_SERVER_ID = $1 AND r.DEPLOYMENT_ID = $2
 			UNION ALL
-			SELECT 1 FROM ACTION a
+			SELECT 1 FROM "ACTION" a
 				WHERE a.RESOURCE_SERVER_ID = $1 AND a.RESOURCE_ID IS NULL AND a.DEPLOYMENT_ID = $2
 			LIMIT 1
 		) as dependencies`,
@@ -101,7 +115,7 @@ var (
 	// queryCreateResource creates a new resource.
 	queryCreateResource = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-10",
-		Query: `INSERT INTO RESOURCE
+		Query: `INSERT INTO "RESOURCE"
 		        (ID, RESOURCE_SERVER_ID, NAME, HANDLE, DESCRIPTION, PERMISSION, PROPERTIES,
 				PARENT_RESOURCE_ID, DEPLOYMENT_ID)
 		        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -112,8 +126,8 @@ var (
 		ID: "RSQ-RES_MGT-11",
 		Query: `SELECT r.ID, r.NAME, r.HANDLE, r.DESCRIPTION, r.PERMISSION,
 				r.PROPERTIES, pr.ID as PARENT_RESOURCE_ID
-			FROM RESOURCE r
-			LEFT JOIN RESOURCE pr ON r.PARENT_RESOURCE_ID = pr.ID
+			FROM "RESOURCE" r
+			LEFT JOIN "RESOURCE" pr ON r.PARENT_RESOURCE_ID = pr.ID
 			WHERE r.ID = $1 AND r.RESOURCE_SERVER_ID = $2 AND r.DEPLOYMENT_ID = $3`,
 	}
 
@@ -122,8 +136,8 @@ var (
 		ID: "RSQ-RES_MGT-12",
 		Query: `SELECT r.ID, r.NAME, r.HANDLE, r.DESCRIPTION, r.PERMISSION,
 				r.PROPERTIES, pr.ID as PARENT_RESOURCE_ID
-			FROM RESOURCE r
-			LEFT JOIN RESOURCE pr ON r.PARENT_RESOURCE_ID = pr.ID
+			FROM "RESOURCE" r
+			LEFT JOIN "RESOURCE" pr ON r.PARENT_RESOURCE_ID = pr.ID
 			WHERE r.RESOURCE_SERVER_ID = $1 AND r.DEPLOYMENT_ID = $4
 			ORDER BY r.CREATED_AT DESC LIMIT $2 OFFSET $3`,
 	}
@@ -133,8 +147,8 @@ var (
 		ID: "RSQ-RES_MGT-13",
 		Query: `SELECT r.ID, r.NAME, r.HANDLE, r.DESCRIPTION, r.PERMISSION,
 				r.PROPERTIES, pr.ID as PARENT_RESOURCE_ID
-			FROM RESOURCE r
-			LEFT JOIN RESOURCE pr ON r.PARENT_RESOURCE_ID = pr.ID
+			FROM "RESOURCE" r
+			LEFT JOIN "RESOURCE" pr ON r.PARENT_RESOURCE_ID = pr.ID
 			WHERE r.RESOURCE_SERVER_ID = $1 AND r.PARENT_RESOURCE_ID = $2 AND r.DEPLOYMENT_ID = $5
 			ORDER BY r.CREATED_AT DESC LIMIT $3 OFFSET $4`,
 	}
@@ -144,8 +158,8 @@ var (
 		ID: "RSQ-RES_MGT-14",
 		Query: `SELECT r.ID, r.NAME, r.HANDLE, r.DESCRIPTION, r.PERMISSION,
 				r.PROPERTIES, pr.ID as PARENT_RESOURCE_ID
-			FROM RESOURCE r
-		        LEFT JOIN RESOURCE pr ON r.PARENT_RESOURCE_ID = pr.ID
+			FROM "RESOURCE" r
+		        LEFT JOIN "RESOURCE" pr ON r.PARENT_RESOURCE_ID = pr.ID
 		        WHERE r.RESOURCE_SERVER_ID = $1 AND r.PARENT_RESOURCE_ID IS NULL AND r.DEPLOYMENT_ID = $4
 		        ORDER BY r.CREATED_AT DESC LIMIT $2 OFFSET $3`,
 	}
@@ -154,7 +168,7 @@ var (
 	queryGetResourceListCount = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-15",
 		Query: `SELECT COUNT(*) as total
-		        FROM RESOURCE r
+		        FROM "RESOURCE" r
 		        WHERE r.RESOURCE_SERVER_ID = $1 AND r.DEPLOYMENT_ID = $2`,
 	}
 
@@ -162,7 +176,7 @@ var (
 	queryGetResourceListCountByParent = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-16",
 		Query: `SELECT COUNT(*) as total
-		        FROM RESOURCE r
+		        FROM "RESOURCE" r
 		        WHERE r.RESOURCE_SERVER_ID = $1 AND r.PARENT_RESOURCE_ID = $2 AND r.DEPLOYMENT_ID = $3`,
 	}
 
@@ -170,14 +184,14 @@ var (
 	queryGetResourceListCountByNullParent = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-17",
 		Query: `SELECT COUNT(*) as total
-		        FROM RESOURCE r
+		        FROM "RESOURCE" r
 		        WHERE r.RESOURCE_SERVER_ID = $1 AND r.PARENT_RESOURCE_ID IS NULL AND r.DEPLOYMENT_ID = $2`,
 	}
 
 	// queryUpdateResource updates a resource.
 	queryUpdateResource = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-18",
-		Query: `UPDATE RESOURCE
+		Query: `UPDATE "RESOURCE"
 		        SET NAME = $1,
 				    DESCRIPTION = $2,
 		            PROPERTIES = $3
@@ -186,10 +200,20 @@ var (
 		          AND DEPLOYMENT_ID = $6`,
 	}
 
+	// queryUpdateResourcePermission updates only the permission field of a resource.
+	queryUpdateResourcePermission = dbmodel.DBQuery{
+		ID: "RSQ-RES_MGT-36",
+		Query: `UPDATE "RESOURCE"
+		        SET PERMISSION = $1
+		        WHERE ID = $2
+		          AND RESOURCE_SERVER_ID = $3
+		          AND DEPLOYMENT_ID = $4`,
+	}
+
 	// queryDeleteResource deletes a resource.
 	queryDeleteResource = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-19",
-		Query: `DELETE FROM RESOURCE
+		Query: `DELETE FROM "RESOURCE"
 		        WHERE ID = $1
 		          AND RESOURCE_SERVER_ID = $2
 		          AND DEPLOYMENT_ID = $3`,
@@ -199,7 +223,7 @@ var (
 	queryCheckResourceHandleExistsUnderParent = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-20",
 		Query: `SELECT COUNT(*) as count
-		        FROM RESOURCE r WHERE r.RESOURCE_SERVER_ID = $1 AND r.HANDLE = $2
+		        FROM "RESOURCE" r WHERE r.RESOURCE_SERVER_ID = $1 AND r.HANDLE = $2
 				AND r.PARENT_RESOURCE_ID = $3 AND r.DEPLOYMENT_ID = $4`,
 	}
 
@@ -207,7 +231,7 @@ var (
 	queryCheckResourceHandleExistsUnderNullParent = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-21",
 		Query: `SELECT COUNT(*) as count
-		        FROM RESOURCE r WHERE r.RESOURCE_SERVER_ID = $1 AND r.HANDLE = $2
+		        FROM "RESOURCE" r WHERE r.RESOURCE_SERVER_ID = $1 AND r.HANDLE = $2
 				AND r.PARENT_RESOURCE_ID IS NULL AND r.DEPLOYMENT_ID = $3`,
 	}
 
@@ -215,10 +239,10 @@ var (
 	queryCheckResourceHasDependencies = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-22",
 		Query: `SELECT COUNT(*) as count FROM (
-			SELECT 1 FROM RESOURCE child
+			SELECT 1 FROM "RESOURCE" child
 				WHERE child.PARENT_RESOURCE_ID = $1 AND child.DEPLOYMENT_ID = $2
 			UNION ALL
-			SELECT 1 FROM ACTION a
+			SELECT 1 FROM "ACTION" a
 				WHERE a.RESOURCE_ID = $1 AND a.DEPLOYMENT_ID = $2
 			LIMIT 1
 		) as dependencies`,
@@ -229,11 +253,11 @@ var (
 	queryCheckCircularDependency = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-23",
 		Query: `WITH RECURSIVE parent_hierarchy AS (
-			SELECT ID, PARENT_RESOURCE_ID, DEPLOYMENT_ID FROM RESOURCE
+			SELECT ID, PARENT_RESOURCE_ID, DEPLOYMENT_ID FROM "RESOURCE"
 			WHERE ID = $1 AND DEPLOYMENT_ID = $3
 			UNION ALL
 			SELECT r.ID, r.PARENT_RESOURCE_ID, r.DEPLOYMENT_ID
-			FROM RESOURCE r
+			FROM "RESOURCE" r
 			INNER JOIN parent_hierarchy ph ON ph.PARENT_RESOURCE_ID = r.ID
 				AND ph.DEPLOYMENT_ID = r.DEPLOYMENT_ID
 		)
@@ -246,7 +270,7 @@ var (
 	// queryCreateAction creates a new action.
 	queryCreateAction = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-24",
-		Query: `INSERT INTO ACTION
+		Query: `INSERT INTO "ACTION"
 		        (ID, RESOURCE_SERVER_ID, RESOURCE_ID, NAME, HANDLE, DESCRIPTION, PERMISSION,
 				PROPERTIES, DEPLOYMENT_ID)
 		        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -256,7 +280,7 @@ var (
 	queryGetActionByID = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-25",
 		Query: `SELECT a.ID, a.NAME, a.HANDLE, a.DESCRIPTION, a.PERMISSION, a.PROPERTIES
-		        FROM ACTION a
+		        FROM "ACTION" a
 		        WHERE a.ID = $1
 		          AND a.RESOURCE_SERVER_ID = $2
 		          AND (a.RESOURCE_ID = $3 OR (a.RESOURCE_ID IS NULL AND $3 IS NULL))
@@ -267,7 +291,7 @@ var (
 	queryGetActionList = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-26",
 		Query: `SELECT a.ID, a.NAME, a.HANDLE, a.DESCRIPTION, a.PERMISSION, a.PROPERTIES
-		        FROM ACTION a
+		        FROM "ACTION" a
 		        WHERE a.RESOURCE_SERVER_ID = $1
 		          AND (a.RESOURCE_ID = $2 OR (a.RESOURCE_ID IS NULL AND $2 IS NULL))
 		          AND a.DEPLOYMENT_ID = $5
@@ -278,7 +302,7 @@ var (
 	queryGetActionListCount = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-27",
 		Query: `SELECT COUNT(*) as total
-		        FROM ACTION a
+		        FROM "ACTION" a
 		        WHERE a.RESOURCE_SERVER_ID = $1
 		          AND (a.RESOURCE_ID = $2 OR (a.RESOURCE_ID IS NULL AND $2 IS NULL))
 		          AND a.DEPLOYMENT_ID = $3`,
@@ -287,7 +311,7 @@ var (
 	// queryUpdateAction updates an action.
 	queryUpdateAction = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-28",
-		Query: `UPDATE ACTION
+		Query: `UPDATE "ACTION"
 		        SET NAME = $1, DESCRIPTION = $2, PROPERTIES = $3
 		        WHERE ID = $4
 		          AND RESOURCE_SERVER_ID = $5
@@ -295,10 +319,21 @@ var (
 		          AND DEPLOYMENT_ID = $7`,
 	}
 
+	// queryUpdateActionPermission updates only the permission field of an action.
+	queryUpdateActionPermission = dbmodel.DBQuery{
+		ID: "RSQ-RES_MGT-37",
+		Query: `UPDATE "ACTION"
+		        SET PERMISSION = $1
+		        WHERE ID = $2
+		          AND RESOURCE_SERVER_ID = $3
+		          AND (RESOURCE_ID = $4 OR (RESOURCE_ID IS NULL AND $4 IS NULL))
+		          AND DEPLOYMENT_ID = $5`,
+	}
+
 	// queryDeleteAction deletes an action.
 	queryDeleteAction = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-29",
-		Query: `DELETE FROM ACTION
+		Query: `DELETE FROM "ACTION"
 		        WHERE ID = $1
 		          AND RESOURCE_SERVER_ID = $2
 		          AND (RESOURCE_ID = $3 OR (RESOURCE_ID IS NULL AND $3 IS NULL))
@@ -309,7 +344,7 @@ var (
 	queryCheckActionExists = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-30",
 		Query: `SELECT COUNT(*) as count
-		        FROM ACTION a
+		        FROM "ACTION" a
 		        WHERE a.ID = $1
 		          AND a.RESOURCE_SERVER_ID = $2
 		          AND (a.RESOURCE_ID = $3 OR (a.RESOURCE_ID IS NULL AND $3 IS NULL))
@@ -320,11 +355,54 @@ var (
 	queryCheckActionHandleExists = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-31",
 		Query: `SELECT COUNT(*) as count
-		        FROM ACTION a
+		        FROM "ACTION" a
 		        WHERE a.RESOURCE_SERVER_ID = $1
 		          AND (a.RESOURCE_ID = $2 OR (a.RESOURCE_ID IS NULL AND $2 IS NULL))
 		          AND a.HANDLE = $3
 		          AND a.DEPLOYMENT_ID = $4`,
+	}
+
+	// queryFindResourceServersByPermissions returns distinct resource servers that define at least
+	// one of the supplied permissions (as a RESOURCE.PERMISSION or ACTION.PERMISSION). Results are
+	// ordered by IDENTIFIER for deterministic output. Parameter $2 must be a JSON array string.
+	queryFindResourceServersByPermissions = dbmodel.DBQuery{
+		ID: "RSQ-RES_MGT-35",
+		PostgresQuery: `SELECT DISTINCT rs.ID, rs.OU_ID, rs.NAME, rs.DESCRIPTION, rs.HANDLE,
+		               rs.IDENTIFIER, rs.PROPERTIES
+		        FROM "RESOURCE_SERVER" rs
+		        WHERE rs.DEPLOYMENT_ID = $1
+		          AND rs.IDENTIFIER IS NOT NULL
+		          AND (
+		              EXISTS (
+		                  SELECT 1 FROM "RESOURCE" r
+		                  JOIN json_array_elements_text($2::json) AS p ON r.PERMISSION = p.value::text
+		                  WHERE r.RESOURCE_SERVER_ID = rs.ID AND r.DEPLOYMENT_ID = $1
+		              )
+		              OR EXISTS (
+		                  SELECT 1 FROM "ACTION" a
+		                  JOIN json_array_elements_text($2::json) AS p ON a.PERMISSION = p.value::text
+		                  WHERE a.RESOURCE_SERVER_ID = rs.ID AND a.DEPLOYMENT_ID = $1
+		              )
+		          )
+		        ORDER BY rs.IDENTIFIER`,
+		SQLiteQuery: `SELECT DISTINCT rs.ID, rs.OU_ID, rs.NAME, rs.DESCRIPTION, rs.HANDLE,
+		              rs.IDENTIFIER, rs.PROPERTIES
+		        FROM "RESOURCE_SERVER" rs
+		        WHERE rs.DEPLOYMENT_ID = $1
+		          AND rs.IDENTIFIER IS NOT NULL
+		          AND (
+		              EXISTS (
+		                  SELECT 1 FROM "RESOURCE" r
+		                  JOIN json_each($2) AS p ON r.PERMISSION = p.value
+		                  WHERE r.RESOURCE_SERVER_ID = rs.ID AND r.DEPLOYMENT_ID = $1
+		              )
+		              OR EXISTS (
+		                  SELECT 1 FROM "ACTION" a
+		                  JOIN json_each($2) AS p ON a.PERMISSION = p.value
+		                  WHERE a.RESOURCE_SERVER_ID = rs.ID AND a.DEPLOYMENT_ID = $1
+		              )
+		          )
+		        ORDER BY rs.IDENTIFIER`,
 	}
 
 	// queryValidatePermissions validates if permissions exist for a resource server.
@@ -337,14 +415,14 @@ var (
 		        FROM json_array_elements_text($3::json) AS p
 		        WHERE NOT EXISTS (
 		            SELECT 1
-		            FROM RESOURCE r
-		            WHERE r.RESOURCE_SERVER_ID = $1 
+		            FROM "RESOURCE" r
+		            WHERE r.RESOURCE_SERVER_ID = $1
 		              AND r.DEPLOYMENT_ID = $2
 		              AND r.PERMISSION = p.value::text
 		        )
 		        AND NOT EXISTS (
 		            SELECT 1
-		            FROM ACTION a
+		            FROM "ACTION" a
 		            WHERE a.RESOURCE_SERVER_ID = $1
 		              AND a.DEPLOYMENT_ID = $2
 		              AND a.PERMISSION = p.value::text
@@ -354,14 +432,14 @@ var (
 		        FROM json_each($3) AS p
 		        WHERE NOT EXISTS (
 		            SELECT 1
-		            FROM RESOURCE r
+		            FROM "RESOURCE" r
 		            WHERE r.RESOURCE_SERVER_ID = $1
 		              AND r.DEPLOYMENT_ID = $2
 		              AND r.PERMISSION = p.value
 		        )
 		        AND NOT EXISTS (
 		            SELECT 1
-		            FROM ACTION a
+		            FROM "ACTION" a
 		            WHERE a.RESOURCE_SERVER_ID = $1
 		              AND a.DEPLOYMENT_ID = $2
 		              AND a.PERMISSION = p.value

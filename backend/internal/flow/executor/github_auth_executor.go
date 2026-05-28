@@ -19,12 +19,13 @@
 package executor
 
 import (
-	authngithub "github.com/asgardeo/thunder/internal/authn/github"
-	authnoauth "github.com/asgardeo/thunder/internal/authn/oauth"
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/userschema"
+	authngithub "github.com/thunder-id/thunderid/internal/authn/github"
+	authnoauth "github.com/thunder-id/thunderid/internal/authn/oauth"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/idp"
 )
 
 // githubOAuthExecutor implements the OAuth authentication executor for GitHub.
@@ -39,8 +40,9 @@ var _ core.ExecutorInterface = (*githubOAuthExecutor)(nil)
 func newGithubOAuthExecutor(
 	flowFactory core.FlowFactoryInterface,
 	idpService idp.IDPServiceInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
+	entityTypeService entitytype.EntityTypeServiceInterface,
 	authService authngithub.GithubOAuthAuthnServiceInterface,
+	authnProvider authnprovidermgr.AuthnProviderManagerInterface,
 ) oAuthExecutorInterface {
 	oauthSvcCast, ok := authService.(authnoauth.OAuthAuthnCoreServiceInterface)
 	if !ok {
@@ -48,7 +50,7 @@ func newGithubOAuthExecutor(
 	}
 
 	base := newOAuthExecutor(ExecutorNameGitHubAuth, []common.Input{}, []common.Input{},
-		flowFactory, idpService, userSchemaService, oauthSvcCast)
+		flowFactory, idpService, entityTypeService, oauthSvcCast, authnProvider, idp.IDPTypeGitHub)
 
 	return &githubOAuthExecutor{
 		oAuthExecutorInterface: base,

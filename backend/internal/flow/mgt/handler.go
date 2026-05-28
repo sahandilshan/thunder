@@ -22,11 +22,11 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const (
@@ -88,7 +88,7 @@ func (h *flowMgtHandler) listFlows(w http.ResponseWriter, r *http.Request) {
 // createFlow handles POST requests to create a new flow definition.
 func (h *flowMgtHandler) createFlow(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	flowDefRequest, err := utils.DecodeJSONBody[FlowDefinition](r)
+	flowDefRequest, err := utils.DecodeJSONBody[FlowDefinitionRequest](r)
 	if err != nil {
 		handleInvalidRequestError(w)
 		return
@@ -133,7 +133,7 @@ func (h *flowMgtHandler) updateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flowDefRequest, err := utils.DecodeJSONBody[FlowDefinition](r)
+	flowDefRequest, err := utils.DecodeJSONBody[FlowDefinitionRequest](r)
 	if err != nil {
 		handleInvalidRequestError(w)
 		return
@@ -273,7 +273,7 @@ func parsePaginationParams(r *http.Request) (int, int, *serviceerror.ServiceErro
 // sanitizeFlowDefinitionRequest sanitizes input for creating or updating a flow definition.
 // TODO: Currently we're storing node representation as it is. In the future, we should sanitize and
 // validate it properly.
-func sanitizeFlowDefinitionRequest(req *FlowDefinition) *FlowDefinition {
+func sanitizeFlowDefinitionRequest(req *FlowDefinitionRequest) *FlowDefinition {
 	sanitized := &FlowDefinition{
 		Handle:   utils.SanitizeString(req.Handle),
 		Name:     utils.SanitizeString(req.Name),
@@ -306,8 +306,14 @@ func handleError(w http.ResponseWriter, svcErr *serviceerror.ServiceError) {
 	switch svcErr.Code {
 	case ErrorFlowNotFound.Code, ErrorVersionNotFound.Code:
 		statusCode = http.StatusNotFound
+	case ErrorDuplicateFlowID.Code:
+		statusCode = http.StatusConflict
 	case serviceerror.InternalServerError.Code:
 		statusCode = http.StatusInternalServerError
+		log.GetLogger().Error("Internal server error in flow handler",
+			log.String("code", svcErr.Code),
+			log.String("error", svcErr.Error.DefaultValue),
+			log.String("description", svcErr.ErrorDescription.DefaultValue))
 	}
 
 	utils.WriteErrorResponse(w, statusCode, errResp)

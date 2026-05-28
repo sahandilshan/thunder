@@ -22,11 +22,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/notification/common"
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	"github.com/asgardeo/thunder/internal/system/config"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
+	"github.com/thunder-id/thunderid/internal/notification/common"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -46,7 +46,7 @@ func (suite *FileBasedStoreTestSuite) SetupSuite() {
 	// Create temporary directory and crypto key file
 	tempDir := suite.T().TempDir()
 
-	// Initialize ThunderRuntime once for all tests
+	// Initialize server runtime once for all tests
 	testConfig := &config.Config{
 		Crypto: config.CryptoConfig{
 			Encryption: config.EncryptionConfig{
@@ -57,13 +57,13 @@ func (suite *FileBasedStoreTestSuite) SetupSuite() {
 			Enabled: false,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime(tempDir, testConfig)
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime(tempDir, testConfig)
 }
 
 func (suite *FileBasedStoreTestSuite) TearDownSuite() {
-	// Clean up ThunderRuntime after all tests
-	config.ResetThunderRuntime()
+	// Clean up server runtime after all tests
+	config.ResetServerRuntime()
 }
 
 func (suite *FileBasedStoreTestSuite) SetupTest() {

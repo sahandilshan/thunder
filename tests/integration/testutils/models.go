@@ -23,8 +23,8 @@ import (
 	"time"
 )
 
-// UserSchema represents a user schema (user type) definition
-type UserSchema struct {
+// UserType represents a user type definition
+type UserType struct {
 	ID                    string                 `json:"id,omitempty"`
 	Name                  string                 `json:"name"`
 	OUID                  string                 `json:"ouId"`
@@ -43,11 +43,14 @@ type User struct {
 // Application represents an application in the system
 type Application struct {
 	ID                        string                   `json:"id,omitempty"`
+	OUID                      string                   `json:"ouId,omitempty"`
 	Name                      string                   `json:"name"`
 	Description               string                   `json:"description"`
 	IsRegistrationFlowEnabled bool                     `json:"isRegistrationFlowEnabled"`
+	IsRecoveryFlowEnabled     bool                     `json:"isRecoveryFlowEnabled,omitempty"`
 	AuthFlowID                string                   `json:"authFlowId,omitempty"`
 	RegistrationFlowID        string                   `json:"registrationFlowId,omitempty"`
+	RecoveryFlowID            string                   `json:"recoveryFlowId,omitempty"`
 	ClientID                  string                   `json:"clientId,omitempty"`
 	ClientSecret              string                   `json:"clientSecret,omitempty"`
 	RedirectURIs              []string                 `json:"redirectUris,omitempty"`
@@ -101,11 +104,16 @@ type UserListResponse struct {
 	Links        []Link `json:"links"`
 }
 
+type I18nMessage struct {
+	Key          string `json:"key,omitempty"`
+	DefaultValue string `json:"defaultValue,omitempty"`
+}
+
 // ErrorResponse represents an error response from the API
 type ErrorResponse struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Description string `json:"description"`
+	Code        string      `json:"code"`
+	Message     I18nMessage `json:"message"`
+	Description I18nMessage `json:"description"`
 }
 
 // AuthenticationResponse represents the response from an authentication request
@@ -183,6 +191,7 @@ type ResourceServer struct {
 	ID          string  `json:"id,omitempty"`
 	Name        string  `json:"name"`
 	Description string  `json:"description,omitempty"`
+	Handle      string  `json:"handle,omitempty"`
 	Identifier  string  `json:"identifier,omitempty"`
 	OUID        string  `json:"ouId"`
 	Delimiter   *string `json:"delimiter,omitempty"`
@@ -205,7 +214,7 @@ type ResourcePermissions struct {
 
 // FlowResponse represents the response from flow execution
 type FlowResponse struct {
-	FlowID        string    `json:"flowId"`
+	ExecutionID   string    `json:"executionId"`
 	FlowStatus    string    `json:"flowStatus"`
 	Type          string    `json:"type"`
 	Data          *FlowData `json:"data,omitempty"`
@@ -238,12 +247,13 @@ type FlowAction struct {
 
 // FlowStep represents a single step in a flow execution
 type FlowStep struct {
-	FlowID        string    `json:"flowId"`
-	FlowStatus    string    `json:"flowStatus"`
-	Type          string    `json:"type"`
-	Data          *FlowData `json:"data,omitempty"`
-	Assertion     string    `json:"assertion,omitempty"`
-	FailureReason string    `json:"failureReason,omitempty"`
+	ExecutionID    string    `json:"executionId"`
+	FlowStatus     string    `json:"flowStatus"`
+	Type           string    `json:"type"`
+	Data           *FlowData `json:"data,omitempty"`
+	Assertion      string    `json:"assertion,omitempty"`
+	FailureReason  string    `json:"failureReason,omitempty"`
+	ChallengeToken string    `json:"challengeToken,omitempty"`
 }
 
 // Flow represents a flow definition
@@ -268,4 +278,50 @@ type SenderProperty struct {
 	Name     string `json:"name"`
 	Value    string `json:"value"`
 	IsSecret bool   `json:"isSecret"`
+}
+
+// Agent represents an agent resource in the system.
+type Agent struct {
+	ID          string      `json:"id,omitempty"`
+	OUID        string      `json:"ouId,omitempty"`
+	OUHandle    string      `json:"ouHandle,omitempty"`
+	Type        string      `json:"type,omitempty"`
+	Name        string      `json:"name,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Owner       string      `json:"owner,omitempty"`
+	Attributes  interface{} `json:"attributes,omitempty"`
+	IsReadOnly  bool        `json:"isReadOnly"`
+
+	AuthFlowID                string                   `json:"authFlowId,omitempty"`
+	RegistrationFlowID        string                   `json:"registrationFlowId,omitempty"`
+	IsRegistrationFlowEnabled bool                     `json:"isRegistrationFlowEnabled,omitempty"`
+	ThemeID                   string                   `json:"themeId,omitempty"`
+	LayoutID                  string                   `json:"layoutId,omitempty"`
+	AllowedUserTypes          []string                 `json:"allowedUserTypes,omitempty"`
+	InboundAuthConfig         []AgentInboundAuthConfig `json:"inboundAuthConfig,omitempty"`
+}
+
+// AgentInboundAuthConfig represents an inbound auth config entry for an agent.
+type AgentInboundAuthConfig struct {
+	Type   string            `json:"type"`
+	Config *AgentOAuthConfig `json:"config,omitempty"`
+}
+
+// AgentOAuthConfig holds OAuth client settings for an agent.
+type AgentOAuthConfig struct {
+	ClientID                string   `json:"clientId,omitempty"`
+	ClientSecret            string   `json:"clientSecret,omitempty"`
+	GrantTypes              []string `json:"grantTypes,omitempty"`
+	ResponseTypes           []string `json:"responseTypes,omitempty"`
+	TokenEndpointAuthMethod string   `json:"tokenEndpointAuthMethod,omitempty"`
+	PKCERequired            bool     `json:"pkceRequired,omitempty"`
+	PublicClient            bool     `json:"publicClient,omitempty"`
+}
+
+// AgentListResponse is the paginated list response for agents.
+type AgentListResponse struct {
+	TotalResults int     `json:"totalResults"`
+	StartIndex   int     `json:"startIndex"`
+	Count        int     `json:"count"`
+	Agents       []Agent `json:"agents"`
 }

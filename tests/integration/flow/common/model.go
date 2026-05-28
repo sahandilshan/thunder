@@ -18,6 +18,11 @@
 
 package common
 
+type I18nMessage struct {
+	Key          string `json:"key,omitempty"`
+	DefaultValue string `json:"defaultValue,omitempty"`
+}
+
 // TestSuiteConfig holds common configuration for test suites
 type TestSuiteConfig struct {
 	CreatedUserIDs    []string
@@ -31,12 +36,13 @@ type TestSuiteConfig struct {
 }
 
 type FlowStep struct {
-	FlowID        string   `json:"flowId"`
-	FlowStatus    string   `json:"flowStatus"`
-	Type          string   `json:"type,omitempty"`
-	Data          FlowData `json:"data,omitempty"`
-	Assertion     string   `json:"assertion,omitempty"`
-	FailureReason string   `json:"failureReason,omitempty"`
+	ExecutionID    string   `json:"executionId"`
+	FlowStatus     string   `json:"flowStatus"`
+	Type           string   `json:"type,omitempty"`
+	Data           FlowData `json:"data,omitempty"`
+	Assertion      string   `json:"assertion,omitempty"`
+	FailureReason  string   `json:"failureReason,omitempty"`
+	ChallengeToken string   `json:"challengeToken,omitempty"`
 }
 
 type FlowData struct {
@@ -45,14 +51,27 @@ type FlowData struct {
 	RedirectURL    string            `json:"redirectURL,omitempty"`
 	AdditionalData map[string]string `json:"additionalData,omitempty"`
 	Meta           interface{}       `json:"meta,omitempty"`
+	FieldErrors    []FieldError      `json:"fieldErrors,omitempty"`
 }
 
 type Inputs struct {
-	Ref        string   `json:"ref,omitempty"`
-	Identifier string   `json:"identifier"`
-	Type       string   `json:"type"`
-	Required   bool     `json:"required"`
-	Options    []string `json:"options,omitempty"`
+	Ref        string           `json:"ref,omitempty"`
+	Identifier string           `json:"identifier"`
+	Type       string           `json:"type"`
+	Required   bool             `json:"required"`
+	Options    []string         `json:"options,omitempty"`
+	Validation []ValidationRule `json:"validation,omitempty"`
+}
+
+type ValidationRule struct {
+	Type    string      `json:"type"`
+	Value   interface{} `json:"value"`
+	Message string      `json:"message,omitempty"`
+}
+
+type FieldError struct {
+	Identifier string `json:"identifier"`
+	Message    string `json:"message"`
 }
 
 type Action struct {
@@ -61,7 +80,7 @@ type Action struct {
 }
 
 type ErrorResponse struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Description string `json:"description"`
+	Code        string      `json:"code"`
+	Message     I18nMessage `json:"message"`
+	Description I18nMessage `json:"description"`
 }

@@ -19,31 +19,44 @@
 package userinfo
 
 import (
+	"context"
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/application"
-	"github.com/asgardeo/thunder/internal/attributecache"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/tokenservice"
-	"github.com/asgardeo/thunder/internal/ou"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/middleware"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/attributecache"
+	"github.com/thunder-id/thunderid/internal/inboundclient"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/discovery"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/jwksresolver"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
+	"github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwe"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 // Initialize initializes the userinfo handler and registers its routes.
 func Initialize(
 	mux *http.ServeMux,
 	jwtService jwt.JWTServiceInterface,
+	jweService jwe.JWEServiceInterface,
+	resolver *jwksresolver.Resolver,
 	tokenValidator tokenservice.TokenValidatorInterface,
-	applicationService application.ApplicationServiceInterface,
+	inboundClient inboundclient.InboundClientServiceInterface,
 	ouService ou.OrganizationUnitServiceInterface,
 	attributeCacheSvc attributecache.AttributeCacheServiceInterface,
 	transactioner transaction.Transactioner,
+	discoveryService discovery.DiscoveryServiceInterface,
+	dpopVerifier dpop.VerifierInterface,
 ) userInfoServiceInterface {
-	userInfoService := newUserInfoService(jwtService, tokenValidator, applicationService, ouService,
-		attributeCacheSvc, transactioner)
-	userInfoHandler := newUserInfoHandler(userInfoService)
+	userInfoService := newUserInfoService(jwtService, jweService, resolver, tokenValidator,
+		inboundClient, ouService, attributeCacheSvc, transactioner, dpopVerifier)
+	userInfoEndpoint := discoveryService.GetOAuth2AuthorizationServerMetadata(
+		context.Background()).UserInfoEndpoint
+	dpopAlgs := config.GetServerRuntime().Config.OAuth.DPoP.AllowedAlgs
+	userInfoHandler := newUserInfoHandler(userInfoService, userInfoEndpoint, dpopAlgs)
 	registerRoutes(mux, userInfoHandler)
 	return userInfoService
 }
@@ -51,9 +64,10 @@ func Initialize(
 // registerRoutes registers the routes for the UserInfo endpoint.
 func registerRoutes(mux *http.ServeMux, userInfoHandler *userInfoHandler) {
 	opts := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST, OPTIONS",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET "+constants.OAuth2UserInfoEndpoint,

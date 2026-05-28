@@ -75,6 +75,18 @@ func ConvertInterfaceMapToStringMap(input map[string]interface{}) map[string]str
 	return output
 }
 
+// IsScalar returns true if v is a JSON-unmarshaled primitive (string, float64, bool).
+// Go's encoding/json represents all JSON numbers as float64, so other numeric types
+// are intentionally excluded. Returns false for nil, maps, slices, and other types.
+func IsScalar(v interface{}) bool {
+	switch v.(type) {
+	case string, float64, bool:
+		return true
+	default:
+		return false
+	}
+}
+
 // ConvertInterfaceValueToString converts any interface{} to a string.
 // It handles common types like string, bool, int, float, and slices.
 // For slices, it concatenates the elements into a comma-separated string.

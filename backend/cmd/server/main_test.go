@@ -41,10 +41,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/tests/mocks/jose/jwtmock"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/tests/mocks/jose/jwtmock"
 )
 
 // CreateSecurityMiddlewareTestSuite defines the test suite for createSecurityMiddleware function
@@ -65,15 +65,15 @@ func (suite *CreateSecurityMiddlewareTestSuite) SetupTest() {
 	suite.mux = http.NewServeMux()
 
 	// Ensure environment variable is clean before each test
-	_ = os.Unsetenv("THUNDER_SKIP_SECURITY")
+	_ = os.Unsetenv("SKIP_SECURITY")
 }
 
 func (suite *CreateSecurityMiddlewareTestSuite) TearDownTest() {
 	// Clean up environment variable after each test
-	_ = os.Unsetenv("THUNDER_SKIP_SECURITY")
+	_ = os.Unsetenv("SKIP_SECURITY")
 }
 
-// TestCreateSecurityMiddleware_WithEnvironmentVariable tests various THUNDER_SKIP_SECURITY environment variable values
+// TestCreateSecurityMiddleware_WithEnvironmentVariable tests various SKIP_SECURITY environment variable values
 func (suite *CreateSecurityMiddlewareTestSuite) TestCreateSecurityMiddleware_WithEnvironmentVariable() {
 	testCases := []struct {
 		name               string
@@ -128,9 +128,9 @@ func (suite *CreateSecurityMiddlewareTestSuite) TestCreateSecurityMiddleware_Wit
 		suite.Run(tc.name, func() {
 			// Setup
 			if tc.setEnv {
-				_ = os.Setenv("THUNDER_SKIP_SECURITY", tc.envValue)
+				_ = os.Setenv("SKIP_SECURITY", tc.envValue)
 			} else {
-				_ = os.Unsetenv("THUNDER_SKIP_SECURITY")
+				_ = os.Unsetenv("SKIP_SECURITY")
 			}
 
 			// Execute
@@ -140,7 +140,7 @@ func (suite *CreateSecurityMiddlewareTestSuite) TestCreateSecurityMiddleware_Wit
 			assert.NotNil(suite.T(), handler, "Handler should always be non-nil")
 
 			// Cleanup for next iteration
-			_ = os.Unsetenv("THUNDER_SKIP_SECURITY")
+			_ = os.Unsetenv("SKIP_SECURITY")
 		})
 	}
 }
@@ -165,24 +165,24 @@ func (suite *CreateSecurityMiddlewareTestSuite) TestCreateSecurityMiddleware_Run
 	assert.NotNil(suite.T(), handler1, "First handler should not be nil")
 
 	// Disable security
-	_ = os.Setenv("THUNDER_SKIP_SECURITY", "true")
+	_ = os.Setenv("SKIP_SECURITY", "true")
 	handler2 := createSecurityMiddleware(suite.logger, suite.mux, suite.mockJWTService)
 	assert.NotNil(suite.T(), handler2, "Second handler should not be nil (skipSecurity is handled internally)")
 
 	// Re-enable security
-	_ = os.Unsetenv("THUNDER_SKIP_SECURITY")
+	_ = os.Unsetenv("SKIP_SECURITY")
 	handler3 := createSecurityMiddleware(suite.logger, suite.mux, suite.mockJWTService)
 	assert.NotNil(suite.T(), handler3, "Third handler should not be nil after re-enabling security")
 }
 
 func TestCreateHTTPServer_WithHTTPOnly(t *testing.T) {
 	logger := log.GetLogger()
-	if err := os.Setenv("THUNDER_SKIP_SECURITY", "true"); err != nil {
-		t.Fatalf("failed to set THUNDER_SKIP_SECURITY: %v", err)
+	if err := os.Setenv("SKIP_SECURITY", "true"); err != nil {
+		t.Fatalf("failed to set SKIP_SECURITY: %v", err)
 	}
 	defer func() {
-		if err := os.Unsetenv("THUNDER_SKIP_SECURITY"); err != nil {
-			t.Fatalf("failed to unset THUNDER_SKIP_SECURITY: %v", err)
+		if err := os.Unsetenv("SKIP_SECURITY"); err != nil {
+			t.Fatalf("failed to unset SKIP_SECURITY: %v", err)
 		}
 	}()
 
@@ -320,7 +320,7 @@ func TestGetThunderHome_UsesFlagValue(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	os.Args = []string{origArgs[0], "-thunderHome", tmpDir}
+	os.Args = []string{origArgs[0], "-serverHome", tmpDir}
 
 	got := getThunderHome(log.GetLogger())
 	assert.Equal(t, tmpDir, got)

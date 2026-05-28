@@ -27,8 +27,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	_ "modernc.org/sqlite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/tests/mocks/oumock"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/tests/mocks/oumock"
 )
 
 // fakeTransactioner is a test double for transaction.Transactioner
@@ -47,37 +47,37 @@ func (suite *InitTestSuite) SetupTest() {
 	suite.mockOUService = oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
 
 	// Reset config to clear singleton state
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 
 	// Initialize runtime config for the test
 	testConfig := &config.Config{
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			User: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
 			Identifier: "test-deployment",
 		},
 	}
-	err := config.InitializeThunderRuntime(".", testConfig)
+	err := config.InitializeServerRuntime(".", testConfig)
 	if err != nil {
-		suite.T().Fatalf("Failed to initialize Thunder runtime: %v", err)
+		suite.T().Fatalf("Failed to initialize server runtime: %v", err)
 	}
 }
 
 func (suite *InitTestSuite) TearDownTest() {
 	// Reset config to clear singleton state for next test
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func TestInitTestSuite(t *testing.T) {
@@ -89,7 +89,7 @@ func (suite *InitTestSuite) TestInitialize() {
 	mux := http.NewServeMux()
 
 	// Execute
-	service, exporter, err := Initialize(mux, suite.mockOUService)
+	service, exporter, err := Initialize(mux, suite.mockOUService, newDisabledConsentServiceMock(suite.T()))
 
 	// Assert
 	suite.NoError(err)
@@ -317,7 +317,9 @@ func (suite *InitTestSuite) TestNewResourceService() {
 
 	// Execute
 	mockTransactioner := &fakeTransactioner{}
-	service, err := newResourceService(suite.mockOUService, mockStore, mockTransactioner)
+	service, err := newResourceService(
+		suite.mockOUService, newDisabledConsentServiceMock(suite.T()), mockStore, mockTransactioner,
+	)
 
 	// Assert
 	suite.NoError(err)
@@ -387,7 +389,7 @@ func (suite *InitTestSuite) TestInitialize_IntegrationFlow() {
 	mux := http.NewServeMux()
 
 	// Execute
-	service, _, err := Initialize(mux, suite.mockOUService)
+	service, _, err := Initialize(mux, suite.mockOUService, newDisabledConsentServiceMock(suite.T()))
 
 	// Assert service is created
 	suite.NoError(err)
@@ -478,7 +480,7 @@ func (suite *InitTestSuite) TestRegisterRoutes_CORSConfiguration() {
 // TestInitializeStore_MutableMode tests store initialization in mutable mode
 func (suite *InitTestSuite) TestInitializeStore_MutableMode() {
 	// Setup: Configure mutable store mode
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Resource.Store = "mutable"
 	runtime.Config.DeclarativeResources.Enabled = false
 
@@ -497,7 +499,7 @@ func (suite *InitTestSuite) TestInitializeStore_MutableMode() {
 // TestInitializeStore_DeclarativeMode tests store initialization in declarative mode
 func (suite *InitTestSuite) TestInitializeStore_DeclarativeMode() {
 	// Setup: Configure declarative store mode
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Resource.Store = "declarative"
 
 	// Execute
@@ -515,7 +517,7 @@ func (suite *InitTestSuite) TestInitializeStore_DeclarativeMode() {
 // TestInitializeStore_CompositeMode tests store initialization in composite mode
 func (suite *InitTestSuite) TestInitializeStore_CompositeMode() {
 	// Setup: Configure composite store mode
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Resource.Store = testStoreModeComposite
 
 	// Execute
@@ -547,7 +549,7 @@ func (suite *InitTestSuite) TestInitializeStore_CompositeMode_FileStoreInitializ
 	// This test verifies that errors during file store initialization are properly propagated
 	// In a normal scenario, newFileBasedResourceStore() should not fail, but we document the behavior
 
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Resource.Store = testStoreModeComposite
 
 	// Execute (in normal conditions, this should succeed)
@@ -567,7 +569,7 @@ func (suite *InitTestSuite) TestInitializeStore_InvalidMode_ReturnedFromInitiali
 	// For now, we document that invalid modes are handled by fallback in getResourceStoreMode()
 
 	// Setup with explicit invalid mode that bypasses the fallback
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Resource.Store = "invalid-mode"
 	runtime.Config.DeclarativeResources.Enabled = false
 
@@ -598,7 +600,7 @@ func (suite *InitTestSuite) TestInitializeStore_CaseInsensitiveMode() {
 
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			runtime := config.GetThunderRuntime()
+			runtime := config.GetServerRuntime()
 			runtime.Config.Resource.Store = tc.storeMode
 
 			store, _, err := initializeStore()
@@ -636,7 +638,7 @@ func (suite *InitTestSuite) TestInitializeStore_WithWhitespace() {
 
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			runtime := config.GetThunderRuntime()
+			runtime := config.GetServerRuntime()
 			runtime.Config.Resource.Store = tc.storeMode
 
 			store, _, err := initializeStore()
@@ -654,7 +656,7 @@ func (suite *InitTestSuite) TestInitializeStore_WithWhitespace() {
 
 // TestInitializeStore_FallbackToGlobalConfig tests fallback to global configuration
 func (suite *InitTestSuite) TestInitializeStore_FallbackToGlobalConfig() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 
 	testCases := []struct {
 		name              string

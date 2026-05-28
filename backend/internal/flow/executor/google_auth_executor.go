@@ -19,12 +19,13 @@
 package executor
 
 import (
-	authngoogle "github.com/asgardeo/thunder/internal/authn/google"
-	authnoidc "github.com/asgardeo/thunder/internal/authn/oidc"
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/userschema"
+	authngoogle "github.com/thunder-id/thunderid/internal/authn/google"
+	authnoidc "github.com/thunder-id/thunderid/internal/authn/oidc"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/idp"
 )
 
 // googleOIDCAuthExecutor implements the OIDC authentication executor for Google.
@@ -39,8 +40,9 @@ var _ core.ExecutorInterface = (*googleOIDCAuthExecutor)(nil)
 func newGoogleOIDCAuthExecutor(
 	flowFactory core.FlowFactoryInterface,
 	idpService idp.IDPServiceInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
+	entityTypeService entitytype.EntityTypeServiceInterface,
 	authService authngoogle.GoogleOIDCAuthnServiceInterface,
+	authnProvider authnprovidermgr.AuthnProviderManagerInterface,
 ) oidcAuthExecutorInterface {
 	defaultInputs := []common.Input{
 		{
@@ -61,7 +63,7 @@ func newGoogleOIDCAuthExecutor(
 	}
 
 	base := newOIDCAuthExecutor(ExecutorNameGoogleAuth, defaultInputs, []common.Input{},
-		flowFactory, idpService, userSchemaService, oidcSvcCast)
+		flowFactory, idpService, entityTypeService, oidcSvcCast, authnProvider, idp.IDPTypeGoogle)
 
 	return &googleOIDCAuthExecutor{
 		oidcAuthExecutorInterface: base,

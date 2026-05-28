@@ -1,0 +1,196 @@
+---
+title: Express Quickstart
+sidebar_position: 3
+persona: app
+description: Quick start guide to integrate with an Express application
+---
+
+import {
+  Boxes,
+  Package,
+  LogIn,
+  BookOpen,
+  Clock,
+  Server,
+  Hexagon,
+  FileCode,
+} from '@wso2/oxygen-ui-icons-react';
+
+# Express Quickstart
+
+Use this guide to add ThunderID authentication to an Express app with sign-in, sign-out, and route protection.
+
+<TutorialHero>
+
+## What You Will Learn
+
+<TutorialHeroItem icon={<Boxes />}>Create a new Express app</TutorialHeroItem>
+<TutorialHeroItem icon={<Package />}>Install the <code>@thunderid/express</code> package</TutorialHeroItem>
+<TutorialHeroItem icon={<LogIn />}>Add working sign-in and sign-out routes</TutorialHeroItem>
+<TutorialHeroItem icon={<BookOpen />}>Protect routes and access the signed-in user</TutorialHeroItem>
+
+## Prerequisites
+
+<TutorialHeroItem icon={<Clock />}>About 15 minutes</TutorialHeroItem>
+<TutorialHeroItem icon={<Server />}>Steps 1–3 complete: <ProductName /> running, an application registered, and a sign-in flow built. Start at <a href="../../getting-started/get-thunderid">Get <ProductName /></a> if you haven't already.</TutorialHeroItem>
+<TutorialHeroItem icon={<Hexagon />}>Node.js installed on your system</TutorialHeroItem>
+<TutorialHeroItem icon={<Package />}>npm, yarn, or pnpm</TutorialHeroItem>
+<TutorialHeroItem icon={<FileCode />}>Your preferred code editor</TutorialHeroItem>
+
+</TutorialHero>
+
+<Stepper stepNode="h2" as="h2">
+
+## Create an Express App
+
+Create your new Node.js application:
+
+<CodeGroup>
+  <CodeBlock lang="bash" label="npm">
+    mkdir my-express-app
+    cd my-express-app
+    npm init -y
+    npm install express cookie-parser
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Yarn">
+    mkdir my-express-app
+    cd my-express-app
+    yarn init -y
+    yarn add express cookie-parser
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="pnpm">
+    mkdir my-express-app
+    cd my-express-app
+    pnpm init
+    pnpm add express cookie-parser
+  </CodeBlock>
+</CodeGroup>
+
+## Install the SDK and Dependencies
+
+Install the <ProductName /> Express SDK:
+
+<CodeGroup>
+  <CodeBlock lang="bash" label="npm">
+    npm install @thunderid/express
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Yarn">
+    yarn add @thunderid/express
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="pnpm">
+    pnpm add @thunderid/express
+  </CodeBlock>
+</CodeGroup>
+
+## Add Authentication Middleware and Routes
+
+Create an `index.js` file with ThunderID middleware and auth routes:
+
+```js title="index.js" showLineNumbers
+const express = require('express');
+const cookieParser = require('cookie-parser');
+const {thunderID, handleSignIn, handleSignOut, protect} = require('@thunderid/express');
+
+const app = express();
+const port = 3000;
+
+app.use(cookieParser());
+app.use(express.json());
+
+app.use(
+  thunderID({
+    baseUrl: 'https://localhost:8090',
+    clientId: '<your-client-id>',
+    clientSecret: '<your-client-secret>',
+    afterSignInUrl: 'http://localhost:3000/login',
+    afterSignOutUrl: 'http://localhost:3000/logout',
+  }),
+);
+
+app.get('/', (_req, res) => {
+  res.send('<a href="/protected">Go to protected page</a>');
+});
+
+app.get('/login', handleSignIn());
+app.get('/logout', handleSignOut());
+
+app.get(
+  '/protected',
+  protect((res) => res.redirect('/login')),
+  (_req, res) => {
+    res.send('You are signed in and can access this protected route.');
+  },
+);
+
+app.get('/me', protect(), async (req, res) => {
+  const user = await req.thunderIDAuth.getUserFromRequest(req);
+  res.json(user);
+});
+
+app.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
+});
+```
+
+:::warning Configuration
+Replace `<your-client-id>` and `<your-client-secret>` with values from your <ProductName /> application. Make sure the authorized redirect URL in your application settings is set to `http://localhost:3000/login`.
+:::
+
+## Run Your App
+
+Start the server:
+
+<CodeGroup>
+  <CodeBlock lang="bash" label="npm">
+    node index.js
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="Yarn">
+    yarn node index.js
+  </CodeBlock>
+
+  <CodeBlock lang="bash" label="pnpm">
+    pnpm node index.js
+  </CodeBlock>
+</CodeGroup>
+
+Open [http://localhost:3000/protected](http://localhost:3000/protected).
+
+You should be redirected to <ProductName /> sign-in. After successful login, you'll return to your app and access the protected route. Then open [http://localhost:3000/me](http://localhost:3000/me) to inspect the signed-in user profile.
+
+</Stepper>
+
+## You're Done
+
+You have completed the full getting started sequence:
+
+1. ✅ <ProductName /> running
+2. ✅ Application registered with Client ID and Client Secret
+3. ✅ Sign-in flow built in the Flow Designer
+4. ✅ Express app integrated and authenticating
+
+## What's Next
+
+<div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginTop: '1.5rem'}}>
+
+  <a href="../../../guides/flows/build-a-flow#go-further" style={{textDecoration: 'none', color: 'inherit'}}>
+    <div style={{border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: '10px', padding: '1.25rem', cursor: 'pointer'}}>
+      <div style={{fontSize: '1rem', fontWeight: '700', marginBottom: '0.4rem'}}>Upgrade the sign-in flow</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-700)', marginBottom: '0.75rem'}}>Add MFA, passkeys, or social login to your flow without changing your route wiring.</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-primary)', fontWeight: 600}}>Flow Designer →</div>
+    </div>
+  </a>
+
+  <a href="../../../guides/guides/applications/application-settings" style={{textDecoration: 'none', color: 'inherit'}}>
+    <div style={{border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: '10px', padding: '1.25rem', cursor: 'pointer'}}>
+      <div style={{fontSize: '1rem', fontWeight: '700', marginBottom: '0.4rem'}}>Tune application settings</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-700)', marginBottom: '0.75rem'}}>Manage callback URLs, token behavior, and other app-level configuration.</div>
+      <div style={{fontSize: '0.875rem', color: 'var(--ifm-color-primary)', fontWeight: 600}}>Application settings →</div>
+    </div>
+  </a>
+
+</div>

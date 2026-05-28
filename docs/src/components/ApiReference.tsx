@@ -16,10 +16,9 @@
  * under the License.
  */
 
-import React from 'react';
+import BrowserOnly from '@docusaurus/BrowserOnly';
 import {ApiReferenceReact, type AnyApiReferenceConfiguration} from '@scalar/api-reference-react';
 import '@scalar/api-reference-react/style.css';
-import BrowserOnly from '@docusaurus/BrowserOnly';
 import {Box, CircularProgress} from '@wso2/oxygen-ui';
 
 export type ApiReferenceProps = AnyApiReferenceConfiguration & {
@@ -40,11 +39,14 @@ export default function ApiReference({specUrl, ...rest}: ApiReferenceProps) {
           className="apis-page"
           style={{
             position: 'fixed',
-            top: 'calc(var(--ifm-navbar-height) + var(--docusaurus-announcement-bar-height))',
+            top: 'var(--ifm-navbar-height)',
             left: 0,
             right: 0,
             bottom: 0,
-            overflow: 'auto',
+            height: 'calc(100vh - var(--ifm-navbar-height))',
+            overflowY: 'scroll',
+            overflowX: 'hidden',
+            WebkitOverflowScrolling: 'touch',
             background: 'var(--oxygen-palette-background-default)',
           }}
         >

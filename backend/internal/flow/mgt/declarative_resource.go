@@ -22,10 +22,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 
 	"gopkg.in/yaml.v3"
 )
@@ -64,7 +64,7 @@ func (e *flowGraphExporter) GetParameterizerType() string {
 func (e *flowGraphExporter) GetAllResourceIDs(ctx context.Context) ([]string, *serviceerror.ServiceError) {
 	flows, err := e.service.ListFlows(ctx, 10000, 0, common.FlowType(""))
 	if err != nil {
-		return nil, err
+		return nil, &serviceerror.InternalServerError
 	}
 	ids := make([]string, 0, len(flows.Flows))
 	for _, flow := range flows.Flows {

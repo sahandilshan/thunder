@@ -19,7 +19,7 @@
 /**
  * Console Routes Configuration
  *
- * Centralized route definitions for the Thunder Console.
+ * Centralized route definitions for the Console.
  * All route paths should be defined here to ensure consistency across tests.
  *
  * @example

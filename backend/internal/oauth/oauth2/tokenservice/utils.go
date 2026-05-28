@@ -24,11 +24,12 @@ import (
 	"slices"
 	"strings"
 
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/attributecache"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/attributecache"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 // ParseScopes parses a space-separated scope string into a slice of scope strings.
@@ -55,8 +56,8 @@ func JoinScopes(scopes []string) string {
 }
 
 // ResolveTokenConfig resolves the token configuration from the OAuth app or falls back to global config.
-func ResolveTokenConfig(oauthApp *appmodel.OAuthAppConfigProcessedDTO, tokenType TokenType) *TokenConfig {
-	conf := config.GetThunderRuntime().Config
+func ResolveTokenConfig(oauthApp *inboundmodel.OAuthClient, tokenType TokenType) *TokenConfig {
+	conf := config.GetServerRuntime().Config
 
 	tokenConfig := &TokenConfig{
 		Issuer:         conf.JWT.Issuer,
@@ -105,6 +106,39 @@ func extractStringClaim(claims map[string]interface{}, key string) (string, erro
 	return strValue, nil
 }
 
+// extractAudiences returns the JWT "aud" claim as a []string, accepting either
+// the RFC 7519 §4.1.3 string form or the array form. Returns an error when the
+// claim is missing, empty, or has an unsupported type.
+func extractAudiences(claims map[string]interface{}) ([]string, error) {
+	value, ok := claims["aud"]
+	if !ok {
+		return nil, fmt.Errorf("missing claim: aud")
+	}
+
+	switch v := value.(type) {
+	case string:
+		if v == "" {
+			return nil, fmt.Errorf("claim aud is empty")
+		}
+		return []string{v}, nil
+	case []interface{}:
+		if len(v) == 0 {
+			return nil, fmt.Errorf("claim aud is an empty array")
+		}
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok || s == "" {
+				return nil, fmt.Errorf("claim aud array contains a non-string or empty element")
+			}
+			result = append(result, s)
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("claim aud has unsupported type")
+	}
+}
+
 // extractInt64Claim safely extracts an int64 claim from a claims map.
 func extractInt64Claim(claims map[string]interface{}, key string) (int64, error) {
 	value, ok := claims[key]
@@ -122,6 +156,36 @@ func extractInt64Claim(claims map[string]interface{}, key string) (int64, error)
 		return int64(v), nil
 	default:
 		return 0, fmt.Errorf("claim %s is not a number", key)
+	}
+}
+
+// extractStringSliceClaim extracts a claim that may be a string or a JSON array of strings.
+// Returns nil if the claim is missing or not a recognized type.
+func extractStringSliceClaim(claims map[string]interface{}, key string) []string {
+	value, ok := claims[key]
+	if !ok {
+		return nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	case []interface{}:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				result = append(result, s)
+			}
+		}
+		if len(result) == 0 {
+			return nil
+		}
+		return result
+	default:
+		return nil
 	}
 }
 
@@ -147,20 +211,6 @@ func extractScopesFromClaims(claims map[string]interface{}, isAuthAssertion bool
 	}
 
 	return []string{}
-}
-
-// DetermineAudience determines the audience for a token based on priority.
-func DetermineAudience(audience, resource, tokenAud, defaultAudience string) string {
-	if audience != "" {
-		return audience
-	}
-	if resource != "" {
-		return resource
-	}
-	if tokenAud != "" {
-		return tokenAud
-	}
-	return defaultAudience
 }
 
 // getStandardJWTClaims returns the standard JWT claims that should be excluded from user attributes.
@@ -193,24 +243,9 @@ func ExtractUserAttributes(claims map[string]interface{}) map[string]interface{}
 	return userAttributes
 }
 
-// getValidIssuers collects all valid/trusted issuers for the given OAuth application.
-func getValidIssuers(oauthApp *appmodel.OAuthAppConfigProcessedDTO) map[string]bool {
-	validIssuers := make(map[string]bool)
-
-	tokenConfig := ResolveTokenConfig(oauthApp, TokenTypeAccess)
-	validIssuers[tokenConfig.Issuer] = true
-
-	// TODO: Add support for external issuers
-	return validIssuers
-}
-
-// validateIssuer validates that a token issuer is trusted by checking against configured issuers.
-func validateIssuer(issuer string, oauthApp *appmodel.OAuthAppConfigProcessedDTO) error {
-	validIssuers := getValidIssuers(oauthApp)
-	if !validIssuers[issuer] {
-		return fmt.Errorf("token issuer '%s' is not supported", issuer)
-	}
-	return nil
+// isSelfIssuer reports whether the given issuer is the server's own configured issuer.
+func isSelfIssuer(issuer string) bool {
+	return issuer == config.GetServerRuntime().Config.JWT.Issuer
 }
 
 // FetchUserAttributes fetches user attributes and merges default claims and groups into the return map.
@@ -384,4 +419,54 @@ func buildClaimsFromRequest(
 	}
 
 	return result
+}
+
+// BuildClientAttributes gathers all OAuth client/application-scoped attributes that should be added
+// to an access token for the given OAuth application.
+func BuildClientAttributes(
+	ctx context.Context,
+	oauthApp *inboundmodel.OAuthClient,
+	ouService ou.OrganizationUnitServiceInterface,
+) (map[string]interface{}, error) {
+	claims := make(map[string]interface{})
+
+	ouClaims, err := resolveClientOUAttributes(ctx, oauthApp, ouService)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range ouClaims {
+		claims[k] = v
+	}
+
+	if len(claims) == 0 {
+		return nil, nil
+	}
+	return claims, nil
+}
+
+// resolveClientOUAttributes returns the OAuth client/application's organization unit claims
+// (ouId, ouName, ouHandle) when the app has an associated OU.
+func resolveClientOUAttributes(
+	ctx context.Context,
+	oauthApp *inboundmodel.OAuthClient,
+	ouService ou.OrganizationUnitServiceInterface,
+) (map[string]interface{}, error) {
+	if oauthApp == nil || oauthApp.OUID == "" {
+		return nil, nil
+	}
+	if ouService == nil {
+		return nil, nil
+	}
+
+	orgUnit, svcErr := ouService.GetOrganizationUnit(ctx, oauthApp.OUID)
+	if svcErr != nil {
+		return nil, fmt.Errorf("failed to fetch organization unit %s for app %s: %s",
+			oauthApp.OUID, oauthApp.ID, svcErr.Error)
+	}
+
+	return map[string]interface{}{
+		constants.ClaimOUID:     orgUnit.ID,
+		constants.ClaimOUName:   orgUnit.Name,
+		constants.ClaimOUHandle: orgUnit.Handle,
+	}, nil
 }

@@ -28,7 +28,7 @@ import (
 // JWTClaims represents the decoded JWT claims.
 type JWTClaims struct {
 	Sub       string                 `json:"sub"`
-	Aud       string                 `json:"aud"`
+	Aud       string                 `json:"-"` // Handled manually — supports both string and array per RFC 7519
 	Iss       string                 `json:"iss"`
 	Exp       float64                `json:"exp"`
 	Iat       float64                `json:"iat"`
@@ -70,6 +70,18 @@ func DecodeJWT(token string) (*JWTClaims, error) {
 
 	// Store all claims in Additional for flexible access
 	claims.Additional = allClaims
+
+	// Handle aud claim (can be string or array per RFC 7519)
+	switch v := allClaims["aud"].(type) {
+	case string:
+		claims.Aud = v
+	case []interface{}:
+		if len(v) > 0 {
+			if s, ok := v[0].(string); ok {
+				claims.Aud = s
+			}
+		}
+	}
 
 	return &claims, nil
 }

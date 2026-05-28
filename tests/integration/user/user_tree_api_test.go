@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -36,7 +36,7 @@ var (
 		Description: "Test organization unit for user path-based operations",
 	}
 
-	testUserSchema = testutils.UserSchema{
+	testUserType = testutils.UserType{
 		Name: "employee",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
@@ -53,7 +53,7 @@ var (
 			},
 		},
 	}
-	employeeUserSchemaID string
+	employeeEntityTypeID string
 )
 
 // CreateUserByPathRequest represents the request body for creating a user by path.
@@ -78,21 +78,21 @@ func (suite *UserTreeAPITestSuite) SetupSuite() {
 		suite.T().Fatalf("Failed to create test organization unit during setup: %v", err)
 	}
 
-	testUserSchema.OUID = ouID
-	schemaID, err := testutils.CreateUserType(testUserSchema)
+	testUserType.OUID = ouID
+	schemaID, err := testutils.CreateUserType(testUserType)
 	if err != nil {
 		suite.T().Fatalf("Failed to create employee user type during setup: %v", err)
 	}
 
-	employeeUserSchemaID = schemaID
+	employeeEntityTypeID = schemaID
 
 	suite.testOUID = ouID
 	suite.T().Logf("Created test OU with ID: %s and handle: %s", suite.testOUID, pathTestOU.Handle)
 }
 
 func (suite *UserTreeAPITestSuite) TearDownSuite() {
-	if employeeUserSchemaID != "" {
-		if err := testutils.DeleteUserType(employeeUserSchemaID); err != nil {
+	if employeeEntityTypeID != "" {
+		if err := testutils.DeleteUserType(employeeEntityTypeID); err != nil {
 			suite.T().Logf("Failed to delete employee user type during teardown: %v", err)
 		}
 	}
@@ -212,7 +212,7 @@ func (suite *UserTreeAPITestSuite) TestGetUsersByInvalidPath() {
 	suite.Require().NoError(err)
 
 	suite.Equal("USR-1005", errorResp.Code)
-	suite.Equal("Organization unit not found", errorResp.Message)
+	suite.Equal("Organization unit not found", errorResp.Message.DefaultValue)
 }
 
 // TestGetUsersByPathWithPagination tests retrieving users by path with pagination parameters

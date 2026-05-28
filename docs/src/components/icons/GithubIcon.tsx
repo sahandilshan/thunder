@@ -16,7 +16,6 @@
  * under the License.
  */
 
-import React from 'react';
 
 export default function GithubIcon({size = 20}: {size?: number}) {
   return (

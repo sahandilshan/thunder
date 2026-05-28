@@ -40,6 +40,12 @@ Thumbs.db
 *.key
 *.crt
 *.cert
+# Exception: test fixtures checked into testdata/ directories must be tracked.
+# See tests/integration/testutils/testdata/mock_google_oidc_key.pem for rationale.
+!**/testdata/*.pem
+!**/testdata/*.key
+!**/testdata/*.crt
+!**/testdata/*.cert
 
 # IDE settings, swap files, and temporary artifacts
 .idea
@@ -70,6 +76,7 @@ npm-debug.log
 yarn-error.log
 testem.log
 /typings
+.vitest-attachments
 
 # debug
 npm-debug.log*
@@ -78,8 +85,8 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # NX artifacts
-frontend/.nx/cache
-frontend/.nx/workspace-data
+.nx/cache
+.nx/workspace-data
 frontend/packages/**/.nx/cache
 frontend/packages/**/.nx/workspace-data
 
@@ -110,9 +117,18 @@ samples/apps/*/server/app
 backend/coverage_unit.out
 backend/coverage_unit.html
 
-# Generated API spec (unversioned root-level artifact produced by merge-openapi-specs.mjs)
+# Generated API specs and Postman collections (produced by merge-openapi-specs.mjs)
 docs/static/api/combined.yaml
+docs/static/api/next/combined.yaml
+docs/static/api/next/postman/
 
 # IDE settings
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
+
+# Playwright
+.playwright-cli/
+
+# Claude Code
+.claude/
+

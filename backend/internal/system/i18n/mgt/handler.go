@@ -21,10 +21,10 @@ package mgt
 import (
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	sysutils "github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const handlerLoggerComponentName = "I18nHandler"
@@ -210,7 +210,7 @@ func (h *i18nHandler) HandleClearOverrideTranslation(w http.ResponseWriter, r *h
 }
 
 // handleError handles service errors and returns appropriate HTTP responses.
-func handleError(w http.ResponseWriter, svcErr *serviceerror.I18nServiceError) {
+func handleError(w http.ResponseWriter, svcErr *serviceerror.ServiceError) {
 	statusCode := http.StatusInternalServerError
 	if svcErr.Type == serviceerror.ClientErrorType {
 		statusCode = http.StatusBadRequest
@@ -220,11 +220,11 @@ func handleError(w http.ResponseWriter, svcErr *serviceerror.I18nServiceError) {
 		}
 	}
 
-	errResp := apierror.I18nErrorResponse{
+	errResp := apierror.ErrorResponse{
 		Code:        svcErr.Code,
 		Message:     svcErr.Error,
 		Description: svcErr.ErrorDescription,
 	}
 
-	sysutils.WriteI18nErrorResponse(w, statusCode, errResp)
+	sysutils.WriteErrorResponse(w, statusCode, errResp)
 }

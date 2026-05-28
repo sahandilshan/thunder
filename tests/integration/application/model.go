@@ -21,6 +21,7 @@ package application
 // Application represents the structure for application request and response in tests.
 type Application struct {
 	ID                        string              `json:"id,omitempty"`
+	OUID                      string              `json:"ouId,omitempty"`
 	Name                      string              `json:"name"`
 	Description               string              `json:"description,omitempty"`
 	ClientID                  string              `json:"clientId,omitempty"`
@@ -70,6 +71,7 @@ type OAuthAppConfig struct {
 	ScopeClaims             map[string][]string `json:"scopeClaims,omitempty"`
 	UserInfo                *UserInfoConfig     `json:"userInfo,omitempty"`
 	Certificate             *ApplicationCert    `json:"certificate,omitempty"`
+	AcrValues               []string            `json:"acrValues,omitempty"`
 }
 
 // OAuthTokenConfig represents the OAuth token configuration.
@@ -81,6 +83,9 @@ type OAuthTokenConfig struct {
 // UserInfoConfig represents the UserInfo endpoint configuration.
 type UserInfoConfig struct {
 	ResponseType   string   `json:"responseType,omitempty"`
+	SigningAlg     string   `json:"signingAlg,omitempty"`
+	EncryptionAlg  string   `json:"encryptionAlg,omitempty"`
+	EncryptionEnc  string   `json:"encryptionEnc,omitempty"`
 	UserAttributes []string `json:"userAttributes,omitempty"`
 }
 
@@ -105,6 +110,9 @@ type AccessTokenConfig struct {
 type IDTokenConfig struct {
 	ValidityPeriod int64    `json:"validityPeriod,omitempty"`
 	UserAttributes []string `json:"userAttributes,omitempty"`
+	ResponseType   string   `json:"responseType,omitempty"`
+	EncryptionAlg  string   `json:"encryptionAlg,omitempty"`
+	EncryptionEnc  string   `json:"encryptionEnc,omitempty"`
 }
 
 // ApplicationList represents the response structure for listing applications.
@@ -211,15 +219,11 @@ func (app *Application) equals(expectedApp Application) bool {
 		return false
 	}
 
-	// Check certificate - allow nil in expected if actual has default empty certificate
-	if (app.Certificate != nil) && (expectedApp.Certificate == nil) {
-		// If expected has no certificate but actual does, check if it's the default empty one
-		if app.Certificate.Type != "NONE" || app.Certificate.Value != "" {
-			return false
-		}
-	} else if (app.Certificate == nil) && (expectedApp.Certificate != nil) {
+	// Check certificate
+	if (app.Certificate == nil) != (expectedApp.Certificate == nil) {
 		return false
-	} else if app.Certificate != nil && expectedApp.Certificate != nil {
+	}
+	if app.Certificate != nil && expectedApp.Certificate != nil {
 		if app.Certificate.Type != expectedApp.Certificate.Type ||
 			app.Certificate.Value != expectedApp.Certificate.Value {
 			return false
@@ -273,6 +277,10 @@ func (app *Application) equals(expectedApp Application) bool {
 					return false
 				}
 
+				if !compareStringSlices(oauth.AcrValues, expectedOAuth.AcrValues) {
+					return false
+				}
+
 				// Compare ScopeClaims - lenient if expected is nil but actual is empty
 				if expectedOAuth.ScopeClaims != nil {
 					if !compareScopeClaimsMaps(oauth.ScopeClaims, expectedOAuth.ScopeClaims) {
@@ -288,20 +296,26 @@ func (app *Application) equals(expectedApp Application) bool {
 					if oauth.UserInfo.ResponseType != expectedOAuth.UserInfo.ResponseType {
 						return false
 					}
+					if oauth.UserInfo.SigningAlg != expectedOAuth.UserInfo.SigningAlg {
+						return false
+					}
+					if oauth.UserInfo.EncryptionAlg != expectedOAuth.UserInfo.EncryptionAlg {
+						return false
+					}
+					if oauth.UserInfo.EncryptionEnc != expectedOAuth.UserInfo.EncryptionEnc {
+						return false
+					}
 					if !compareStringSlices(oauth.UserInfo.UserAttributes, expectedOAuth.UserInfo.UserAttributes) {
 						return false
 					}
 				}
 				// If expected UserInfo is nil, we accept any value in actual (including empty object)
 
-				// Compare OAuth certificate - allow nil expected when actual is default empty
-				if oauth.Certificate != nil && expectedOAuth.Certificate == nil {
-					if oauth.Certificate.Type != "NONE" || oauth.Certificate.Value != "" {
-						return false
-					}
-				} else if oauth.Certificate == nil && expectedOAuth.Certificate != nil {
+				// Compare OAuth certificate
+				if (oauth.Certificate == nil) != (expectedOAuth.Certificate == nil) {
 					return false
-				} else if oauth.Certificate != nil && expectedOAuth.Certificate != nil {
+				}
+				if oauth.Certificate != nil && expectedOAuth.Certificate != nil {
 					if oauth.Certificate.Type != expectedOAuth.Certificate.Type ||
 						oauth.Certificate.Value != expectedOAuth.Certificate.Value {
 						return false

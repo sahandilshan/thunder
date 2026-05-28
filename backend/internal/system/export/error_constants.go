@@ -18,34 +18,38 @@
 
 package export
 
-import "github.com/asgardeo/thunder/internal/system/error/serviceerror"
+import (
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+)
 
 // Client errors for export operations.
 var (
 	// ErrorInvalidRequest is the error returned when an invalid export request is provided.
 	ErrorInvalidRequest = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "EXP-1001",
-		Error:            "Invalid export request",
-		ErrorDescription: "The provided export request is invalid or malformed",
+		Type: serviceerror.ClientErrorType,
+		Code: "EXP-1001",
+		Error: core.I18nMessage{
+			Key:          "error.exportservice.invalid_request",
+			DefaultValue: "Invalid export request",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.exportservice.invalid_request_description",
+			DefaultValue: "The provided export request is invalid or malformed",
+		},
 	}
 
 	// ErrorNoResourcesFound is the error returned when no valid resources are found for export.
 	ErrorNoResourcesFound = serviceerror.ServiceError{
-		Type:             serviceerror.ClientErrorType,
-		Code:             "EXP-1002",
-		Error:            "No resources found",
-		ErrorDescription: "No valid resources found for the provided identifiers",
-	}
-)
-
-// Server errors for export operations.
-var (
-	// ErrorInternalServerError is the error returned when an internal server error occurs.
-	ErrorInternalServerError = serviceerror.ServiceError{
-		Type:             serviceerror.ServerErrorType,
-		Code:             "EXP-5001",
-		Error:            "Internal server error",
-		ErrorDescription: "An unexpected error occurred while processing the export request",
+		Type: serviceerror.ClientErrorType,
+		Code: "EXP-1002",
+		Error: core.I18nMessage{
+			Key:          "error.exportservice.no_resources_found",
+			DefaultValue: "No resources found",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key:          "error.exportservice.no_resources_found_description",
+			DefaultValue: "No valid resources found for the provided identifiers",
+		},
 	}
 )

@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -70,7 +70,7 @@ func (suite *ResolveAPITestSuite) resolveDesign(resolveType, id string) (*Design
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
-			return nil, resp.StatusCode, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message)
+			return nil, resp.StatusCode, fmt.Errorf("expected status 200, got %d. Code: %s, Message: %s", resp.StatusCode, errResp.Code, errResp.Message.DefaultValue)
 		}
 		return nil, resp.StatusCode, fmt.Errorf("expected status 200, got %d. Response: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -143,29 +143,6 @@ func (suite *ResolveAPITestSuite) TestResolveDesign_ApplicationNotFound() {
 	suite.Error(err)
 	suite.Equal(http.StatusNotFound, statusCode)
 	suite.Contains(err.Error(), "DSR-1004")
-}
-
-// Test Resolve Design - Invalid ID Format
-func (suite *ResolveAPITestSuite) TestResolveDesign_InvalidIDFormat() {
-	url := fmt.Sprintf("%s%s?type=APP&id=invalid-uuid", testServerURL, resolveBasePath)
-
-	req, err := http.NewRequest("GET", url, nil)
-	suite.Require().NoError(err)
-
-	resp, err := suite.client.Do(req)
-	suite.Require().NoError(err)
-	defer resp.Body.Close()
-
-	// Should return bad request for invalid UUID format
-	suite.Equal(http.StatusBadRequest, resp.StatusCode)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	suite.Require().NoError(err)
-
-	var errResp ErrorResponse
-	err = json.Unmarshal(bodyBytes, &errResp)
-	suite.Require().NoError(err)
-	suite.Equal("DSR-1002", errResp.Code)
 }
 
 // Test Resolve Design - Success Case

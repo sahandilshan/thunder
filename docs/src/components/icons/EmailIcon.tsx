@@ -16,7 +16,6 @@
  * under the License.
  */
 
-import React from 'react';
 
 export default function EmailIcon({size = 18}: {size?: number}) {
   return (

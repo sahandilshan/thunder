@@ -1,6 +1,6 @@
-# Thunder Documentation Internationalization (i18n)
+# ThunderID Documentation Internationalization (i18n)
 
-This directory contains translations for the Thunder documentation.
+This directory contains translations for the ThunderID documentation.
 
 ## Directory Structure
 
@@ -55,13 +55,13 @@ i18n: {
 
 ### 2. Translating Content
 
-#### Documentation (MDX/Markdown files)
+#### Documentation (MDX/Markdown Files)
 
 - Copy files from `content/` to `i18n/<locale>/docusaurus-plugin-content-docs/current/`
 - Translate the content while keeping the file structure intact
 - Keep code blocks, links, and images unchanged unless they need localization
 
-#### UI Strings (JSON files)
+#### UI Strings (JSON Files)
 
 - Translate strings in `docusaurus-theme-classic/navbar.json` and `footer.json`
 - Keep the JSON keys unchanged, only translate the values
@@ -106,4 +106,4 @@ Common locale codes:
 
 ## Questions?
 
-If you have questions about translations, please open a [discussion](https://github.com/asgardeo/thunder/discussions) or [issue](https://github.com/asgardeo/thunder/issues).
+If you have questions about translations, please open a [discussion](https://github.com/thunder-id/thunderid/discussions) or [issue](https://github.com/thunder-id/thunderid/issues).

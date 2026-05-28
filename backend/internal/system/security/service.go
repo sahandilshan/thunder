@@ -16,7 +16,7 @@
  * under the License.
  */
 
-// Package security provides authentication and authorization for Thunder APIs.
+// Package security provides authentication and authorization for server APIs.
 package security
 
 import (
@@ -25,7 +25,7 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const loggerComponentName = "SecurityService"
@@ -67,7 +67,7 @@ func newSecurityService(authenticators []AuthenticatorInterface, publicPaths []s
 	}
 
 	// Check if security enforcement should be skipped via environment variable
-	skipSecurity := os.Getenv("THUNDER_SKIP_SECURITY") == "true"
+	skipSecurity := os.Getenv("SKIP_SECURITY") == "true"
 
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName))
 
@@ -75,7 +75,7 @@ func newSecurityService(authenticators []AuthenticatorInterface, publicPaths []s
 		logger.Warn("============================================================")
 		logger.Warn("|       WARNING: SECURITY ENFORCEMENT DISABLED             |")
 		logger.Warn("|                                                          |")
-		logger.Warn("|        THUNDER_SKIP_SECURITY is set to 'true'            |")
+		logger.Warn("|        SKIP_SECURITY is set to 'true'            |")
 		logger.Warn("|  This is NOT RECOMMENDED for production environments!    |")
 		logger.Warn("| Endpoints accessible without auth, but tokens processed  |")
 		logger.Warn("|                                                          |")
@@ -152,7 +152,7 @@ func (s *securityService) authorize(r *http.Request) error {
 
 // getRequiredPermissionForAPI returns the minimum permission required to access the
 // given HTTP method + path combination. Returns an empty string for self-service paths
-// that any authenticated user may access. Falls back to SystemPermission for paths not
+// that any authenticated user may access. Falls back to the root system permission for paths not
 // covered by any entry in compiledAPIPermissions.
 //
 // Matching uses pre-compiled regular expressions evaluated in declaration order;
@@ -166,7 +166,10 @@ func (s *securityService) getRequiredPermissionForAPI(method, path string) strin
 			return entry.permission
 		}
 	}
-	return SystemPermission
+	if sysPerms != nil {
+		return sysPerms.Root
+	}
+	return UninitializedPermissionSentinel
 }
 
 // isPublicPath checks if the given request path matches any of the configured public path patterns.

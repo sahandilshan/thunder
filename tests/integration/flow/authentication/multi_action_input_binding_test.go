@@ -25,8 +25,8 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 )
 
 const (
@@ -130,14 +130,14 @@ var (
 		Parent:      nil,
 	}
 
-	multiActionInputBindingUserSchema = testutils.UserSchema{
+	multiActionInputBindingEntityType = testutils.UserType{
 		Name: "multi_action_input_binding_test_person",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 			"email": map[string]interface{}{
@@ -156,7 +156,7 @@ var (
 	}
 
 	testUserMultiActionInputBinding = testutils.User{
-		Type: multiActionInputBindingUserSchema.Name,
+		Type: multiActionInputBindingEntityType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "multiactionuser",
 			"password": "testpassword",
@@ -171,7 +171,7 @@ var (
 var (
 	multiActionInputBindingTestAppID    string
 	multiActionInputBindingTestOUID     string
-	multiActionInputBindingUserSchemaID string
+	multiActionInputBindingEntityTypeID string
 )
 
 type MultiActionInputBindingTestSuite struct {
@@ -214,13 +214,13 @@ func (ts *MultiActionInputBindingTestSuite) SetupSuite() {
 	}
 	multiActionInputBindingTestOUID = ouID
 
-	// Create test user schema within the OU
-	multiActionInputBindingUserSchema.OUID = multiActionInputBindingTestOUID
-	schemaID, err := testutils.CreateUserType(multiActionInputBindingUserSchema)
+	// Create test user type within the OU
+	multiActionInputBindingEntityType.OUID = multiActionInputBindingTestOUID
+	schemaID, err := testutils.CreateUserType(multiActionInputBindingEntityType)
 	if err != nil {
-		ts.T().Fatalf("Failed to create test user schema: %v", err)
+		ts.T().Fatalf("Failed to create test user type: %v", err)
 	}
-	multiActionInputBindingUserSchemaID = schemaID
+	multiActionInputBindingEntityTypeID = schemaID
 
 	// Create test user with the created OU
 	testUser := testUserMultiActionInputBinding
@@ -264,6 +264,7 @@ func (ts *MultiActionInputBindingTestSuite) SetupSuite() {
 	multiActionInputBindingTestApp.AuthFlowID = flowID
 
 	// Create test application
+	multiActionInputBindingTestApp.OUID = multiActionInputBindingTestOUID
 	appID, err := testutils.CreateApplication(multiActionInputBindingTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application: %v", err)
@@ -298,10 +299,10 @@ func (ts *MultiActionInputBindingTestSuite) TearDownSuite() {
 		}
 	}
 
-	// Delete test user schema
-	if multiActionInputBindingUserSchemaID != "" {
-		if err := testutils.DeleteUserType(multiActionInputBindingUserSchemaID); err != nil {
-			ts.T().Logf("Failed to delete user schema: %v", err)
+	// Delete test user type
+	if multiActionInputBindingEntityTypeID != "" {
+		if err := testutils.DeleteUserType(multiActionInputBindingEntityTypeID); err != nil {
+			ts.T().Logf("Failed to delete user type: %v", err)
 		}
 	}
 
@@ -346,10 +347,10 @@ func (ts *MultiActionInputBindingTestSuite) TestInitiateFlow_ShowsAllActions() {
 func (ts *MultiActionInputBindingTestSuite) TestSelectActionWithoutInputs_ShouldRedirectToGoogle() {
 	flowStep, err := common.InitiateAuthenticationFlow(multiActionInputBindingTestAppID, false, nil, "")
 	ts.Require().NoError(err, "Failed to initiate authentication flow")
-	ts.Require().NotEmpty(flowStep.FlowID)
+	ts.Require().NotEmpty(flowStep.ExecutionID)
 
 	// Select action_google which has no inputs - should redirect to Google
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, nil, "action_google")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, nil, "action_google", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete flow with action_google")
 
 	// Should redirect to Google OAuth
@@ -361,10 +362,10 @@ func (ts *MultiActionInputBindingTestSuite) TestSelectActionWithoutInputs_Should
 func (ts *MultiActionInputBindingTestSuite) TestSelectActionWithInputs_ShouldPromptForInputs() {
 	flowStep, err := common.InitiateAuthenticationFlow(multiActionInputBindingTestAppID, false, nil, "")
 	ts.Require().NoError(err, "Failed to initiate authentication flow")
-	ts.Require().NotEmpty(flowStep.FlowID)
+	ts.Require().NotEmpty(flowStep.ExecutionID)
 
 	// Select action_basic which requires username and password
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, nil, "action_basic")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, nil, "action_basic", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete flow with action_basic")
 
 	ts.Equal("INCOMPLETE", flowStep.FlowStatus)
@@ -382,10 +383,10 @@ func (ts *MultiActionInputBindingTestSuite) TestSelectActionWithInputs_ShouldPro
 func (ts *MultiActionInputBindingTestSuite) TestSelectActionWithInputsProvided_ShouldComplete() {
 	flowStep, err := common.InitiateAuthenticationFlow(multiActionInputBindingTestAppID, false, nil, "")
 	ts.Require().NoError(err, "Failed to initiate authentication flow")
-	ts.Require().NotEmpty(flowStep.FlowID)
+	ts.Require().NotEmpty(flowStep.ExecutionID)
 
 	// Select action_basic
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, nil, "action_basic")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, nil, "action_basic", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to select action_basic")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 
@@ -394,7 +395,7 @@ func (ts *MultiActionInputBindingTestSuite) TestSelectActionWithInputsProvided_S
 		"username": "multiactionuser",
 		"password": "testpassword",
 	}
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete flow with inputs")
 
 	ts.Equal("COMPLETE", flowStep.FlowStatus, "Flow should complete after providing required inputs")
@@ -405,10 +406,10 @@ func (ts *MultiActionInputBindingTestSuite) TestGoogleAuthFlowComplete() {
 	flowStep, err := common.InitiateAuthenticationFlow(multiActionInputBindingTestAppID, false, nil, "")
 	ts.Require().NoError(err, "Failed to initiate authentication flow")
 
-	flowID := flowStep.FlowID
+	ExecutionID := flowStep.ExecutionID
 
 	// Select action_google
-	flowStep, err = common.CompleteFlow(flowID, nil, "action_google")
+	flowStep, err = common.CompleteFlow(ExecutionID, nil, "action_google", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to select action_google")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus)
 	ts.Require().Equal("REDIRECTION", flowStep.Type)
@@ -417,13 +418,13 @@ func (ts *MultiActionInputBindingTestSuite) TestGoogleAuthFlowComplete() {
 	ts.Require().NotEmpty(redirectURL)
 
 	// Simulate Google OAuth flow
-	authCode, err := testutils.SimulateFederatedOAuthFlow(redirectURL)
+	authCode, state, err := testutils.SimulateFederatedOAuthFlow(redirectURL)
 	ts.Require().NoError(err, "Failed to simulate Google authorization")
 	ts.Require().NotEmpty(authCode)
 
 	// Complete flow with authorization code
-	inputs := map[string]string{"code": authCode}
-	flowStep, err = common.CompleteFlow(flowID, inputs, "")
+	inputs := map[string]string{"code": authCode, "state": state}
+	flowStep, err = common.CompleteFlow(ExecutionID, inputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete flow with auth code")
 
 	ts.Equal("COMPLETE", flowStep.FlowStatus)

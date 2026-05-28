@@ -22,11 +22,12 @@ import (
 	"fmt"
 	"net/http"
 
-	oupkg "github.com/asgardeo/thunder/internal/ou"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/middleware"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/consent"
+	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/middleware"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 // Initialize initializes the resource service and registers its routes.
@@ -34,6 +35,7 @@ import (
 func Initialize(
 	mux *http.ServeMux,
 	ouService oupkg.OrganizationUnitServiceInterface,
+	consentService consent.ConsentServiceInterface,
 ) (ResourceServiceInterface, declarativeresource.ResourceExporter, error) {
 	// Initialize store and transactioner based on store mode
 	resourceStore, transactioner, err := initializeStore()
@@ -41,7 +43,7 @@ func Initialize(
 		return nil, nil, fmt.Errorf("failed to initialize resource store: %w", err)
 	}
 
-	resourceService, err := newResourceService(ouService, resourceStore, transactioner)
+	resourceService, err := newResourceService(ouService, consentService, resourceStore, transactioner)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -91,9 +93,10 @@ func initializeStore() (resourceStoreInterface, transaction.Transactioner, error
 func registerRoutes(mux *http.ServeMux, handler *resourceHandler) {
 	// Resource Server routes
 	resourceServerOpts := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /resource-servers",
@@ -106,9 +109,10 @@ func registerRoutes(mux *http.ServeMux, handler *resourceHandler) {
 		}, resourceServerOpts))
 
 	resourceServerDetailOpts := middleware.CORSOptions{
-		AllowedMethods:   "GET, PUT, DELETE",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "PUT", "DELETE"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /resource-servers/{id}",
@@ -124,9 +128,10 @@ func registerRoutes(mux *http.ServeMux, handler *resourceHandler) {
 
 	// Resource routes
 	resourceOpts := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /resource-servers/{rsId}/resources",
@@ -139,9 +144,10 @@ func registerRoutes(mux *http.ServeMux, handler *resourceHandler) {
 		}, resourceOpts))
 
 	resourceDetailOpts := middleware.CORSOptions{
-		AllowedMethods:   "GET, PUT, DELETE",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "PUT", "DELETE"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /resource-servers/{rsId}/resources/{id}",
@@ -157,9 +163,10 @@ func registerRoutes(mux *http.ServeMux, handler *resourceHandler) {
 
 	// Action routes (Resource Server level)
 	actionRSOpts := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /resource-servers/{rsId}/actions",
@@ -172,9 +179,10 @@ func registerRoutes(mux *http.ServeMux, handler *resourceHandler) {
 		}, actionRSOpts))
 
 	actionRSDetailOpts := middleware.CORSOptions{
-		AllowedMethods:   "GET, PUT, DELETE",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "PUT", "DELETE"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /resource-servers/{rsId}/actions/{id}",
@@ -190,9 +198,10 @@ func registerRoutes(mux *http.ServeMux, handler *resourceHandler) {
 
 	// Action routes (Resource level)
 	actionResourceOpts := middleware.CORSOptions{
-		AllowedMethods:   "GET, POST",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /resource-servers/{rsId}/resources/{resourceId}/actions",
@@ -205,9 +214,10 @@ func registerRoutes(mux *http.ServeMux, handler *resourceHandler) {
 		}, actionResourceOpts))
 
 	actionResourceDetailOpts := middleware.CORSOptions{
-		AllowedMethods:   "GET, PUT, DELETE",
-		AllowedHeaders:   "Content-Type, Authorization",
+		AllowedMethods:   []string{"GET", "PUT", "DELETE"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
 		AllowCredentials: true,
+		MaxAge:           600,
 	}
 
 	mux.HandleFunc(middleware.WithCORS("GET /resource-servers/{rsId}/resources/{resourceId}/actions/{id}",

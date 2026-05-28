@@ -16,515 +16,680 @@
  * under the License.
  */
 
-import React, {JSX, useEffect, useState} from 'react';
 import Link from '@docusaurus/Link';
-import {Box, Container, Typography, Stack, Button} from '@wso2/oxygen-ui';
+import {useBaseUrlUtils} from '@docusaurus/useBaseUrl';
+import {Box, Button, Container, Stack, Typography, useTheme} from '@wso2/oxygen-ui';
+import React, {JSX, useEffect, useState} from 'react';
 import useIsDarkMode from '../../hooks/useIsDarkMode';
-import LoginBox from '../LoginBox';
-import ConstellationBackground from './ConstellationBackground';
+import usePlatform from '../../hooks/usePlatform';
+import {type ArchKey, type OsKey} from '../../utils/platform';
+import ClaudeLogo from '../icons/ClaudeLogo';
+import CliLogo from '../icons/CliLogo';
+import CodexLogo from '../icons/CodexLogo';
+import DockerLogo from '../icons/DockerLogo';
+import GoLogo from '../icons/GoLogo';
+import IOSLogo from '../icons/IOSLogo';
+import LinuxLogo from '../icons/LinuxLogo';
+import SkillsLogo from '../icons/SkillsLogo';
+import WindowsLogo from '../icons/WindowsLogo';
+
+const INSTALL_TABS = [
+  {id: 'cli', label: 'CLI', icon: CliLogo, command: 'npx thunderid', brandColor: null, enabled: true},
+  {
+    id: 'docker',
+    label: 'Docker',
+    icon: DockerLogo,
+    command: 'docker compose -f oci://ghcr.io/thunder-id/thunderid-quick-start:latest up',
+    brandColor: '#2560FF',
+    enabled: true,
+  },
+  {
+    id: 'claude',
+    label: 'Claude',
+    icon: ClaudeLogo,
+    command: '/plugin marketplace add thunder-id/skills',
+    brandColor: '#D97757',
+    enabled: true,
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    icon: CodexLogo,
+    command: 'codex plugin marketplace add thunder-id/skills',
+    brandColor: '#3941FF',
+    enabled: true,
+  },
+  {
+    id: 'skills',
+    label: 'Skills',
+    icon: SkillsLogo,
+    command: 'npx skills add thunder-id/skills',
+    brandColor: null,
+    enabled: true,
+  },
+];
+
+interface DownloadAsset {
+  arch: ArchKey;
+  downloadUrl: string;
+  os: OsKey;
+  sizeLabel: string;
+}
+
+function parseDownloadAssets(assets: {name: string; downloadUrl: string; sizeLabel: string}[]): DownloadAsset[] {
+  const result: DownloadAsset[] = [];
+  for (const asset of assets) {
+    const m = /^thunder(?:id)?-[0-9A-Za-z.+-]+-(macos|linux|win)-(arm64|x64)\.zip$/i.exec(asset.name);
+    if (m) {
+      result.push({
+        arch: m[2] as ArchKey,
+        downloadUrl: asset.downloadUrl,
+        os: m[1] as OsKey,
+        sizeLabel: asset.sizeLabel,
+      });
+    }
+  }
+  return result;
+}
+
+const OS_ICONS: Record<OsKey, JSX.Element> = {
+  linux: <LinuxLogo size={20} />,
+  macos: <IOSLogo size={18} />,
+  win: <WindowsLogo size={20} />,
+};
+
+const OS_LABELS: Record<OsKey, string> = {
+  linux: 'Linux',
+  macos: 'macOS',
+  win: 'Windows',
+};
+
+const ARCH_LABELS: Partial<Record<OsKey, Record<ArchKey, string>>> = {
+  macos: {arm64: 'Apple Silicon', x64: 'Intel'},
+};
 
 export default function HeroSection(): JSX.Element {
-  const isDark = useIsDarkMode();
+  const theme = useTheme();
+  const isLight = !useIsDarkMode();
+  const {withBaseUrl} = useBaseUrlUtils();
 
-  // After entry animations finish, clear them so CSS transitions can take over.
-  // animation-fill-mode: both locks the transform, preventing smooth hover transitions.
-  const [animDone, setAnimDone] = useState(false);
+  const [activeTab, setActiveTabRaw] = useState('cli');
+  const setActiveTab = setActiveTabRaw as (v: string) => void;
 
+  const [copied, setCopiedRaw] = useState(false);
+  const setCopied = setCopiedRaw as (v: boolean) => void;
+  const platform = usePlatform();
+
+  const [downloadAssetsRaw, setDownloadAssetsRaw] = useState([] as DownloadAsset[]);
+  const downloadAssets = downloadAssetsRaw;
+  const setDownloadAssets = setDownloadAssetsRaw as (v: DownloadAsset[]) => void;
   useEffect(() => {
-    const timer = setTimeout(() => setAnimDone(true), 1800);
+    fetch(withBaseUrl('/data/releases.json'))
+      .then(
+        (r) =>
+          r.json() as Promise<{
+            latestRelease: {tagName: string; assets: {name: string; downloadUrl: string; sizeLabel: string}[]};
+          }>,
+      )
+      .then((data) => {
+        setDownloadAssets(parseDownloadAssets(data.latestRelease?.assets ?? []));
+      })
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      .catch(() => {});
+  }, [withBaseUrl, setDownloadAssets]);
 
-    return () => clearTimeout(timer);
-  }, []);
+  const activeCommand = INSTALL_TABS.find((t) => t.id === activeTab)?.command ?? '';
+
+  const cmdSpaceIdx = activeCommand.indexOf(' ');
+  const cmdFirst = cmdSpaceIdx !== -1 ? activeCommand.slice(0, cmdSpaceIdx) : activeCommand;
+  const cmdRest = cmdSpaceIdx !== -1 ? activeCommand.slice(cmdSpaceIdx) : '';
+
+  const handleCopy = (): void => {
+    void navigator.clipboard.writeText(activeCommand).then(() => {
+      setCopied(true);
+      setTimeout(() => {
+        setCopied(false);
+      }, 1800);
+    });
+  };
+
+  const primaryAsset: DownloadAsset | null = (() => {
+    if (!platform?.os || downloadAssets.length === 0) return null;
+    const preferred = platform.arch ?? 'arm64';
+    const typed = downloadAssets;
+    return (
+      typed.find((a: DownloadAsset) => a.os === platform.os && a.arch === preferred) ??
+      typed.find((a: DownloadAsset) => a.os === platform.os) ??
+      null
+    );
+  })();
+
+  const alternateAsset: DownloadAsset | null = (() => {
+    if (!primaryAsset || !platform?.os) return null;
+    const alt: ArchKey = primaryAsset.arch === 'arm64' ? 'x64' : 'arm64';
+    return downloadAssets.find((a: DownloadAsset) => a.os === platform.os && a.arch === alt) ?? null;
+  })();
+
+  const dimColor = isLight ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.35)';
 
   return (
     <Box
       sx={{
         '@keyframes fadeInUp': {
-          from: {opacity: 0, transform: 'translateY(32px)'},
+          from: {opacity: 0, transform: 'translateY(24px)'},
           to: {opacity: 1, transform: 'translateY(0)'},
         },
-        '@keyframes fadeInScale': {
-          from: {opacity: 0, transform: 'scale(0.95) translateY(16px)'},
-          to: {opacity: 1, transform: 'scale(1) translateY(0)'},
-        },
-        '@keyframes slideInLeft': {
-          from: {opacity: 0, transform: 'translateX(-32px)'},
-          to: {opacity: 1, transform: 'translateX(0)'},
-        },
-        '@keyframes slideInRight': {
-          from: {opacity: 0, transform: 'translateX(32px)'},
-          to: {opacity: 1, transform: 'translateX(0)'},
-        },
-        '@keyframes pulseGlow': {
-          '0%, 100%': {opacity: 0.6, transform: 'scale(1)'},
-          '50%': {opacity: 1, transform: 'scale(1.1)'},
-        },
-        '@keyframes heroFloat': {
-          '0%, 100%': {transform: 'translateY(0)'},
-          '50%': {transform: 'translateY(-6px)'},
-        },
-        '@keyframes heroDash': {
-          to: {strokeDashoffset: -40},
-        },
-        py: {xs: 7, lg: 10},
+        minHeight: 'calc(100vh - var(--ifm-navbar-height))',
+        display: 'flex',
+        alignItems: 'center',
         position: 'relative',
         overflow: 'hidden',
-        background: isDark ? '#0a0a0a' : 'transparent',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: isDark
-            ? 'radial-gradient(ellipse at 60% 35%, rgba(255, 107, 0, 0.10) 0%, transparent 50%)'
-            : 'radial-gradient(ellipse at 60% 35%, rgba(255, 107, 0, 0.06) 0%, transparent 50%)',
-          pointerEvents: 'none',
-        },
       }}
     >
-      <ConstellationBackground />
-      <Container maxWidth="lg" sx={{px: {xs: 2, sm: 4}, position: 'relative', zIndex: 1}}>
+      <Container maxWidth="lg" sx={{px: {xs: 2, sm: 4}, position: 'relative', zIndex: 1, width: '100%'}}>
         <Box
           sx={{
+            '@keyframes streak': {
+              '0%': {transform: 'translateX(-120%) skewX(-20deg)', opacity: 0},
+              '20%': {opacity: 0.18},
+              '80%': {opacity: 0.18},
+              '100%': {transform: 'translateX(260%) skewX(-20deg)', opacity: 0},
+            },
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            py: {xs: 5, lg: 8},
-            textAlign: 'center',
+            flexDirection: {xs: 'column', lg: 'row'},
+            alignItems: {xs: 'center', lg: 'center'},
+            gap: {xs: 6, lg: 8},
+            py: {xs: 8, lg: 10},
           }}
         >
-          {/* Lightning bolt icon with glow */}
+          {/* ── Left column ── */}
           <Box
             sx={{
-              mb: 3,
-              position: 'relative',
-              width: 80,
-              height: 120,
+              flex: '1 1 0',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              animation: 'fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) both',
+              flexDirection: 'column',
+              alignItems: {xs: 'center', lg: 'flex-start'},
+              textAlign: {xs: 'center', lg: 'left'},
             }}
           >
-            {/* Glow effect */}
+            <Typography
+              variant="overline"
+              sx={{
+                mb: 2,
+                fontSize: '0.75rem',
+                letterSpacing: '0.22em',
+                color: theme.vars?.palette.primary.main,
+                fontWeight: 500,
+                animation: 'fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) both',
+              }}
+            >
+              INTRODUCING
+            </Typography>
+
             <Box
+              component="img"
+              src={isLight ? 'assets/images/logo.svg' : 'assets/images/logo-inverted.svg'}
+              alt="ThunderID"
               sx={{
-                position: 'absolute',
-                width: 120,
-                height: 120,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(255, 170, 50, 0.25) 0%, transparent 70%)',
-                filter: 'blur(20px)',
-                animation: 'pulseGlow 3s ease-in-out infinite',
-              }}
-            />
-            <svg
-              width="56"
-              height="80"
-              viewBox="0 0 24 32"
-              fill="none"
-              style={{position: 'relative', zIndex: 1, animation: 'heroFloat 4s ease-in-out infinite'}}
-            >
-              <path
-                d="M13.5 1L4 18h7l-1.5 13L20 14h-7L13.5 1z"
-                stroke="#FF8C00"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </svg>
-          </Box>
-
-          {/* INTRODUCING label */}
-          <Typography
-            variant="overline"
-            sx={{
-              mb: 1.5,
-              fontSize: '0.8rem',
-              letterSpacing: '0.25em',
-              color: isDark ? 'rgba(255, 170, 80, 0.8)' : 'rgba(200, 100, 0, 0.8)',
-              fontWeight: 500,
-              animation: 'fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both',
-            }}
-          >
-            INTRODUCING
-          </Typography>
-
-          {/* [ THUNDER ] title */}
-          <Typography
-            variant="h2"
-            sx={{
-              mb: 3,
-              fontSize: {xs: '2rem', sm: '2.5rem', md: '3rem'},
-              fontWeight: 300,
-              letterSpacing: '0.15em',
-              color: isDark ? '#ffffff' : '#1a1a2e',
-              animation: 'fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both',
-            }}
-          >
-            [ THUNDER ]
-          </Typography>
-
-          {/* Main heading */}
-          <Typography
-            variant="h1"
-            sx={{
-              mb: 3,
-              fontSize: {xs: '2.75rem', sm: '3.5rem', md: '4.5rem'},
-              fontWeight: 700,
-              lineHeight: 1.1,
-              color: isDark ? '#ffffff' : '#1a1a2e',
-              animation: 'fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both',
-            }}
-          >
-            <Box
-              component="span"
-              sx={{
-                background: 'linear-gradient(90deg, #FF6B00 0%, #FF8C00 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
-              }}
-            >
-              Auth
-            </Box>{' '}
-            for the Modern Dev
-          </Typography>
-
-          {/* Description */}
-          <Typography
-            variant="body1"
-            sx={{
-              maxWidth: '680px',
-              textAlign: 'center',
-              mb: 5,
-              fontSize: {xs: '1rem', sm: '1.15rem'},
-              lineHeight: 1.7,
-              color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.55)',
-              animation: 'fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both',
-            }}
-          >
-            The world&apos;s most flexible, truly open source identity platform, powered by open source innovation.
-          </Typography>
-
-          {/* Buttons */}
-          <Stack
-            direction={{xs: 'column', sm: 'row'}}
-            spacing={2}
-            sx={{mb: 8, animation: 'fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both'}}
-            alignItems="center"
-          >
-            <Button
-              component={Link}
-              href="/docs/guides/introduction"
-              variant="contained"
-              color="primary"
-              size="large"
-              sx={{
-                px: 5,
-                py: 1.5,
-                fontWeight: 600,
-                textTransform: 'none',
-                fontSize: '1.05rem',
-                borderRadius: '28px',
-                background: 'linear-gradient(135deg, #FF6B00 0%, #FF8C00 100%)',
-                position: 'relative',
-                overflow: 'hidden',
-                transition: 'transform 0.3s ease, box-shadow 0.3s ease',
-                // Shimmer sweep on hover
-                '&::after': {
-                  content: '""',
-                  position: 'absolute',
-                  top: 0,
-                  left: '-100%',
-                  width: '60%',
-                  height: '100%',
-                  background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent)',
-                  transition: 'none',
-                  transform: 'skewX(-15deg)',
-                },
-                '&:hover::after': {
-                  left: '150%',
-                  transition: 'left 0.6s ease',
-                },
-                '&:hover': {
-                  background: 'linear-gradient(135deg, #FF6B00 0%, #FF8C00 100%)',
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 6px 24px rgba(255, 107, 0, 0.35), 0 0 40px rgba(255, 107, 0, 0.1)',
-                },
-                '&:active': {
-                  transform: 'translateY(0)',
-                  boxShadow: '0 2px 8px rgba(255, 107, 0, 0.2)',
-                },
-              }}
-            >
-              Get Started
-            </Button>
-            <Button
-              component={Link}
-              href="https://github.com/asgardeo/thunder"
-              variant="outlined"
-              size="large"
-              sx={{
-                px: 4,
-                py: 1.5,
-                textTransform: 'none',
-                fontSize: '1.05rem',
-                borderRadius: '28px',
-                borderColor: isDark ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 107, 0, 0.5)',
-                color: '#FF8C00',
-                position: 'relative',
-                overflow: 'hidden',
-                transition: 'transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease',
-                // Subtle radial glow on hover
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  inset: 0,
-                  borderRadius: 'inherit',
-                  background: isDark
-                    ? 'radial-gradient(circle at center, rgba(255, 140, 0, 0.08) 0%, transparent 70%)'
-                    : 'radial-gradient(circle at center, rgba(255, 107, 0, 0.06) 0%, transparent 70%)',
-                  opacity: 0,
-                  transition: 'opacity 0.3s ease',
-                },
-                '&:hover::before': {
-                  opacity: 1,
-                },
-                '&:hover': {
-                  borderColor: isDark ? 'rgba(255, 140, 0, 0.7)' : 'rgba(255, 107, 0, 0.7)',
-                  bgcolor: isDark ? 'rgba(255, 140, 0, 0.06)' : 'rgba(255, 107, 0, 0.04)',
-                  transform: 'translateY(-2px)',
-                  boxShadow: isDark
-                    ? '0 4px 16px rgba(255, 140, 0, 0.12), 0 0 0 1px rgba(255, 140, 0, 0.15)'
-                    : '0 4px 16px rgba(255, 107, 0, 0.1), 0 0 0 1px rgba(255, 107, 0, 0.12)',
-                },
-                '&:active': {
-                  transform: 'translateY(0)',
-                  boxShadow: 'none',
-                },
-              }}
-              startIcon={
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
-                    fill="#FF8C00"
-                  />
-                </svg>
-              }
-            >
-              Star on GitHub
-            </Button>
-          </Stack>
-
-          {/* Login Box Showcase with dashed arc borders */}
-          <Box
-            sx={{
-              mt: 2,
-              position: 'relative',
-              maxWidth: '1100px',
-              width: '100%',
-              mx: 'auto',
-              animation: 'fadeInScale 1s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both',
-            }}
-          >
-            {/* Ambient glow behind card group */}
-            <Box
-              sx={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -45%)',
-                width: '70%',
-                height: '80%',
-                background: isDark
-                  ? 'radial-gradient(ellipse at center, rgba(255, 107, 0, 0.06) 0%, transparent 70%)'
-                  : 'radial-gradient(ellipse at center, rgba(255, 107, 0, 0.04) 0%, transparent 70%)',
-                pointerEvents: 'none',
-                zIndex: 0,
-                filter: 'blur(40px)',
-                display: {xs: 'none', md: 'block'},
+                height: {xs: 36, md: 44},
+                width: 'auto',
+                mb: 3,
+                animation: 'fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.05s both',
               }}
             />
 
-            {/* Subtle connecting lines between cards */}
-            <Box
-              component="svg"
+            <Typography
+              variant="h1"
               sx={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-                zIndex: 1,
-                display: {xs: 'none', md: 'block'},
+                mb: 2.5,
+                fontSize: {xs: '3rem', sm: '4rem', md: '5rem'},
+                fontWeight: 700,
+                lineHeight: 1.05,
+                color: 'text.primary',
+                animation: 'fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.1s both',
               }}
-              viewBox="0 0 1100 600"
-              preserveAspectRatio="xMidYMid slice"
             >
-              {/* Left-to-center connecting line */}
-              <line
-                x1="320"
-                y1="280"
-                x2="430"
-                y2="200"
-                stroke={isDark ? 'rgba(255, 140, 0, 0.08)' : 'rgba(255, 107, 0, 0.06)'}
-                strokeWidth="1"
-                strokeDasharray="4 6"
-                style={{animation: 'heroDash 6s linear infinite'}}
-              />
-              {/* Center-to-right connecting line */}
-              <line
-                x1="670"
-                y1="200"
-                x2="780"
-                y2="280"
-                stroke={isDark ? 'rgba(255, 140, 0, 0.08)' : 'rgba(255, 107, 0, 0.06)'}
-                strokeWidth="1"
-                strokeDasharray="4 6"
-                style={{animation: 'heroDash 6s linear infinite'}}
-              />
-            </Box>
+              <Box
+                component="span"
+                sx={{
+                  background: `linear-gradient(90deg, ${theme.vars?.palette.primary.dark} 0%, ${theme.vars?.palette.primary.main} 100%)`,
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                }}
+              >
+                Auth
+              </Box>{' '}
+              for the Modern Dev
+            </Typography>
 
-            {/* Floating particles */}
-            <Box
-              component="svg"
+            <Typography
+              variant="body1"
               sx={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-                zIndex: 3,
-                display: {xs: 'none', md: 'block'},
+                maxWidth: '480px',
+                mb: 5,
+                fontSize: {xs: '1.05rem', sm: '1.15rem'},
+                lineHeight: 1.75,
+                color: 'text.secondary',
+                animation: 'fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.2s both',
               }}
-              viewBox="0 0 1100 600"
-              preserveAspectRatio="xMidYMid slice"
             >
-              {[
-                {cx: 120, cy: 80, r: 2, dur: '6s', delay: '0s'},
-                {cx: 980, cy: 100, r: 1.5, dur: '7s', delay: '1s'},
-                {cx: 200, cy: 400, r: 1.5, dur: '5s', delay: '2s'},
-                {cx: 900, cy: 420, r: 2, dur: '8s', delay: '0.5s'},
-                {cx: 550, cy: 500, r: 1.5, dur: '6s', delay: '3s'},
-                {cx: 50, cy: 250, r: 1.5, dur: '7s', delay: '1.5s'},
-                {cx: 1050, cy: 280, r: 1.5, dur: '5.5s', delay: '2.5s'},
-              ].map((dot, i) => (
-                <circle
-                  key={i}
-                  cx={dot.cx}
-                  cy={dot.cy}
-                  r={dot.r}
-                  fill={isDark ? 'rgba(255, 140, 0, 0.3)' : 'rgba(255, 107, 0, 0.2)'}
-                >
-                  <animate
-                    attributeName="cy"
-                    values={`${dot.cy};${dot.cy - 15};${dot.cy}`}
-                    dur={dot.dur}
-                    begin={dot.delay}
-                    repeatCount="indefinite"
-                  />
-                  <animate
-                    attributeName="opacity"
-                    values="0.15;0.5;0.15"
-                    dur={dot.dur}
-                    begin={dot.delay}
-                    repeatCount="indefinite"
-                  />
-                </circle>
-              ))}
-            </Box>
+              High-performance open-source identity stack, engineered for developers.
+            </Typography>
 
-            {/* Login cards container */}
+            <Stack
+              direction={{xs: 'column', sm: 'row'}}
+              spacing={2}
+              alignItems="center"
+              sx={{animation: 'fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.3s both', mb: 4}}
+            >
+              <Button
+                component={Link}
+                href="/docs/next"
+                variant="contained"
+                color="primary"
+                size="large"
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  fontSize: '1rem',
+                  borderRadius: '28px',
+                  background: `linear-gradient(135deg, ${theme.vars?.palette.primary.dark} 0%, ${theme.vars?.palette.primary.main} 100%)`,
+                  transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                  '&:hover': {
+                    background: `linear-gradient(135deg, ${theme.vars?.palette.primary.dark} 0%, ${theme.vars?.palette.primary.main} 100%)`,
+                    transform: 'translateY(-2px)',
+                    boxShadow: `0 6px 24px rgba(${theme.vars?.palette.primary.main} / 0.35)`,
+                  },
+                  '&:active': {transform: 'translateY(0)'},
+                }}
+              >
+                Get Started
+              </Button>
+              <Button
+                component={Link}
+                href="/docs/next/guides/getting-started/what-is-thunderid"
+                variant="text"
+                size="large"
+                sx={{
+                  px: 3,
+                  py: 1.5,
+                  textTransform: 'none',
+                  fontSize: '1rem',
+                  color: 'text.secondary',
+                  borderRadius: '28px',
+                  '&:hover': {bgcolor: 'transparent', color: 'text.primary'},
+                }}
+              >
+                Learn More →
+              </Button>
+            </Stack>
+
             <Box
               sx={{
                 display: 'flex',
-                flexWrap: 'nowrap',
-                alignItems: 'flex-start',
-                justifyContent: 'center',
-                position: 'relative',
-                pt: {xs: 0, md: 4},
+                flexWrap: 'wrap',
+                gap: {xs: 1.5, sm: 0},
+                alignItems: 'center',
+                justifyContent: {xs: 'center', lg: 'flex-start'},
+                animation: 'fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.4s both',
               }}
             >
-              {/* Left card - social login */}
-              <LoginBox
-                variant="social"
-                delay={0.3}
-                sideCard
-                sx={{
-                  display: {xs: 'none', md: 'block'},
-                  mr: '-60px',
-                  mt: '40px',
-                  transform: 'translateY(0px)',
-                  opacity: 0.85,
-                  zIndex: 0,
-                  transition:
-                    'transform 0.8s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
-                  ...(animDone ? {} : {animation: 'slideInLeft 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.8s both'}),
-                  boxShadow: isDark ? '0 12px 40px rgba(0, 0, 0, 0.4)' : '0 12px 40px rgba(0, 0, 0, 0.06)',
-                  '&:hover': {
-                    transform: 'translateY(-4px)',
-                    opacity: 0.95,
-                    boxShadow: isDark
-                      ? '0 16px 48px rgba(0, 0, 0, 0.45), 0 0 24px rgba(255, 140, 0, 0.04)'
-                      : '0 16px 48px rgba(0, 0, 0, 0.08), 0 0 24px rgba(255, 107, 0, 0.03)',
+              {(
+                [
+                  {
+                    key: 'apache',
+                    icon: null,
+                    parts: [
+                      {text: 'Apache 2.0', bold: true},
+                      {text: 'license', bold: false},
+                    ],
                   },
-                }}
-              />
+                  {
+                    key: 'go',
+                    icon: <GoLogo size={18} />,
+                    parts: [
+                      {text: 'built with', bold: false},
+                      {text: 'Go', bold: true},
+                    ],
+                  },
+                  {
+                    key: 'speed',
+                    icon: null,
+                    parts: [
+                      {text: '<50ms', bold: true},
+                      {text: 'startup', bold: false},
+                    ],
+                  },
+                ] as {key: string; icon: JSX.Element | null; parts: {text: string; bold: boolean}[]}[]
+              ).map(({key, icon, parts}, i) => (
+                <React.Fragment key={key}>
+                  {i > 0 && (
+                    <Box
+                      component="span"
+                      sx={{
+                        mx: 2,
+                        display: {xs: 'none', sm: 'inline'},
+                        color: isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.12)',
+                      }}
+                    >
+                      ·
+                    </Box>
+                  )}
+                  <Box sx={{display: 'inline-flex', alignItems: 'center', gap: 0.5}}>
+                    {icon && (
+                      <Box sx={{display: 'flex', alignItems: 'center', filter: 'grayscale(0.4)', opacity: 0.65}}>
+                        {icon}
+                      </Box>
+                    )}
+                    {parts.map(({text, bold}) => (
+                      <Typography
+                        key={text}
+                        component="span"
+                        sx={{
+                          fontSize: '0.8rem',
+                          ...(bold
+                            ? {
+                                fontWeight: 600,
+                                fontFamily: 'monospace',
+                                color: isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.6)',
+                              }
+                            : {color: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)'}),
+                        }}
+                      >
+                        {text}
+                      </Typography>
+                    ))}
+                  </Box>
+                </React.Fragment>
+              ))}
+            </Box>
+          </Box>
 
-              {/* Center card - email login (most prominent) */}
-              <LoginBox
-                variant="email"
-                delay={0}
-                sx={{
-                  zIndex: 2,
-                  transform: 'translateY(0px)',
-                  boxShadow: isDark
-                    ? '0 20px 60px rgba(0, 0, 0, 0.5), 0 0 80px rgba(255, 107, 0, 0.1)'
-                    : '0 20px 60px rgba(0, 0, 0, 0.1), 0 0 80px rgba(255, 107, 0, 0.07)',
-                  transition:
-                    'transform 0.8s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
-                  ...(animDone ? {} : {animation: 'fadeInUp 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.7s both'}),
-                  '&:hover': {
-                    transform: 'translateY(-4px)',
-                    boxShadow: isDark
-                      ? '0 24px 68px rgba(0, 0, 0, 0.55), 0 0 90px rgba(255, 107, 0, 0.12)'
-                      : '0 24px 68px rgba(0, 0, 0, 0.12), 0 0 90px rgba(255, 107, 0, 0.09)',
-                  },
-                }}
-              />
+          {/* ── Right column ── */}
+          <Box
+            sx={{
+              flex: '1 1 0',
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              width: '100%',
+              maxWidth: {xs: 560, lg: 'none'},
+              animation: 'fadeInUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.25s both',
+            }}
+          >
+            {/* Tab row */}
+            <Box sx={{display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap'}}>
+              {INSTALL_TABS.filter((tab) => tab.enabled).map((tab) => {
+                const isActive = activeTab === tab.id;
+                const ac = isActive && tab.brandColor ? tab.brandColor : null;
+                const activeColor = ac ?? theme.vars?.palette.primary.main;
+                return (
+                  <Box
+                    key={tab.id}
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                    }}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.75,
+                      px: {xs: 1.5, sm: 2},
+                      py: {xs: 0.75, sm: 1},
+                      borderRadius: '8px',
+                      border: '1px solid',
+                      borderColor: isActive
+                        ? ac
+                          ? `${ac}80`
+                          : `rgba(${theme.vars?.palette.primary.main} / 0.5)`
+                        : isLight
+                          ? 'rgba(0,0,0,0.12)'
+                          : 'rgba(255,255,255,0.1)',
+                      bgcolor: isActive
+                        ? ac
+                          ? `${ac}1A`
+                          : `rgba(${theme.vars?.palette.primary.main} / 0.1)`
+                        : 'transparent',
+                      color: isActive ? activeColor : isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.5)',
+                      fontFamily: 'monospace',
+                      fontSize: {xs: '0.78rem', sm: '0.85rem'},
+                      fontWeight: isActive ? 600 : 400,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      userSelect: 'none',
+                      '&:hover': {
+                        borderColor: isActive
+                          ? ac
+                            ? `${ac}99`
+                            : `rgba(${theme.vars?.palette.primary.main} / 0.6)`
+                          : isLight
+                            ? 'rgba(0,0,0,0.25)'
+                            : 'rgba(255,255,255,0.22)',
+                        color: isActive ? activeColor : isLight ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
+                      },
+                    }}
+                  >
+                    <Box
+                      component="span"
+                      sx={{
+                        display: 'flex',
+                        filter: isActive ? 'none' : 'grayscale(1)',
+                        opacity: isActive ? 1 : 0.5,
+                        transition: 'filter 0.15s ease, opacity 0.15s ease',
+                      }}
+                    >
+                      <tab.icon />
+                    </Box>
+                    {tab.label}
+                  </Box>
+                );
+              })}
+            </Box>
 
-              {/* Right card - MFA */}
-              <LoginBox
-                variant="mfa"
-                delay={0.6}
-                sideCard
+            {/* Command display */}
+            <Box
+              sx={{
+                '@keyframes glowPulse': {
+                  '0%, 100%': {
+                    borderColor: isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
+                    boxShadow: 'none',
+                  },
+                  '50%': {
+                    borderColor: theme.vars?.palette.primary.main,
+                    boxShadow: `0 0 22px 2px ${theme.vars?.palette.primary.main}`,
+                  },
+                },
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                px: {xs: 2.5, sm: 3.5},
+                py: {xs: 2, sm: 2.5},
+                borderRadius: '14px',
+                border: '1px solid',
+                borderColor: isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
+                bgcolor: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.04)',
+                backdropFilter: 'blur(8px)',
+                animation: 'glowPulse 3s ease-in-out 0.8s infinite',
+                mb: 3,
+              }}
+            >
+              <Typography
+                component="code"
                 sx={{
-                  display: {xs: 'none', md: 'block'},
-                  ml: '-60px',
-                  mt: '40px',
-                  transform: 'translateY(0px)',
-                  opacity: 0.85,
-                  zIndex: 0,
-                  transition:
-                    'transform 0.8s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
-                  ...(animDone ? {} : {animation: 'slideInRight 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.8s both'}),
-                  boxShadow: isDark ? '0 12px 40px rgba(0, 0, 0, 0.4)' : '0 12px 40px rgba(0, 0, 0, 0.06)',
+                  flex: 1,
+                  minWidth: 0,
+                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                  fontSize: {xs: '0.95rem', sm: '1.1rem'},
+                  fontWeight: 500,
+                  color: isLight ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.85)',
+                  textAlign: 'left',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  letterSpacing: '-0.01em',
+                  background: 'none',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  borderRadius: 0,
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{color: isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.22)', mr: 1.5, fontWeight: 400}}
+                >
+                  $
+                </Box>
+                <Box component="span" sx={{color: theme.vars?.palette.success.main, fontWeight: 600}}>
+                  {cmdFirst}
+                </Box>
+                {cmdRest}
+              </Typography>
+
+              <Box
+                onClick={handleCopy}
+                title={copied ? 'Copied!' : 'Copy'}
+                sx={{
+                  flexShrink: 0,
+                  position: 'relative',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.75,
+                  px: 1.75,
+                  py: 0.875,
+                  borderRadius: '8px',
+                  border: '1px solid',
+                  borderColor: copied
+                    ? 'rgba(74,222,128,0.4)'
+                    : isLight
+                      ? 'rgba(0,0,0,0.12)'
+                      : 'rgba(255,255,255,0.12)',
+                  bgcolor: copied ? 'rgba(74,222,128,0.08)' : isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.05)',
+                  color: copied ? '#4ade80' : isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)',
+                  cursor: 'pointer',
+                  transition: 'all 0.18s ease',
                   '&:hover': {
-                    transform: 'translateY(-4px)',
-                    opacity: 0.95,
-                    boxShadow: isDark
-                      ? '0 16px 48px rgba(0, 0, 0, 0.45), 0 0 24px rgba(255, 140, 0, 0.04)'
-                      : '0 16px 48px rgba(0, 0, 0, 0.08), 0 0 24px rgba(255, 107, 0, 0.03)',
+                    borderColor: copied
+                      ? 'rgba(74,222,128,0.5)'
+                      : isLight
+                        ? 'rgba(0,0,0,0.25)'
+                        : 'rgba(255,255,255,0.28)',
+                    color: copied ? '#4ade80' : isLight ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.85)',
+                  },
+                  '&::after': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '40%',
+                    height: '100%',
+                    background: `linear-gradient(90deg, transparent 0%, ${isLight ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.12)'} 50%, transparent 100%)`,
+                    animation: 'streak 3.5s ease-in-out 1.2s infinite',
+                    pointerEvents: 'none',
                   },
                 }}
-              />
+              >
+                {copied ? (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
+                <Typography component="span" sx={{fontSize: '0.78rem', fontWeight: 500, lineHeight: 1}}>
+                  {copied ? 'Copied' : 'Copy'}
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* ── Download row ── */}
+            <Box sx={{display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap'}}>
+              {primaryAsset ? (
+                <>
+                  <Box
+                    component="a"
+                    href={primaryAsset.downloadUrl}
+                    sx={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 0.75,
+                      textDecoration: 'none',
+                      color: isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)',
+                      fontSize: '0.82rem',
+                      transition: 'color 0.15s ease',
+                      '&:hover': {color: isLight ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.85)'},
+                    }}
+                  >
+                    <Box sx={{display: 'flex', alignItems: 'center', opacity: 0.7}}>{OS_ICONS[primaryAsset.os]}</Box>
+                    <span>
+                      Download for {OS_LABELS[primaryAsset.os]}
+                      {ARCH_LABELS[primaryAsset.os]?.[primaryAsset.arch]
+                        ? ` (${ARCH_LABELS[primaryAsset.os]?.[primaryAsset.arch] ?? ''})`
+                        : ''}
+                    </span>
+                  </Box>
+                  {alternateAsset && (
+                    <>
+                      <Box component="span" sx={{color: isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}}>
+                        ·
+                      </Box>
+                      <Typography
+                        component="a"
+                        href={alternateAsset.downloadUrl}
+                        sx={{
+                          fontSize: '0.82rem',
+                          color: dimColor,
+                          textDecoration: 'none',
+                          '&:hover': {color: theme.vars?.palette.primary.main, textDecoration: 'underline'},
+                          transition: 'color 0.15s ease',
+                        }}
+                      >
+                        {ARCH_LABELS[alternateAsset.os]?.[alternateAsset.arch] ?? alternateAsset.arch}
+                      </Typography>
+                    </>
+                  )}
+                  <Box component="span" sx={{color: isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}}>
+                    ·
+                  </Box>
+                </>
+              ) : null}
+              <Typography
+                component={Link}
+                href="/docs/next/guides/getting-started/get-thunderid"
+                sx={{
+                  fontSize: '0.82rem',
+                  color: dimColor,
+                  textDecoration: 'none',
+                  '&:hover': {color: theme.vars?.palette.primary.main, textDecoration: 'underline'},
+                  transition: 'color 0.15s ease',
+                }}
+              >
+                explore other options →
+              </Typography>
             </Box>
           </Box>
         </Box>

@@ -23,14 +23,12 @@ import (
 	"context"
 	"strings"
 
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
-	authnoauth "github.com/asgardeo/thunder/internal/authn/oauth"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	httpservice "github.com/asgardeo/thunder/internal/system/http"
-	"github.com/asgardeo/thunder/internal/system/jose/jwt"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	authnoauth "github.com/thunder-id/thunderid/internal/authn/oauth"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -59,28 +57,13 @@ type oidcAuthnService struct {
 }
 
 // newOIDCAuthnService creates a new instance of OIDC authenticator service.
-func newOIDCAuthnService(httpClient httpservice.HTTPClientInterface,
-	idpSvc idp.IDPServiceInterface, userProvider userprovider.UserProviderInterface,
+func newOIDCAuthnService(internal authnoauth.OAuthAuthnServiceInterface,
 	jwtSvc jwt.JWTServiceInterface) OIDCAuthnServiceInterface {
-	internal := authnoauth.NewOAuthAuthnService(httpClient, idpSvc, userProvider)
-
-	service := &oidcAuthnService{
+	return &oidcAuthnService{
 		internal:   internal,
 		jwtService: jwtSvc,
 		logger:     log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName)),
 	}
-	authncm.RegisterAuthenticator(service.getMetadata())
-
-	return service
-}
-
-// NewOIDCAuthnService creates a new instance of OIDC authenticator service.
-// [Deprecated: use dependency injection to get the instance instead].
-// TODO: Should be removed when executors are migrated to di pattern.
-func NewOIDCAuthnService(httpClient httpservice.HTTPClientInterface,
-	idpSvc idp.IDPServiceInterface, userProvider userprovider.UserProviderInterface,
-	jwtSvc jwt.JWTServiceInterface) OIDCAuthnServiceInterface {
-	return newOIDCAuthnService(httpClient, idpSvc, userProvider, jwtSvc)
 }
 
 // GetOAuthClientConfig retrieves the OAuth client configuration for the given identity provider ID.
@@ -90,7 +73,8 @@ func (s *oidcAuthnService) GetOAuthClientConfig(ctx context.Context, idpID strin
 }
 
 // BuildAuthorizeURL constructs the authorization request URL for the external identity provider.
-func (s *oidcAuthnService) BuildAuthorizeURL(ctx context.Context, idpID string) (string, *serviceerror.ServiceError) {
+func (s *oidcAuthnService) BuildAuthorizeURL(
+	ctx context.Context, idpID string) (string, *serviceerror.ServiceError) {
 	return s.internal.BuildAuthorizeURL(ctx, idpID)
 }
 
@@ -166,7 +150,7 @@ func (s *oidcAuthnService) ValidateIDToken(ctx context.Context, idpID, idToken s
 	if oAuthClientConfig.OAuthEndpoints.JwksEndpoint != "" {
 		err := s.jwtService.VerifyJWTWithJWKS(idToken, oAuthClientConfig.OAuthEndpoints.JwksEndpoint, "", "")
 		if err != nil {
-			logger.Debug("ID token signature validation failed", log.String("error", err.Error))
+			logger.Debug("ID token signature validation failed", log.String("error", err.Error.DefaultValue))
 			return &ErrorInvalidIDTokenSignature
 		}
 	} else {
@@ -207,15 +191,72 @@ func (s *oidcAuthnService) FetchUserInfo(ctx context.Context, idpID, accessToken
 }
 
 // GetInternalUser retrieves the internal user based on the external subject identifier.
-func (s *oidcAuthnService) GetInternalUser(sub string) (*userprovider.User, *serviceerror.ServiceError) {
+func (s *oidcAuthnService) GetInternalUser(sub string) (*entityprovider.Entity, *serviceerror.ServiceError) {
 	return s.internal.GetInternalUser(sub)
 }
 
-// getMetadata returns the authenticator metadata for OIDC authenticator.
-func (s *oidcAuthnService) getMetadata() authncm.AuthenticatorMeta {
-	return authncm.AuthenticatorMeta{
-		Name:          authncm.AuthenticatorOIDC,
-		Factors:       []authncm.AuthenticationFactor{authncm.FactorKnowledge},
-		AssociatedIDP: idp.IDPTypeOIDC,
+// Authenticate performs the full OIDC authentication flow: exchanges the code for a token,
+// extracts ID token claims, and resolves the internal user.
+// A missing internal user is NOT an error — the caller decides how to handle it.
+func (s *oidcAuthnService) Authenticate(ctx context.Context, idpID, code string) (
+	*authncm.FederatedAuthResult, *serviceerror.ServiceError) {
+	logger := s.logger.With(log.String("idpId", idpID))
+	logger.Debug("Performing federated OIDC authentication")
+
+	tokenResp, svcErr := s.ExchangeCodeForToken(ctx, idpID, code, true)
+	if svcErr != nil {
+		return nil, svcErr
 	}
+
+	claims, svcErr := s.GetIDTokenClaims(tokenResp.IDToken)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	// Extract sub claim from the ID token claims.
+	sub := ""
+	if subVal, ok := claims["sub"]; ok && subVal != nil {
+		if subStr, ok := subVal.(string); ok && subStr != "" {
+			sub = subStr
+		}
+	}
+	if sub == "" {
+		logger.Debug("sub claim not found in ID token")
+		return nil, &authncm.ErrorSubClaimNotFound
+	}
+
+	// Fetch user info if additional scopes are configured so callers get the full attribute set.
+	oauthConfig, svcErr := s.GetOAuthClientConfig(ctx, idpID)
+	if svcErr == nil && len(oauthConfig.Scopes) > 1 {
+		userInfo, infoErr := s.FetchUserInfo(ctx, idpID, tokenResp.AccessToken)
+		if infoErr == nil {
+			if userInfoSub, ok := userInfo["sub"].(string); !ok || userInfoSub == sub {
+				for k, v := range userInfo {
+					if _, exists := claims[k]; !exists {
+						claims[k] = v
+					}
+				}
+			} else {
+				logger.Debug("UserInfo sub mismatch, skipping attribute merge")
+			}
+		}
+	}
+
+	result := &authncm.FederatedAuthResult{
+		Sub:    sub,
+		Claims: claims,
+	}
+	user, svcErr := s.GetInternalUser(sub)
+	if svcErr != nil {
+		if svcErr.Code == authncm.ErrorUserNotFound.Code {
+			return result, nil
+		}
+		if svcErr.Code == authncm.ErrorAmbiguousUser.Code {
+			result.IsAmbiguousUser = true
+			return result, nil
+		}
+		return nil, svcErr
+	}
+	result.InternalEntity = user
+	return result, nil
 }

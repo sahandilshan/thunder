@@ -1,0 +1,1471 @@
+# Required identity provider env variables:
+# - SAMPLE_APP_GOOGLE_CLIENT_ID
+# - SAMPLE_APP_GOOGLE_CLIENT_SECRET
+# - SAMPLE_APP_GOOGLE_REDIRECT_URI
+# - SAMPLE_APP_GOOGLE_SCOPES
+# - SAMPLE_APP_GITHUB_CLIENT_ID
+# - SAMPLE_APP_GITHUB_CLIENT_SECRET
+# - SAMPLE_APP_GITHUB_REDIRECT_URI
+# - SAMPLE_APP_SMS_SENDER_ID
+#
+# resource_type: user_type
+id: 019e3a5c-04ea-7d18-8ae6-f828b1f3d60f
+category: user
+name: Customer
+ou_handle: default
+allow_self_registration: true
+system_attributes:
+  display: username
+schema: {
+    "username": {
+      "type": "string",
+      "displayName": "Username",
+      "required": true,
+      "unique": true
+    },
+    "password": {
+      "type": "string",
+      "displayName": "Password",
+      "required": false,
+      "credential": true
+    },
+    "email": {
+      "type": "string",
+      "displayName": "Email",
+      "required": true,
+      "unique": true,
+      "regex": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+    },
+    "given_name": {
+      "type": "string",
+      "displayName": "First Name",
+      "required": false
+    },
+    "family_name": {
+      "type": "string",
+      "displayName": "Last Name",
+      "required": false
+    },
+    "name": {
+      "type": "string",
+      "displayName": "Full Name",
+      "required": false
+    },
+    "mobileNumber": {
+      "type": "string",
+      "displayName": "Mobile Number",
+      "required": false
+    },
+    "sub": {
+      "type": "string",
+      "displayName": "Subject",
+      "required": false
+    }
+
+  }
+
+---
+# resource_type: identity_provider
+id: 019e201d-5634-7533-a971-538b66914721
+name: Sample Vanilla Google
+description: Google identity provider for the sample vanilla flows
+type: GOOGLE
+properties:
+  - name: client_id
+    value: "{{.SAMPLE_APP_GOOGLE_CLIENT_ID}}"
+  - name: client_secret
+    value: "{{.SAMPLE_APP_GOOGLE_CLIENT_SECRET}}"
+    is_secret: true
+  - name: redirect_uri
+    value: "{{.SAMPLE_APP_GOOGLE_REDIRECT_URI}}"
+  - name: scopes
+    value: "{{.SAMPLE_APP_GOOGLE_SCOPES}}"
+
+---
+# resource_type: identity_provider
+id: 019e3a5e-2ff3-7bfb-ae19-27aada871b80
+name: Sample Vanilla GitHub
+description: GitHub identity provider for the sample vanilla flows
+type: GITHUB
+properties:
+  - name: client_id
+    value: "{{.SAMPLE_APP_GITHUB_CLIENT_ID}}"
+  - name: client_secret
+    value: "{{.SAMPLE_APP_GITHUB_CLIENT_SECRET}}"
+    is_secret: true
+  - name: redirect_uri
+    value: "{{.SAMPLE_APP_GITHUB_REDIRECT_URI}}"
+
+---
+# resource_type: flow
+id: 9b52a0a4-8c63-4b2d-9dc9-1e6c2befc0c0
+name: Sample Vanilla Multi Auth Single Step with SMS and Passkey
+handle: sample-vanilla-multi-auth-single-step-sms
+flowType: AUTHENTICATION
+nodes:
+- id: start
+  type: START
+  onSuccess: choose_auth
+- id: choose_auth
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signin:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_logo
+      resourceType: ELEMENT
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: text_001
+      label: "{{ t(signin:forms.credentials.title) }}"
+      variant: HEADING_1
+    - category: BLOCK
+      components:
+      - category: FIELD
+        hint: ''
+        id: input_001
+        inputType: text
+        label: "{{ t(signin:forms.credentials.fields.username.label) }}"
+        placeholder: "{{ t(signin:forms.credentials.fields.username.placeholder) }}"
+        ref: username
+        required: true
+        resourceType: ELEMENT
+        type: TEXT_INPUT
+      - category: FIELD
+        hint: ''
+        id: input_002
+        inputType: password
+        label: "{{ t(signin:forms.credentials.fields.password.label) }}"
+        placeholder: "{{ t(signin:forms.credentials.fields.password.placeholder) }}"
+        ref: password
+        required: true
+        resourceType: ELEMENT
+        type: PASSWORD_INPUT
+      - category: ACTION
+        eventType: SUBMIT
+        id: action_001
+        label: "{{ t(signin:forms.credentials.actions.submit.label) }}"
+        resourceType: ELEMENT
+        type: ACTION
+        variant: PRIMARY
+      id: block_001
+      resourceType: ELEMENT
+      type: BLOCK
+    - category: DISPLAY
+      id: divider_001
+      label: Or
+      resourceType: ELEMENT
+      type: DIVIDER
+      variant: HORIZONTAL
+    - category: ACTION
+      components:
+      - category: ACTION
+        eventType: TRIGGER
+        id: google_auth
+        image: assets/images/icons/google.svg
+        label: Continue with Google
+        resourceType: ELEMENT
+        type: ACTION
+        variant: OUTLINED
+      eventType: TRIGGER
+      id: block_002
+      resourceType: ELEMENT
+      type: BLOCK
+    - category: ACTION
+      components:
+      - category: ACTION
+        eventType: TRIGGER
+        id: github_auth
+        image: assets/images/icons/github.svg
+        label: Continue with GitHub
+        resourceType: ELEMENT
+        type: ACTION
+        variant: OUTLINED
+      eventType: TRIGGER
+      id: block_003
+      resourceType: ELEMENT
+      type: BLOCK
+    - category: ACTION
+      components:
+      - category: ACTION
+        eventType: TRIGGER
+        id: prompt_mobile
+        image: assets/images/icons/sms.svg
+        label: Continue with SMS OTP
+        resourceType: ELEMENT
+        type: ACTION
+        variant: OUTLINED
+      eventType: TRIGGER
+      id: block_004
+      resourceType: ELEMENT
+      type: BLOCK
+    - category: ACTION
+      components:
+      - category: ACTION
+        eventType: TRIGGER
+        id: action_passkey
+        label: Sign in with Passkey
+        resourceType: ELEMENT
+        type: ACTION
+        variant: OUTLINED
+      eventType: TRIGGER
+      id: block_005
+      resourceType: ELEMENT
+      type: BLOCK
+  prompts:
+  - inputs:
+    - ref: input_001
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+    - ref: input_002
+      identifier: password
+      type: PASSWORD_INPUT
+      required: true
+    action:
+      ref: action_001
+      nextNode: basic_auth
+  - action:
+      ref: google_auth
+      nextNode: google_auth
+  - action:
+      ref: github_auth
+      nextNode: github_auth
+  - action:
+      ref: prompt_mobile
+      nextNode: prompt_sms_identifier
+  - action:
+      ref: action_passkey
+      nextNode: prompt_passkey_identifier
+- id: basic_auth
+  type: TASK_EXECUTION
+  executor:
+    name: BasicAuthExecutor
+    inputs:
+    - ref: input_001
+      type: TEXT_INPUT
+      identifier: username
+      required: true
+    - ref: input_002
+      type: PASSWORD_INPUT
+      identifier: password
+      required: true
+  onSuccess: authorization
+- id: google_auth
+  type: TASK_EXECUTION
+  properties:
+    idpId: "019e201d-5634-7533-a971-538b66914721"
+    allowAuthenticationWithoutLocalUser: false
+    allowCrossOUProvisioning: false
+    allowRegistrationWithExistingUser: false
+  executor:
+    name: GoogleOIDCAuthExecutor
+    inputs:
+    - ref: input_003
+      type: TEXT_INPUT
+      identifier: code
+      required: true
+  onSuccess: authorization
+- id: github_auth
+  type: TASK_EXECUTION
+  properties:
+    idpId: "019e3a5e-2ff3-7bfb-ae19-27aada871b80"
+    allowAuthenticationWithoutLocalUser: false
+    allowCrossOUProvisioning: false
+    allowRegistrationWithExistingUser: false
+  executor:
+    name: GithubOAuthExecutor
+    inputs:
+    - ref: input_004
+      type: TEXT_INPUT
+      identifier: code
+      required: true
+  onSuccess: authorization
+- id: prompt_sms_identifier
+  type: PROMPT
+  meta:
+    components:
+    - align: center
+      category: DISPLAY
+      id: display_heading_sms
+      label: Sign In with SMS OTP
+      resourceType: ELEMENT
+      type: TEXT
+      variant: HEADING_1
+    - category: BLOCK
+      components:
+      - category: FIELD
+        hint: ''
+        id: input_sms_001
+        inputType: tel
+        label: "{{ t(signin:forms.credentials.fields.username.label) }}"
+        placeholder: "{{ t(signin:forms.credentials.fields.username.placeholder) }}"
+        ref: username
+        required: true
+        resourceType: ELEMENT
+        type: TEXT_INPUT
+      - category: ACTION
+        eventType: SUBMIT
+        id: action_sms_send
+        label: Send OTP
+        resourceType: ELEMENT
+        type: ACTION
+        variant: PRIMARY
+      id: block_sms_001
+      resourceType: ELEMENT
+      type: BLOCK
+  prompts:
+  - inputs:
+    - ref: input_sms_001
+      type: TEXT_INPUT
+      identifier: username
+      required: true
+    action:
+      ref: action_sms_send
+      nextNode: send_sms
+- id: send_sms
+  type: TASK_EXECUTION
+  properties:
+    senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
+  executor:
+    name: SMSOTPAuthExecutor
+    mode: send
+    inputs:
+    - ref: input_sms_001
+      type: TEXT_INPUT
+      identifier: username
+      required: true
+  onSuccess: prompt_otp
+- id: prompt_otp
+  type: PROMPT
+  meta:
+    components:
+    - type: TEXT
+      id: text_otp_heading
+      label: Verify OTP
+      variant: HEADING_3
+    - type: BLOCK
+      id: block_otp
+      components:
+      - type: OTP_INPUT
+        id: otp_input
+        ref: otp
+        label: Enter the code sent to your mobile
+        required: true
+      - type: ACTION
+        id: action_verify
+        label: Verify
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: otp_input
+      type: OTP_INPUT
+      identifier: otp
+      required: true
+    action:
+      ref: action_verify
+      nextNode: verify_sms
+- id: verify_sms
+  type: TASK_EXECUTION
+  properties:
+    senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
+  executor:
+    name: SMSOTPAuthExecutor
+    mode: verify
+    inputs:
+    - ref: otp_input
+      type: OTP_INPUT
+      identifier: otp
+      required: true
+  onSuccess: authorization
+- id: prompt_passkey_identifier
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signin:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_passkey
+      resourceType: ELEMENT
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      category: DISPLAY
+      id: text_passkey_heading
+      label: "{{ t(signin:forms.passkey_identifier.title) }}"
+      resourceType: ELEMENT
+      type: TEXT
+      variant: HEADING_1
+    - category: BLOCK
+      components:
+      - category: FIELD
+        hint: ''
+        id: passkey_username
+        inputType: text
+        label: "{{ t(signin:forms.passkey_identifier.fields.username.label) }}"
+        placeholder: "{{ t(signin:forms.passkey_identifier.fields.username.placeholder) }}"
+        ref: username
+        required: true
+        resourceType: ELEMENT
+        type: TEXT_INPUT
+      - category: ACTION
+        eventType: SUBMIT
+        id: action_continue
+        label: "{{ t(signin:forms.passkey_identifier.actions.continue.label) }}"
+        resourceType: ELEMENT
+        type: ACTION
+        variant: PRIMARY
+      id: block_passkey_identifier
+      resourceType: ELEMENT
+      type: BLOCK
+  prompts:
+  - inputs:
+    - ref: passkey_username
+      type: TEXT_INPUT
+      identifier: username
+      required: true
+    action:
+      ref: action_continue
+      nextNode: identity_resolver
+- id: identity_resolver
+  type: TASK_EXECUTION
+  executor:
+    name: IdentifyingExecutor
+    inputs:
+    - ref: passkey_username
+      type: TEXT_INPUT
+      identifier: username
+      required: true
+  onSuccess: passkey_challenge
+- id: passkey_challenge
+  type: TASK_EXECUTION
+  properties:
+    relyingPartyId: localhost
+    relyingPartyName: ThunderID
+  executor:
+    name: PasskeyAuthExecutor
+    mode: challenge
+  onSuccess: passkey_verify
+- id: passkey_verify
+  type: TASK_EXECUTION
+  executor:
+    name: PasskeyAuthExecutor
+    mode: verify
+  onSuccess: authorization
+- id: authorization
+  type: TASK_EXECUTION
+  executor:
+    name: AuthorizationExecutor
+  onSuccess: auth_assert
+- id: auth_assert
+  type: TASK_EXECUTION
+  executor:
+    name: AuthAssertExecutor
+  onSuccess: end
+- id: end
+  type: END
+---
+# resource_type: flow
+id: 0a840a2f-daf7-476c-8f7f-40e100666d19
+name: Sample Vanilla Multi Auth Dual Step with SMS
+handle: sample-vanilla-multi-auth-dual-step-sms
+flowType: AUTHENTICATION
+nodes:
+- id: start
+  type: START
+  onSuccess: choose_auth
+- id: choose_auth
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signin:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_logo
+      resourceType: ELEMENT
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      category: DISPLAY
+      id: display_heading
+      label: "{{ t(signin:forms.credentials.title) }}"
+      resourceType: ELEMENT
+      type: TEXT
+      variant: HEADING_1
+    - category: BLOCK
+      components:
+      - category: FIELD
+        hint: ''
+        id: input_001
+        inputType: text
+        label: "{{ t(signin:forms.credentials.fields.username.label) }}"
+        placeholder: "{{ t(signin:forms.credentials.fields.username.placeholder) }}"
+        ref: username
+        required: true
+        resourceType: ELEMENT
+        type: TEXT_INPUT
+      - category: FIELD
+        hint: ''
+        id: input_002
+        inputType: password
+        label: "{{ t(signin:forms.credentials.fields.password.label) }}"
+        placeholder: "{{ t(signin:forms.credentials.fields.password.placeholder) }}"
+        ref: password
+        required: true
+        resourceType: ELEMENT
+        type: PASSWORD_INPUT
+      - category: ACTION
+        eventType: SUBMIT
+        id: basic_auth
+        label: "{{ t(signin:forms.credentials.actions.submit.label) }}"
+        resourceType: ELEMENT
+        type: ACTION
+        variant: PRIMARY
+      id: block_001
+      resourceType: ELEMENT
+      type: BLOCK
+    - category: DISPLAY
+      id: divider_001
+      label: Or
+      resourceType: ELEMENT
+      type: DIVIDER
+      variant: HORIZONTAL
+    - category: ACTION
+      components:
+      - category: ACTION
+        eventType: TRIGGER
+        id: google_auth
+        image: assets/images/icons/google.svg
+        label: Continue with Google
+        resourceType: ELEMENT
+        type: ACTION
+        variant: OUTLINED
+      eventType: TRIGGER
+      id: block_002
+      resourceType: ELEMENT
+      type: BLOCK
+    - category: ACTION
+      components:
+      - category: ACTION
+        eventType: TRIGGER
+        id: github_auth
+        image: assets/images/icons/github.svg
+        label: Continue with GitHub
+        resourceType: ELEMENT
+        type: ACTION
+        variant: OUTLINED
+      eventType: TRIGGER
+      id: block_003
+      resourceType: ELEMENT
+      type: BLOCK
+  prompts:
+  - inputs:
+    - ref: input_001
+      type: TEXT_INPUT
+      identifier: username
+      required: true
+    - ref: input_002
+      type: PASSWORD_INPUT
+      identifier: password
+      required: true
+    action:
+      ref: basic_auth
+      nextNode: basic_auth
+  - action:
+      ref: google_auth
+      nextNode: google_auth
+  - action:
+      ref: github_auth
+      nextNode: github_auth
+- id: basic_auth
+  type: TASK_EXECUTION
+  executor:
+    name: BasicAuthExecutor
+    inputs:
+    - ref: input_001
+      type: TEXT_INPUT
+      identifier: username
+      required: true
+    - ref: input_002
+      type: PASSWORD_INPUT
+      identifier: password
+      required: true
+  onSuccess: send_sms
+- id: google_auth
+  type: TASK_EXECUTION
+  properties:
+    idpId: "019e201d-5634-7533-a971-538b66914721"
+    allowAuthenticationWithoutLocalUser: false
+    allowCrossOUProvisioning: false
+    allowRegistrationWithExistingUser: false
+  executor:
+    name: GoogleOIDCAuthExecutor
+    inputs:
+    - ref: input_003
+      type: TEXT_INPUT
+      identifier: code
+      required: true
+  onSuccess: send_sms
+- id: github_auth
+  type: TASK_EXECUTION
+  properties:
+    idpId: "019e3a5e-2ff3-7bfb-ae19-27aada871b80"
+    allowAuthenticationWithoutLocalUser: false
+    allowCrossOUProvisioning: false
+    allowRegistrationWithExistingUser: false
+  executor:
+    name: GithubOAuthExecutor
+    inputs:
+    - ref: input_004
+      type: TEXT_INPUT
+      identifier: code
+      required: true
+  onSuccess: send_sms
+- id: send_sms
+  type: TASK_EXECUTION
+  properties:
+    senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
+  executor:
+    name: SMSOTPAuthExecutor
+    mode: send
+  onSuccess: prompt_otp
+- id: prompt_otp
+  type: PROMPT
+  meta:
+    components:
+    - type: TEXT
+      id: text_otp_heading
+      label: Verify OTP
+      variant: HEADING_3
+    - type: BLOCK
+      id: block_otp
+      components:
+      - type: OTP_INPUT
+        id: otp_input
+        ref: otp
+        label: Enter the code sent to your mobile
+        required: true
+      - type: ACTION
+        id: action_verify
+        label: Verify
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: otp_input
+      type: OTP_INPUT
+      identifier: otp
+      required: true
+    action:
+      ref: action_verify
+      nextNode: verify_sms
+- id: verify_sms
+  type: TASK_EXECUTION
+  properties:
+    senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
+  executor:
+    name: SMSOTPAuthExecutor
+    mode: verify
+    inputs:
+    - ref: otp_input
+      type: OTP_INPUT
+      identifier: otp
+      required: true
+  onSuccess: authorization
+- id: authorization
+  type: TASK_EXECUTION
+  executor:
+    name: AuthorizationExecutor
+  onSuccess: auth_assert
+- id: auth_assert
+  type: TASK_EXECUTION
+  executor:
+    name: AuthAssertExecutor
+  onSuccess: end
+- id: end
+  type: END
+---
+# resource_type: flow
+id: 6b8aa940-e8e7-42d8-88b6-4411a09fad85
+name: Sample Vanilla Multi Auth Single Step Registration with SMS and Passkey
+handle: sample-vanilla-multi-auth-single-step-sms
+flowType: REGISTRATION
+nodes:
+- id: start
+  type: START
+  onSuccess: user_type_resolver
+- id: user_type_resolver
+  type: TASK_EXECUTION
+  executor:
+    name: UserTypeResolver
+  onSuccess: choose_auth
+  onIncomplete: prompt_usertype
+- id: prompt_usertype
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: heading_usertype
+      label: "{{ t(signup:forms.user_type.title) }}"
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_usertype
+      components:
+      - type: SELECT
+        id: usertype_input
+        ref: userType
+        label: "{{ t(signup:forms.user_type.fields.user_type.label) }}"
+        placeholder: "{{ t(signup:forms.user_type.fields.user_type.placeholder) }}"
+        required: true
+        options: []
+      - type: ACTION
+        id: action_usertype
+        label: "{{ t(signup:forms.user_type.actions.continue.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: usertype_input
+      identifier: userType
+      type: SELECT
+      required: true
+    action:
+      ref: action_usertype
+      nextNode: user_type_resolver
+- id: choose_auth
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_logo
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: display_heading
+      label: "{{ t(signup:forms.credentials.title) }}"
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_credentials
+      components:
+      - type: TEXT_INPUT
+        id: input_username
+        ref: username
+        label: "{{ t(signup:forms.credentials.fields.username.label) }}"
+        placeholder: "{{ t(signup:forms.credentials.fields.username.placeholder) }}"
+        required: true
+      - type: PASSWORD_INPUT
+        id: input_password
+        ref: password
+        label: "{{ t(signup:forms.credentials.fields.password.label) }}"
+        placeholder: "{{ t(signup:forms.credentials.fields.password.placeholder) }}"
+        required: true
+      - type: ACTION
+        id: action_001
+        label: "{{ t(signup:forms.credentials.actions.submit.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+    - type: DIVIDER
+      id: divider_001
+      label: Or
+      variant: HORIZONTAL
+    - type: BLOCK
+      id: block_google
+      components:
+      - type: ACTION
+        id: google_auth
+        label: Continue with Google
+        image: assets/images/icons/google.svg
+        variant: OUTLINED
+        eventType: TRIGGER
+    - type: BLOCK
+      id: block_github
+      components:
+      - type: ACTION
+        id: github_auth
+        label: Continue with GitHub
+        image: assets/images/icons/github.svg
+        variant: OUTLINED
+        eventType: TRIGGER
+    - type: BLOCK
+      id: block_sms
+      components:
+      - type: ACTION
+        id: prompt_mobile
+        label: Continue with SMS OTP
+        image: assets/images/icons/sms.svg
+        variant: OUTLINED
+        eventType: TRIGGER
+    - type: BLOCK
+      id: block_passkey
+      components:
+      - type: ACTION
+        id: action_passkey
+        label: Create account with Passkey
+        variant: OUTLINED
+        eventType: TRIGGER
+  prompts:
+  - inputs:
+    - ref: input_username
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+    - ref: input_password
+      identifier: password
+      type: PASSWORD_INPUT
+      required: true
+    action:
+      ref: action_001
+      nextNode: basic_auth
+  - action:
+      ref: google_auth
+      nextNode: google_auth
+  - action:
+      ref: github_auth
+      nextNode: github_auth
+  - action:
+      ref: prompt_mobile
+      nextNode: prompt_sms_identifier
+  - action:
+      ref: action_passkey
+      nextNode: collect_passkey_user_info
+- id: basic_auth
+  type: TASK_EXECUTION
+  executor:
+    name: BasicAuthExecutor
+  onSuccess: provisioning
+- id: google_auth
+  type: TASK_EXECUTION
+  properties:
+    idpId: "019e201d-5634-7533-a971-538b66914721"
+  executor:
+    name: GoogleOIDCAuthExecutor
+    inputs:
+    - ref: google_code
+      identifier: code
+      type: TEXT_INPUT
+      required: true
+  onSuccess: provisioning
+- id: github_auth
+  type: TASK_EXECUTION
+  properties:
+    idpId: "019e3a5e-2ff3-7bfb-ae19-27aada871b80"
+  executor:
+    name: GithubOAuthExecutor
+    inputs:
+    - ref: github_code
+      identifier: code
+      type: TEXT_INPUT
+      required: true
+  onSuccess: provisioning
+- id: prompt_sms_identifier
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_sms
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: heading_sms_identifier
+      label: Sign Up with SMS OTP
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_sms_identifier
+      components:
+      - type: TEXT_INPUT
+        id: sms_identifier_input
+        ref: username
+        label: "{{ t(signup:forms.credentials.fields.username.label) }}"
+        placeholder: "{{ t(signup:forms.credentials.fields.username.placeholder) }}"
+        required: true
+      - type: ACTION
+        id: send_sms
+        label: Send OTP
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: sms_identifier_input
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+    action:
+      ref: send_sms
+      nextNode: send_sms
+- id: send_sms
+  type: TASK_EXECUTION
+  properties:
+    senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
+  executor:
+    name: SMSOTPAuthExecutor
+    mode: send
+    inputs:
+    - ref: sms_identifier_input
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+  onSuccess: prompt_otp
+- id: prompt_otp
+  type: PROMPT
+  meta:
+    components:
+    - align: center
+      type: TEXT
+      id: otp_heading
+      label: "{{ t(signup:forms.otp.title) }}"
+      variant: HEADING_1
+    - align: center
+      type: TEXT
+      id: otp_description
+      label: "{{ t(signup:forms.otp.description) }}"
+      variant: BODY_1
+    - type: BLOCK
+      id: block_otp
+      components:
+      - type: OTP_INPUT
+        id: otp_input
+        ref: otp
+        required: true
+      - type: ACTION
+        id: verify_sms
+        label: "{{ t(signup:forms.otp.actions.submit.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: otp_input
+      identifier: otp
+      type: OTP_INPUT
+      required: true
+    action:
+      ref: verify_sms
+      nextNode: verify_sms
+- id: verify_sms
+  type: TASK_EXECUTION
+  properties:
+    senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
+  executor:
+    name: SMSOTPAuthExecutor
+    mode: verify
+    inputs:
+    - ref: otp_input
+      identifier: otp
+      type: OTP_INPUT
+      required: true
+  onSuccess: provisioning
+- id: collect_passkey_user_info
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_passkey
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: text_passkey_info_heading
+      label: "{{ t(signup:forms.collect_passkey_user_info.title) }}"
+      variant: HEADING_1
+    - category: DISPLAY
+      id: text_passkey_info_description
+      label: "{{ t(signup:forms.collect_passkey_user_info.description) }}"
+      type: TEXT
+      variant: BODY
+    - type: BLOCK
+      id: block_passkey_info
+      components:
+      - type: TEXT_INPUT
+        id: input_passkey_username
+        ref: username
+        label: "{{ t(signup:forms.collect_passkey_user_info.fields.username.label) }}"
+        placeholder: "{{ t(signup:forms.collect_passkey_user_info.fields.username.placeholder) }}"
+        required: true
+      - type: EMAIL_INPUT
+        id: input_passkey_email
+        ref: email
+        label: "{{ t(signup:forms.collect_passkey_user_info.fields.email.label) }}"
+        placeholder: "{{ t(signup:forms.collect_passkey_user_info.fields.email.placeholder) }}"
+        required: true
+      - type: ACTION
+        id: action_passkey_continue
+        label: "{{ t(signup:forms.collect_passkey_user_info.actions.continue.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: input_passkey_username
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+    - ref: input_passkey_email
+      identifier: email
+      type: EMAIL_INPUT
+      required: true
+    action:
+      ref: action_passkey_continue
+      nextNode: passkey_provisioning
+- id: provisioning
+  type: TASK_EXECUTION
+  executor:
+    name: ProvisioningExecutor
+  onSuccess: auth_assert
+  onIncomplete: prompt_schema_attrs
+- id: passkey_provisioning
+  type: TASK_EXECUTION
+  executor:
+    name: ProvisioningExecutor
+  onSuccess: passkey_reg_start
+  onIncomplete: prompt_passkey_schema_attrs
+- id: prompt_schema_attrs
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_schema
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: heading_schema_attrs
+      label: "{{ t(signup:forms.user_info.title) }}"
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_dynamic_user_inputs
+      components:
+      - type: DYNAMIC_INPUT_PLACEHOLDER
+        id: dynamic_inputs
+      - type: ACTION
+        id: action_schema_attrs
+        label: "{{ t(signup:forms.user_info.actions.continue.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs: []
+    action:
+      ref: action_schema_attrs
+      nextNode: provisioning
+- id: prompt_passkey_schema_attrs
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_passkey_schema
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: heading_passkey_schema_attrs
+      label: "{{ t(signup:forms.user_info.title) }}"
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_dynamic_passkey_user_inputs
+      components:
+      - type: DYNAMIC_INPUT_PLACEHOLDER
+        id: dynamic_passkey_inputs
+      - type: ACTION
+        id: action_passkey_schema_attrs
+        label: "{{ t(signup:forms.user_info.actions.continue.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs: []
+    action:
+      ref: action_passkey_schema_attrs
+      nextNode: passkey_provisioning
+- id: passkey_reg_start
+  type: TASK_EXECUTION
+  properties:
+    relyingPartyId: localhost
+    relyingPartyName: ThunderID
+  executor:
+    name: PasskeyAuthExecutor
+    mode: register_start
+  onSuccess: passkey_reg_finish
+- id: passkey_reg_finish
+  type: TASK_EXECUTION
+  executor:
+    name: PasskeyAuthExecutor
+    mode: register_finish
+  onSuccess: auth_assert
+- id: auth_assert
+  type: TASK_EXECUTION
+  executor:
+    name: AuthAssertExecutor
+  onSuccess: end
+- id: end
+  type: END
+---
+# resource_type: flow
+id: 58bb4b15-700c-4114-a744-f55650990259
+name: Sample Vanilla Multi Auth Dual Step Registration with SMS
+handle: sample-vanilla-multi-auth-dual-step-sms
+flowType: REGISTRATION
+nodes:
+- id: start
+  type: START
+  onSuccess: user_type_resolver
+- id: user_type_resolver
+  type: TASK_EXECUTION
+  executor:
+    name: UserTypeResolver
+  onSuccess: choose_auth
+  onIncomplete: prompt_usertype
+- id: prompt_usertype
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: heading_usertype
+      label: "{{ t(signup:forms.user_type.title) }}"
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_usertype
+      components:
+      - type: SELECT
+        id: usertype_input
+        ref: userType
+        label: "{{ t(signup:forms.user_type.fields.user_type.label) }}"
+        placeholder: "{{ t(signup:forms.user_type.fields.user_type.placeholder) }}"
+        required: true
+        options: []
+      - type: ACTION
+        id: action_usertype
+        label: "{{ t(signup:forms.user_type.actions.continue.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: usertype_input
+      identifier: userType
+      type: SELECT
+      required: true
+    action:
+      ref: action_usertype
+      nextNode: user_type_resolver
+- id: choose_auth
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_logo
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: display_heading
+      label: "{{ t(signup:forms.credentials.title) }}"
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_credentials
+      components:
+      - type: TEXT_INPUT
+        id: input_username
+        ref: username
+        label: "{{ t(signup:forms.credentials.fields.username.label) }}"
+        placeholder: "{{ t(signup:forms.credentials.fields.username.placeholder) }}"
+        required: true
+      - type: PASSWORD_INPUT
+        id: input_password
+        ref: password
+        label: "{{ t(signup:forms.credentials.fields.password.label) }}"
+        placeholder: "{{ t(signup:forms.credentials.fields.password.placeholder) }}"
+        required: true
+      - type: ACTION
+        id: basic_auth
+        label: "{{ t(signup:forms.credentials.actions.submit.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+    - type: DIVIDER
+      id: divider_001
+      label: Or
+      variant: HORIZONTAL
+    - type: BLOCK
+      id: block_google
+      components:
+      - type: ACTION
+        id: google_auth
+        label: Continue with Google
+        image: assets/images/icons/google.svg
+        variant: OUTLINED
+        eventType: TRIGGER
+    - type: BLOCK
+      id: block_github
+      components:
+      - type: ACTION
+        id: github_auth
+        label: Continue with GitHub
+        image: assets/images/icons/github.svg
+        variant: OUTLINED
+        eventType: TRIGGER
+  prompts:
+  - inputs:
+    - ref: input_username
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+    - ref: input_password
+      identifier: password
+      type: PASSWORD_INPUT
+      required: true
+    action:
+      ref: basic_auth
+      nextNode: basic_auth
+  - action:
+      ref: google_auth
+      nextNode: google_auth
+  - action:
+      ref: github_auth
+      nextNode: github_auth
+- id: basic_auth
+  type: TASK_EXECUTION
+  executor:
+    name: BasicAuthExecutor
+  onSuccess: send_sms
+- id: google_auth
+  type: TASK_EXECUTION
+  properties:
+    idpId: "019e201d-5634-7533-a971-538b66914721"
+  executor:
+    name: GoogleOIDCAuthExecutor
+    inputs:
+    - ref: google_code
+      identifier: code
+      type: TEXT_INPUT
+      required: true
+  onSuccess: send_sms
+- id: github_auth
+  type: TASK_EXECUTION
+  properties:
+    idpId: "019e3a5e-2ff3-7bfb-ae19-27aada871b80"
+  executor:
+    name: GithubOAuthExecutor
+    inputs:
+    - ref: github_code
+      identifier: code
+      type: TEXT_INPUT
+      required: true
+  onSuccess: send_sms
+- id: send_sms
+  type: TASK_EXECUTION
+  properties:
+    senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
+  executor:
+    name: SMSOTPAuthExecutor
+    mode: send
+  onSuccess: prompt_otp
+- id: prompt_otp
+  type: PROMPT
+  meta:
+    components:
+    - align: center
+      type: TEXT
+      id: otp_heading
+      label: "{{ t(signup:forms.otp.title) }}"
+      variant: HEADING_1
+    - align: center
+      type: TEXT
+      id: otp_description
+      label: "{{ t(signup:forms.otp.description) }}"
+      variant: BODY_1
+    - type: BLOCK
+      id: block_otp
+      components:
+      - type: OTP_INPUT
+        id: otp_input
+        ref: otp
+        required: true
+      - type: ACTION
+        id: verify_sms
+        label: "{{ t(signup:forms.otp.actions.submit.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: otp_input
+      identifier: otp
+      type: OTP_INPUT
+      required: true
+    action:
+      ref: verify_sms
+      nextNode: verify_sms
+- id: verify_sms
+  type: TASK_EXECUTION
+  properties:
+    senderId: "{{.SAMPLE_APP_SMS_SENDER_ID}}"
+  executor:
+    name: SMSOTPAuthExecutor
+    mode: verify
+    inputs:
+    - ref: otp_input
+      identifier: otp
+      type: OTP_INPUT
+      required: true
+  onSuccess: provisioning
+- id: provisioning
+  type: TASK_EXECUTION
+  executor:
+    name: ProvisioningExecutor
+  onSuccess: auth_assert
+  onIncomplete: prompt_schema_attrs
+- id: prompt_schema_attrs
+  type: PROMPT
+  meta:
+    components:
+    - alt: "{{ t(signup:images.app_logo.alt) }}"
+      category: DISPLAY
+      height: '60'
+      id: image_schema
+      src: "{{ meta(application.logoUrl) }}"
+      type: IMAGE
+      width: ''
+    - align: center
+      type: TEXT
+      id: heading_schema_attrs
+      label: "{{ t(signup:forms.user_info.title) }}"
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_dynamic_user_inputs
+      components:
+      - type: DYNAMIC_INPUT_PLACEHOLDER
+        id: dynamic_inputs
+      - type: ACTION
+        id: action_schema_attrs
+        label: "{{ t(signup:forms.user_info.actions.continue.label) }}"
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs: []
+    action:
+      ref: action_schema_attrs
+      nextNode: provisioning
+- id: auth_assert
+  type: TASK_EXECUTION
+  executor:
+    name: AuthAssertExecutor
+  onSuccess: end
+- id: end
+  type: END
+
+---
+# resource_type: application
+id: 019e3a5c-0500-7f3e-a66e-66fc7918c3a7
+ou_handle: default
+name: Sample App
+description: Sample vanilla application for testing
+url: https://localhost:3000
+logo_url: emoji:🎁
+tos_uri: https://localhost:3000/terms
+policy_uri: https://localhost:3000/privacy
+contacts:
+  - admin@example.com
+  - support@example.com
+auth_flow_handle: sample-vanilla-multi-auth-single-step-sms
+registration_flow_handle: sample-vanilla-multi-auth-single-step-sms
+is_registration_flow_enabled: true
+is_recovery_flow_enabled: false
+assertion:
+  validity_period: 3600
+login_consent:
+  validity_period: 0
+allowed_user_types:
+  - Customer
+inbound_auth_config:
+  - type: oauth2
+    config:
+      client_id: {{.SAMPLE_APP_CLIENT_ID}}
+      redirect_uris:
+        {{- range .SAMPLE_APP_REDIRECT_URIS}}
+        - {{.}}
+        {{- end}}
+      grant_types:
+        - authorization_code
+      response_types:
+        - code
+      token_endpoint_auth_method: none
+      pkce_required: true
+      public_client: true
+      require_pushed_authorization_requests: false
+      token:
+        access_token:
+          validity_period: 3600
+          user_attributes:
+            - given_name
+            - family_name
+            - email
+            - groups
+        id_token:
+          validity_period: 3600
+          user_attributes:
+            - given_name
+            - family_name
+            - email
+            - groups
+          response_type: JWT
+      scopes:
+        - openid
+        - profile
+        - email
+      user_info:
+        response_type: JSON
+        user_attributes:
+          - given_name
+          - family_name
+          - email
+          - groups
+      scope_claims:
+        email:
+          - email
+          - email_verified
+        group:
+          - groups
+        phone:
+          - phone_number
+          - phone_number_verified
+        profile:
+          - name
+          - given_name
+          - family_name
+          - picture

@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // mockFlowMetaService is a manual mock for FlowMetaServiceInterface to avoid import cycles
@@ -45,7 +45,7 @@ func (m *mockFlowMetaService) GetFlowMetadata(
 	namespace *string,
 ) (*FlowMetadataResponse, *serviceerror.ServiceError) {
 	args := m.Called(ctx, metaType, id, language, namespace)
-	if args.Get(0) == nil {
+	if args.Get(1) != nil {
 		return nil, args.Get(1).(*serviceerror.ServiceError)
 	}
 	return args.Get(0).(*FlowMetadataResponse), nil

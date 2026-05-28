@@ -22,7 +22,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -38,13 +38,13 @@ type DeclarativeModeServiceTestSuite struct {
 
 func (suite *DeclarativeModeServiceTestSuite) SetupTest() {
 	// Initialize runtime with declarative mode enabled
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		DeclarativeResources: config.DeclarativeResources{
 			Enabled: true,
 		},
 	}
-	err := config.InitializeThunderRuntime("/tmp/test", testConfig)
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
 	suite.Require().NoError(err)
 
 	// Create service with mock store and dependencies
@@ -59,11 +59,11 @@ func (suite *DeclarativeModeServiceTestSuite) SetupTest() {
 }
 
 func (suite *DeclarativeModeServiceTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func (suite *DeclarativeModeServiceTestSuite) TestCreateOrganizationUnit_FailsInDeclarativeMode() {
-	request := OrganizationUnitRequest{
+	request := OrganizationUnitRequestWithID{
 		Name:        "Test OU",
 		Handle:      "test-ou",
 		Description: "Test Description",
@@ -86,7 +86,7 @@ func (suite *DeclarativeModeServiceTestSuite) TestUpdateOrganizationUnit_FailsIn
 	}, nil).Once()
 	suite.store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").Return(true).Once()
 
-	request := OrganizationUnitRequest{
+	request := OrganizationUnitRequestWithID{
 		Name:        "Updated OU",
 		Handle:      "updated-ou",
 		Description: "Updated Description",
@@ -109,7 +109,7 @@ func (suite *DeclarativeModeServiceTestSuite) TestUpdateOrganizationUnitByPath_F
 	}, nil).Once()
 	suite.store.On("IsOrganizationUnitDeclarative", mock.Anything, "ou-1").Return(true).Once()
 
-	request := OrganizationUnitRequest{
+	request := OrganizationUnitRequestWithID{
 		Name:        "Updated OU",
 		Handle:      "updated-ou",
 		Description: "Updated Description",

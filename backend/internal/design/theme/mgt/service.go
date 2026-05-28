@@ -24,10 +24,11 @@ import (
 	"errors"
 	"fmt"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const loggerComponentName = "ThemeMgtService"
@@ -35,7 +36,7 @@ const loggerComponentName = "ThemeMgtService"
 // ThemeMgtServiceInterface defines the interface for the theme management service.
 type ThemeMgtServiceInterface interface {
 	GetThemeList(limit, offset int) (*ThemeList, *serviceerror.ServiceError)
-	CreateTheme(theme CreateThemeRequest) (*Theme, *serviceerror.ServiceError)
+	CreateTheme(theme CreateThemeRequestWithID) (*Theme, *serviceerror.ServiceError)
 	GetTheme(id string) (*Theme, *serviceerror.ServiceError)
 	UpdateTheme(id string, theme UpdateThemeRequest) (*Theme, *serviceerror.ServiceError)
 	DeleteTheme(id string) *serviceerror.ServiceError
@@ -87,7 +88,7 @@ func (ts *themeMgtService) GetThemeList(limit, offset int) (*ThemeList, *service
 }
 
 // CreateTheme creates a new theme configuration.
-func (ts *themeMgtService) CreateTheme(theme CreateThemeRequest) (*Theme, *serviceerror.ServiceError) {
+func (ts *themeMgtService) CreateTheme(theme CreateThemeRequestWithID) (*Theme, *serviceerror.ServiceError) {
 	ts.logger.Debug("Creating theme configuration")
 
 	if theme.DisplayName == "" {
@@ -116,13 +117,24 @@ func (ts *themeMgtService) CreateTheme(theme CreateThemeRequest) (*Theme, *servi
 		return nil, err
 	}
 
-	id, err := utils.GenerateUUIDv7()
-	if err != nil {
-		ts.logger.Error("Failed to generate UUID", log.Error(err))
-		return nil, &serviceerror.InternalServerError
+	id := theme.ID
+	if id == "" {
+		var err error
+		id, err = utils.GenerateUUIDv7()
+		if err != nil {
+			ts.logger.Error("Failed to generate UUID", log.Error(err))
+			return nil, &serviceerror.InternalServerError
+		}
 	}
 
-	if err := ts.themeMgtStore.CreateTheme(id, theme); err != nil {
+	storeReq := CreateThemeRequest{
+		Handle:      theme.Handle,
+		DisplayName: theme.DisplayName,
+		Description: theme.Description,
+		Theme:       theme.Theme,
+	}
+
+	if err := ts.themeMgtStore.CreateTheme(id, storeReq); err != nil {
 		ts.logger.Error("Failed to create theme", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
@@ -292,9 +304,10 @@ func (ts *themeMgtService) validateThemePreferences(theme json.RawMessage) *serv
 // validatePaginationParams validates limit and offset parameters.
 func validatePaginationParams(limit, offset int) *serviceerror.ServiceError {
 	if limit < 1 || limit > serverconst.MaxPageSize {
-		err := ErrorInvalidLimitValue
-		err.ErrorDescription = fmt.Sprintf("Limit must be between 1 and %d", serverconst.MaxPageSize)
-		return &err
+		return serviceerror.CustomServiceError(ErrorInvalidLimitValue, core.I18nMessage{
+			Key:          "error.themeservice.invalid_limit_value_description",
+			DefaultValue: fmt.Sprintf("Limit must be between 1 and %d", serverconst.MaxPageSize),
+		})
 	}
 
 	if offset < 0 {

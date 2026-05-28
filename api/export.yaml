@@ -1,0 +1,594 @@
+openapi: 3.0.3
+info:
+  title: Export API
+  version: "1.0"
+  description: This API exports Resources as combined YAML in JSON responses or as ZIP archives.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://{host}:{port}
+    variables:
+      host:
+        default: "localhost"
+      port:
+        default: "8090"
+
+tags:
+  - name: Export
+    description: Export all declared resources as a combined YAML document or a downloadable ZIP archive.
+
+security:
+  - OAuth2: [system]
+
+paths:
+  /export:
+    post:
+      tags:
+        - Export
+      summary: Export resources as JSON
+      description: >
+        Exports the requested resources and returns a JSON response containing
+        the combined YAML export content and the generated `.env` file content.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportRequest'
+            example:
+              applications:
+                - "550e8400-e29b-41d4-a716-446655440000"
+              resourceServers:
+                - "*"
+              roles:
+                - "*"
+              flows:
+                - "*"
+              options:
+                format: "yaml"
+      responses:
+        "200":
+          description: Combined YAML and environment variable export
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JSONExportResponse'
+              examples:
+                with-env-file:
+                  summary: Export that includes template variables
+                  value:
+                    resources: "# File: google-idp.yaml\napiVersion: v1\nkind: IdentityProvider\n..."
+                    environment_variables: "GOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\n"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-request:
+                  summary: Malformed request body
+                  value:
+                    code: "EXP-1001"
+                    message:
+                      key: "error.exportservice.invalid_request"
+                      defaultValue: "Invalid export request"
+                    description:
+                      key: "error.exportservice.invalid_request_description"
+                      defaultValue: "The provided export request is invalid or malformed"
+                no-resources:
+                  summary: No matching resources found
+                  value:
+                    code: "EXP-1002"
+                    message:
+                      key: "error.exportservice.no_resources_found"
+                      defaultValue: "No resources found"
+                    description:
+                      key: "error.exportservice.no_resources_found_description"
+                      defaultValue: "No valid resources found for the provided identifiers"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the export request"
+
+  /export/zip:
+    post:
+      tags:
+        - Export
+      summary: Export resources as ZIP archive
+      description: >
+        Exports the requested resources and returns them as a downloadable
+        ZIP archive. Each exported resource is placed in a separate file
+        (optionally inside a sub-folder determined by `folderPath`).
+        When template variables are detected across the exported resources,
+        a `.env` file is automatically generated and included in the ZIP
+        root; the `.env` file is omitted when no template variables are found.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportRequest'
+            example:
+              applications:
+                - "*"
+              resourceServers:
+                - "*"
+              roles:
+                - "*"
+              flows:
+                - "*"
+              options:
+                format: "yaml"
+      responses:
+        "200":
+          description: ZIP archive containing all exported resource files
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              example: attachment; filename=exported_resources.zip
+            Content-Length:
+              schema:
+                type: integer
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+              example: |
+                ZIP contents:
+                  applications/my-app.yaml
+                  flows/login-flow.yaml
+                  .env
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid-request:
+                  summary: Malformed request body
+                  value:
+                    code: "EXP-1001"
+                    message:
+                      key: "error.exportservice.invalid_request"
+                      defaultValue: "Invalid export request"
+                    description:
+                      key: "error.exportservice.invalid_request_description"
+                      defaultValue: "The provided export request is invalid or malformed"
+                no-resources:
+                  summary: No matching resources found
+                  value:
+                    code: "EXP-1002"
+                    message:
+                      key: "error.exportservice.no_resources_found"
+                      defaultValue: "No resources found"
+                    description:
+                      key: "error.exportservice.no_resources_found_description"
+                      defaultValue: "No valid resources found for the provided identifiers"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "SSE-5000"
+                message:
+                  key: "error.internal_server_error"
+                  defaultValue: "Internal server error"
+                description:
+                  key: "error.internal_server_error_description"
+                  defaultValue: "An unexpected error occurred while processing the export request"
+
+components:
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: /oauth2/token
+          scopes:
+            system: Full system access
+
+  responses:
+    Unauthorized:
+      description: Unauthorized - missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: "AUTH-4010"
+            message:
+              key: "error.unauthorized"
+              defaultValue: "Unauthorized"
+            description:
+              key: "error.unauthorized_description"
+              defaultValue: "Authentication is required to access this resource"
+
+  schemas:
+    ExportRequest:
+      type: object
+      description: >
+        Specifies which resources to export. Each field accepts a list of
+        resource IDs, or `["*"]` to export all resources of that type.
+      properties:
+        applications:
+          type: array
+          items:
+            type: string
+          description: IDs of applications to export, or ["*"] for all.
+          example: ["550e8400-e29b-41d4-a716-446655440000"]
+        identityProviders:
+          type: array
+          items:
+            type: string
+          description: IDs of identity providers to export, or ["*"] for all.
+        notificationSenders:
+          type: array
+          items:
+            type: string
+          description: IDs of notification senders to export, or ["*"] for all.
+        userTypes:
+          type: array
+          items:
+            type: string
+          description: IDs of user types to export, or ["*"] for all.
+        organizationUnits:
+          type: array
+          items:
+            type: string
+          description: IDs of organization units to export, or ["*"] for all.
+        users:
+          type: array
+          items:
+            type: string
+          description: IDs of users to export, or ["*"] for all.
+        groups:
+          type: array
+          items:
+            type: string
+          description: IDs of groups to export, or ["*"] for all.
+        resourceServers:
+          type: array
+          items:
+            type: string
+          description: IDs of resource servers to export, or ["*"] for all.
+        roles:
+          type: array
+          items:
+            type: string
+          description: IDs of roles to export, or ["*"] for all.
+        flows:
+          type: array
+          items:
+            type: string
+          description: IDs of flows to export, or ["*"] for all.
+        translations:
+          type: array
+          items:
+            type: string
+          description: IDs of translations to export, or ["*"] for all.
+        layouts:
+          type: array
+          items:
+            type: string
+          description: IDs of layouts to export, or ["*"] for all.
+        themes:
+          type: array
+          items:
+            type: string
+          description: IDs of themes to export, or ["*"] for all.
+        options:
+          $ref: '#/components/schemas/ExportOptions'
+
+    ExportOptions:
+      type: object
+      description: Configuration options that control export behavior.
+      properties:
+        includeMetadata:
+          type: boolean
+          description: When true, includes metadata such as creation dates and IDs.
+          default: false
+        includeDependencies:
+          type: boolean
+          description: When true, automatically exports related dependent resources.
+          default: false
+        format:
+          type: string
+          enum: [yaml]
+          default: yaml
+          description: >
+            Output format for individual resource files.
+            Only `yaml` is currently supported.
+        folderStructure:
+          $ref: '#/components/schemas/FolderStructureOptions'
+        pagination:
+          $ref: '#/components/schemas/PaginationOptions'
+
+    FolderStructureOptions:
+      type: object
+      description: Controls how exported files are organized within the output.
+      properties:
+        groupByType:
+          type: boolean
+          description: When true, creates a separate sub-folder for each resource type.
+          default: false
+        customStructure:
+          type: object
+          additionalProperties:
+            type: string
+          description: Maps resource types to custom folder paths.
+          example:
+            application: "apps"
+            flow: "auth-flows"
+        fileNamingPattern:
+          type: string
+          description: >
+            Pattern for naming exported files. Supports `${name}`, `${id}`,
+            and `${type}` placeholders.
+          example: "${name}_${id}"
+
+    PaginationOptions:
+      type: object
+      description: Pagination settings for bulk exports.
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          description: Page number (1-based).
+          example: 1
+        limit:
+          type: integer
+          minimum: 1
+          description: Maximum number of resources per page.
+          example: 50
+
+    ExportResponse:
+      type: object
+      x-internal: true
+      description: >
+        Legacy internal export model with individual files and summary.
+        Public JSON endpoints return `JSONExportResponse`.
+      required:
+        - files
+      properties:
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExportFile'
+          description: List of exported resource files.
+        envFile:
+          allOf:
+            - $ref: '#/components/schemas/EnvironmentFile'
+          nullable: true
+          description: >
+            Generated environment file metadata and content. Present when
+            template variables are detected in exported resources, otherwise
+            omitted (or `null` in internal JSON serialization paths).
+        summary:
+          $ref: '#/components/schemas/ExportSummary'
+      example:
+        files:
+          - fileName: "google-idp.yaml"
+            content: "apiVersion: v1\nkind: IdentityProvider\n..."
+            size: 128
+        envFile:
+          fileName: ".env"
+          content: "GOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\n"
+          size: 40
+        summary:
+          totalFiles: 2
+          totalSizeBytes: 168
+          exportedAt: "2026-04-22T10:00:00Z"
+          resourceTypes:
+            identity_provider: 1
+
+    JSONExportResponse:
+      type: object
+      description: >
+        JSON response returned by the export endpoints. The `resources`
+        field contains the full combined YAML export and
+        `environment_variables` contains the generated `.env` file content.
+      required:
+        - resources
+        - environment_variables
+      properties:
+        resources:
+          type: string
+          description: Combined YAML content for all exported resources.
+        environment_variables:
+          type: string
+          description: Generated .env file content. Empty when no template variables are present.
+
+    ExportFile:
+      type: object
+      x-internal: true
+      description: A single exported resource file.
+      required:
+        - fileName
+        - content
+      properties:
+        fileName:
+          type: string
+          description: Name of the file, including extension.
+          example: "my-application.yaml"
+        content:
+          type: string
+          description: File content as a UTF-8 string.
+        folderPath:
+          type: string
+          description: >
+            Relative path within the export archive where this file is placed.
+            Empty for files at the root.
+          example: "applications"
+        resourceType:
+          type: string
+          description: The resource type this file represents.
+          example: "application"
+        resourceId:
+          type: string
+          description: ID of the exported resource.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes.
+          example: 1024
+
+    EnvironmentFile:
+      type: object
+      x-internal: true
+      description: >
+        A generated `.env` file whose variable names are derived from the
+        uppercase template variable names (e.g. `{{.CLIENT_SECRET}}`,
+        `{{- range .REDIRECT_URIS}}`) found in the exported resource files.
+        The file is included in ZIP archives when template variables are
+        detected. For JSON export endpoints, the same content is returned in
+        `JSONExportResponse.environment_variables`.
+        It is omitted from ZIP exports when no template variables are present.
+      required:
+        - fileName
+        - content
+      properties:
+        fileName:
+          type: string
+          description: Always `.env`.
+          example: ".env"
+        content:
+          type: string
+          description: >
+            Key=value pairs, one per line, with empty values. Variable names
+            correspond directly to uppercase template parameter names.
+          example: "CLIENT_ID=\nCLIENT_SECRET=\nREDIRECT_URIS=\n"
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes.
+          example: 44
+
+    ExportSummary:
+      type: object
+      x-internal: true
+      description: >
+        Metadata about the export operation. `totalFiles` and `totalSizeBytes`
+        include the `.env` file when it is generated.
+      properties:
+        totalFiles:
+          type: integer
+          description: >
+            Total number of files in the export, including the `.env` file
+            when present.
+          example: 3
+        totalSizeBytes:
+          type: integer
+          format: int64
+          description: >
+            Combined size of all exported files in bytes, including the
+            `.env` file when present.
+          example: 2048
+        exportedAt:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of when the export was performed.
+          example: "2026-04-22T10:00:00Z"
+        resourceTypes:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Map of resource type to the count of exported resources.
+          example:
+            application: 2
+            flow: 1
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExportError'
+          description: >
+            Non-fatal errors encountered during export. Resources that
+            produced an error are excluded from the output files.
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+
+    ExportError:
+      type: object
+      description: A non-fatal error that occurred while exporting a specific resource.
+      properties:
+        resourceType:
+          type: string
+          example: "application"
+        resourceId:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        error:
+          type: string
+          example: "Resource not found"
+        code:
+          type: string
+          example: "APP-1004"
+
+    PaginationInfo:
+      type: object
+      description: Pagination metadata included in the export summary.
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 50
+        totalPages:
+          type: integer
+          example: 4
+        hasMore:
+          type: boolean
+          example: false
+
+    Error:
+      type: object
+      description: Standard error response.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Error code. Codes follow the EXP-XXXX convention."
+          example: "EXP-1001"
+        message:
+          $ref: '#/components/schemas/I18nMessage'
+        description:
+          $ref: '#/components/schemas/I18nMessage'
+
+    I18nMessage:
+      type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
+      properties:
+        key:
+          type: string
+          description: Translation key for fetching localized message.
+        defaultValue:
+          type: string
+          description: Default message in English (fallback).

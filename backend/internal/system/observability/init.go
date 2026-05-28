@@ -19,12 +19,12 @@
 package observability
 
 import (
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // Initialize creates and initializes a new observability service instance.
-// This function follows the dependency injection pattern used throughout Thunder.
+// This function follows the dependency injection pattern used throughout the server.
 // It reads configuration, initializes subscribers via the registry pattern,
 // and returns a ready-to-use observability service.
 //
@@ -44,7 +44,7 @@ func Initialize() ObservabilityServiceInterface {
 	logger.Debug("Initializing observability service")
 
 	// Get configuration
-	cfg := config.GetThunderRuntime().Config.Observability
+	cfg := config.GetServerRuntime().Config.Observability
 
 	if !cfg.Enabled {
 		logger.Debug("Observability is disabled in configuration")

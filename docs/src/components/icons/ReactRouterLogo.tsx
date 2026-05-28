@@ -16,7 +16,6 @@
  * under the License.
  */
 
-import React from 'react';
 
 export default function ReactRouterLogo({size = 64}: {size?: number}) {
   return (

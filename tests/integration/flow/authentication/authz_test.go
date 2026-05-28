@@ -23,8 +23,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -36,14 +36,14 @@ var (
 		Parent:      nil,
 	}
 
-	authzTestUserSchema = testutils.UserSchema{
+	authzTestEntityType = testutils.UserType{
 		Name: "authz-test-person",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 			"email": map[string]interface{}{
@@ -186,7 +186,7 @@ var (
 	authzTestRoleID         string
 	authzUserWithRole       string
 	authzUserNoRole         string
-	authzUserSchemaID       string
+	authzEntityTypeID       string
 	authzTestResourceServer string
 )
 
@@ -210,11 +210,11 @@ func (ts *FlowAuthzTestSuite) SetupSuite() {
 		ts.T().Fatalf("Failed to create test organization unit during setup: %v", err)
 	}
 
-	// Create user schema within the test organization unit
-	authzTestUserSchema.OUID = authzTestOUID
-	authzUserSchemaID, err = testutils.CreateUserType(authzTestUserSchema)
+	// create user type within the test organization unit
+	authzTestEntityType.OUID = authzTestOUID
+	authzEntityTypeID, err = testutils.CreateUserType(authzTestEntityType)
 	if err != nil {
-		ts.T().Fatalf("Failed to create user schema during setup: %v", err)
+		ts.T().Fatalf("Failed to create user type during setup: %v", err)
 	}
 
 	// Create flow
@@ -224,6 +224,7 @@ func (ts *FlowAuthzTestSuite) SetupSuite() {
 	authzTestApp.AuthFlowID = flowID
 
 	// Create test application
+	authzTestApp.OUID = authzTestOUID
 	authzTestAppID, err = testutils.CreateApplication(authzTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
@@ -247,10 +248,10 @@ func (ts *FlowAuthzTestSuite) SetupSuite() {
 
 	// Create resource server with actions for permissions
 	resourceServer := testutils.ResourceServer{
-		Name:               "Document Management System",
-		Description:        "System for managing documents",
-		Identifier:         "document-mgmt",
-		OUID:               authzTestOUID,
+		Name:        "Document Management System",
+		Description: "System for managing documents",
+		Identifier:  "document-mgmt",
+		OUID:        authzTestOUID,
 	}
 	actions := []testutils.Action{
 		{
@@ -333,9 +334,9 @@ func (ts *FlowAuthzTestSuite) TearDownSuite() {
 		}
 	}
 
-	if authzUserSchemaID != "" {
-		if err := testutils.DeleteUserType(authzUserSchemaID); err != nil {
-			ts.T().Logf("Failed to delete user schema during teardown: %v", err)
+	if authzEntityTypeID != "" {
+		if err := testutils.DeleteUserType(authzEntityTypeID); err != nil {
+			ts.T().Logf("Failed to delete user type during teardown: %v", err)
 		}
 	}
 }
@@ -351,7 +352,7 @@ func (ts *FlowAuthzTestSuite) TestAuthorizationFlow_UserWithDirectRoleAssignment
 	flowStep, err := common.InitiateAuthenticationFlow(authzTestAppID, false, inputs, "")
 	ts.Require().NoError(err, "Failed to initiate flow")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Execute basic auth step with authorized user credentials
 	authInputs := map[string]string{
@@ -359,7 +360,8 @@ func (ts *FlowAuthzTestSuite) TestAuthorizationFlow_UserWithDirectRoleAssignment
 		"password": "SecurePass123!",
 	}
 
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, authInputs, "action_001")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, authInputs, "action_001",
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete authentication")
 	ts.Require().NotNil(flowStep, "Flow step should not be nil")
 	ts.Require().Equal("COMPLETE", flowStep.FlowStatus, "Flow should be complete")
@@ -395,7 +397,7 @@ func (ts *FlowAuthzTestSuite) TestAuthorizationFlow_UserWithNoRole() {
 	flowStep, err := common.InitiateAuthenticationFlow(authzTestAppID, false, inputs, "")
 	ts.Require().NoError(err, "Failed to initiate flow")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Execute basic auth step with unauthorized user credentials
 	authInputs := map[string]string{
@@ -403,7 +405,8 @@ func (ts *FlowAuthzTestSuite) TestAuthorizationFlow_UserWithNoRole() {
 		"password": "SecurePass123!",
 	}
 
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, authInputs, "action_001")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, authInputs, "action_001",
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete authentication")
 	ts.Require().NotNil(flowStep, "Flow step should not be nil")
 	ts.Require().Equal("COMPLETE", flowStep.FlowStatus, "Flow should be complete")
@@ -431,7 +434,7 @@ func (ts *FlowAuthzTestSuite) TestAuthorizationFlow_UserWithPartialPermissions()
 	flowStep, err := common.InitiateAuthenticationFlow(authzTestAppID, false, inputs, "")
 	ts.Require().NoError(err, "Failed to initiate flow")
 	ts.Require().Equal("INCOMPLETE", flowStep.FlowStatus, "Expected flow status to be INCOMPLETE")
-	ts.Require().NotEmpty(flowStep.FlowID, "Flow ID should not be empty")
+	ts.Require().NotEmpty(flowStep.ExecutionID, "Execution ID should not be empty")
 
 	// Execute basic auth step with authorized user credentials
 	authInputs := map[string]string{
@@ -439,7 +442,8 @@ func (ts *FlowAuthzTestSuite) TestAuthorizationFlow_UserWithPartialPermissions()
 		"password": "SecurePass123!",
 	}
 
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, authInputs, "action_001")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, authInputs, "action_001",
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete authentication")
 	ts.Require().NotNil(flowStep, "Flow step should not be nil")
 	ts.Require().Equal("COMPLETE", flowStep.FlowStatus, "Flow should be complete")

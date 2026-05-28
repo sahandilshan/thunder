@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Notification Sender API
-  description: This API is used to handle notification senders.
+  description: Configure channels for sending OTP codes and notification messages to users. Supported providers include SMS gateways and email services.
   version: "1.0"
   license:
     name: Apache 2.0
@@ -15,6 +15,12 @@ servers:
         default: "localhost"
       port:
         default: "8090"
+
+tags:
+  - name: Message Senders
+    description: Message notification sender management operations.
+  - name: One Time Password (OTP)
+    description: OTP sender and OTP dispatch operations.
 
 security:
   - OAuth2: [system]
@@ -38,7 +44,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
 
     post:
       summary: Create a new message notification sender
@@ -64,28 +70,36 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "MNS-1006"
-                message: "Invalid request format"
-                description: "The request body is malformed or contains invalid data"
+                message:
+                  key: "error.notificationservice.invalid_request_format"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.notificationservice.invalid_request_format_description"
+                  defaultValue: "The request body is malformed or contains invalid data"
         "409":
           description: 'Conflict: A message notification sender with the same name already exists'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "MNS-1005"
-                message: "Duplicate sender name"
-                description: "A sender with the same name already exists"
+                message:
+                  key: "error.notificationservice.duplicate_sender_name"
+                  defaultValue: "Duplicate sender name"
+                description:
+                  key: "error.notificationservice.duplicate_sender_name_description"
+                  defaultValue: "A sender with the same name already exists"
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
-  
+                $ref: '#/components/schemas/Error'
+
   /notification-senders/message/{id}:
     get:
       summary: Get a message notification sender by ID
@@ -111,27 +125,35 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "MNS-1002"
-                message: "Invalid sender ID"
-                description: "The provided sender ID is invalid"
+                message:
+                  key: "error.notificationservice.invalid_sender_id"
+                  defaultValue: "Invalid sender ID"
+                description:
+                  key: "error.notificationservice.invalid_sender_id_description"
+                  defaultValue: "The provided sender ID is invalid"
         "404":
           description: 'Not Found: The specified message notification sender does not exist'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "MNS-1001"
-                message: "Sender not found"
-                description: "The requested notification sender could not be found"
+                message:
+                  key: "error.notificationservice.sender_not_found"
+                  defaultValue: "Sender not found"
+                description:
+                  key: "error.notificationservice.sender_not_found_description"
+                  defaultValue: "The requested notification sender could not be found"
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
 
     put:
       summary: Update a message notification sender
@@ -160,31 +182,39 @@ paths:
               schema:
                 $ref: '#/components/schemas/MessageNotificationSenderResponse'
         "400":
-          description: 'Bad Request: The request body is malformed or contains invalid data'
+          description: 'Bad Request: Invalid sender ID or request body'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "MNS-1002"
-                message: "Invalid sender ID"
-                description: "The provided sender ID is invalid"
+                message:
+                  key: "error.notificationservice.invalid_sender_id"
+                  defaultValue: "Invalid sender ID"
+                description:
+                  key: "error.notificationservice.invalid_sender_id_description"
+                  defaultValue: "The provided sender ID is invalid"
         "404":
           description: 'Not Found: The specified message notification sender does not exist'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "MNS-1001"
-                message: "Sender not found"
-                description: "The requested notification sender could not be found"
+                message:
+                  key: "error.notificationservice.sender_not_found"
+                  defaultValue: "Sender not found"
+                description:
+                  key: "error.notificationservice.sender_not_found_description"
+                  defaultValue: "The requested notification sender could not be found"
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
 
     delete:
       summary: Delete a message notification sender
@@ -206,17 +236,21 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
               example:
                 code: "MNS-1002"
-                message: "Invalid sender ID"
-                description: "The provided sender ID is invalid"
+                message:
+                  key: "error.notificationservice.invalid_sender_id"
+                  defaultValue: "Invalid sender ID"
+                description:
+                  key: "error.notificationservice.invalid_sender_id_description"
+                  defaultValue: "The provided sender ID is invalid"
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
 
   /notification-senders/otp/send:
     post:
@@ -230,56 +264,48 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                recipient:
-                  type: string
-                  description: Recipient's mobile number
-                  example: "+1234567890"
-                senderId:
-                  type: string
-                  description: ID of the message notification sender to use
-                  example: "550e8400-e29b-41d4-a716-446655440000"
-                channel:
-                  type: string
-                  description: Channel to send the OTP
-                  enum:
-                    - "sms"
-                  example: "sms"
+              $ref: '#/components/schemas/SendOTPRequest'
       responses:
         "200":
           description: OTP sent successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    description: Status of the OTP send request
-                    example: "SUCCESS"
-                  sessionToken:
-                    type: string
-                    description: JWT token for the OTP session
-                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                $ref: '#/components/schemas/SendOTPResponse'
         "400":
           description: 'Bad Request: The request body is malformed or contains invalid data'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "MNS-1006"
+                message:
+                  key: "error.notificationservice.invalid_request_format"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.notificationservice.invalid_request_format_description"
+                  defaultValue: "The request body is malformed or contains invalid data"
         "404":
           description: 'Not Found: The specified message notification sender does not exist'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "MNS-1001"
+                message:
+                  key: "error.notificationservice.sender_not_found"
+                  defaultValue: "Sender not found"
+                description:
+                  key: "error.notificationservice.sender_not_found_description"
+                  defaultValue: "The requested notification sender could not be found"
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
 
   /notification-senders/otp/verify:
     post:
@@ -293,40 +319,34 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                sessionToken:
-                  type: string
-                  description: JWT token for the OTP session
-                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                otpCode:
-                  type: string
-                  description: The OTP code received by the user
-                  example: "123456"
+              $ref: '#/components/schemas/VerifyOTPRequest'
       responses:
         "200":
           description: OTP verified successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    description: Status of the OTP verification
-                    example: "VERIFIED"
+                $ref: '#/components/schemas/VerifyOTPResponse'
         "400":
-          description: 'Bad Request: The request body is malformed or contains invalid data'
+          description: 'Bad Request: The request body is malformed or the session token is invalid'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientErrorResponse'
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "MNS-1014"
+                message:
+                  key: "error.notificationservice.invalid_session_token"
+                  defaultValue: "Invalid session token"
+                description:
+                  key: "error.notificationservice.invalid_session_token_description"
+                  defaultValue: "The provided session token is invalid, malformed, or expired"
         "500":
           description: 'Internal Server Error: An unexpected error occurred while processing the request'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServerErrorResponse'
+                $ref: '#/components/schemas/Error'
 
 components:
   securitySchemes:
@@ -335,6 +355,10 @@ components:
       flows:
         authorizationCode:
           authorizationUrl: https://localhost:8090/oauth2/authorize
+          tokenUrl: https://localhost:8090/oauth2/token
+          scopes:
+            system: Access to system management APIs
+        clientCredentials:
           tokenUrl: https://localhost:8090/oauth2/token
           scopes:
             system: Access to system management APIs
@@ -373,20 +397,7 @@ components:
           type: array
           description: Properties of the message notification sender
           items:
-            type: object
-            properties:
-              name:
-                type: string
-                description: Property name
-                example: "account_sid"
-              value:
-                type: string
-                description: Property value (masked with ****** for secret properties)
-                example: "ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-              isSecret:
-                type: boolean
-                description: Indicates if the property is a secret
-                example: true
+            $ref: '#/components/schemas/Property'
 
     MessageNotificationSender:
       type: object
@@ -411,53 +422,109 @@ components:
           type: array
           description: Properties of the message notification sender
           items:
-            type: object
-            properties:
-              name:
-                type: string
-                description: Property name
-                example: "account_sid"
-              value:
-                type: string
-                description: Property value
-                example: "ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-              isSecret:
-                type: boolean
-                description: Indicates if the property is a secret
-                example: true
+            $ref: '#/components/schemas/Property'
       required:
         - name
-        - type
         - provider
 
-    ClientErrorResponse:
+    SendOTPRequest:
+      type: object
+      properties:
+        recipient:
+          type: string
+          description: Recipient's mobile number
+          example: "+1234567890"
+        senderId:
+          type: string
+          description: ID of the message notification sender to use
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        channel:
+          type: string
+          description: Channel to send the OTP
+          enum:
+            - "sms"
+          example: "sms"
+      required:
+        - recipient
+        - senderId
+        - channel
+
+    SendOTPResponse:
+      type: object
+      properties:
+        sessionToken:
+          type: string
+          description: JWT token for the OTP session
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        status:
+          type: string
+          description: Status of the OTP send request
+          example: "SUCCESS"
+
+    VerifyOTPRequest:
+      type: object
+      properties:
+        sessionToken:
+          type: string
+          description: JWT token for the OTP session
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        otpCode:
+          type: string
+          description: The OTP code received by the user
+          example: "123456"
+      required:
+        - sessionToken
+        - otpCode
+
+    VerifyOTPResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Status of the OTP verification
+          enum:
+            - "VERIFIED"
+            - "INVALID"
+          example: "VERIFIED"
+
+    Property:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Property name
+          example: "account_sid"
+        value:
+          type: string
+          description: Property value (masked with ****** for secret properties)
+          example: "ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+        isSecret:
+          type: boolean
+          description: Indicates if the property is a secret
+          example: true
+
+    Error:
       type: object
       properties:
         code:
           type: string
-          description: Error code
+          description: "Error code. Codes follow the MNS-XXXX convention."
           example: "MNS-1006"
         message:
-          type: string
-          description: Error message
-          example: "Invalid request format"
+          $ref: '#/components/schemas/I18nMessage'
         description:
-          type: string
-          description: Detailed error description
-          example: "The request body is malformed or contains invalid data"
+          $ref: '#/components/schemas/I18nMessage'
 
-    ServerErrorResponse:
+    I18nMessage:
       type: object
+      description: Internationalized message with translation key and default value.
+      required:
+        - key
+        - defaultValue
       properties:
-        code:
+        key:
           type: string
-          description: Error code
-          example: "MNS-5001"
-        message:
+          description: Translation key for fetching localized message.
+        defaultValue:
           type: string
-          description: Error message
-          example: "Internal server error"
-        description:
-          type: string
-          description: Detailed error description
-          example: "An unexpected error occurred while processing the request"
+          description: Default message in English (fallback).

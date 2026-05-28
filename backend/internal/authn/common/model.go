@@ -23,8 +23,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/authnprovider"
-	"github.com/asgardeo/thunder/internal/idp"
+	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/idp"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // AuthenticatedUser represents the user information of an authenticated user.
@@ -34,7 +36,7 @@ type AuthenticatedUser struct {
 	OUID                string
 	UserType            string
 	Attributes          map[string]interface{}
-	AvailableAttributes *authnprovider.AvailableAttributes
+	AvailableAttributes *authnprovidercm.AttributesResponse
 	Token               string
 }
 
@@ -73,4 +75,27 @@ type AuthenticatorReference struct {
 	Step int `json:"step"`
 	// Timestamp is the authenticator engaged time (Unix epoch time in seconds)
 	Timestamp int64 `json:"timestamp"`
+}
+
+// FederatedAuthCredential carries the credential data for federated authentication.
+type FederatedAuthCredential struct {
+	IDPID   string
+	IDPType idp.IDPType
+	Code    string
+}
+
+// FederatedAuthResult is the result of a federated authentication attempt.
+// InternalEntity is nil when no local user was found or when the user is ambiguous.
+type FederatedAuthResult struct {
+	Sub             string
+	Claims          map[string]interface{}
+	InternalEntity  *entityprovider.Entity
+	IsAmbiguousUser bool
+}
+
+// FederatedAuthenticator defines the interface for federated authentication services.
+// Authenticate performs the full flow (code exchange, claims extraction, internal user lookup).
+// It returns an error only for actual failures; a missing internal user is NOT an error.
+type FederatedAuthenticator interface {
+	Authenticate(ctx context.Context, idpID, code string) (*FederatedAuthResult, *serviceerror.ServiceError)
 }

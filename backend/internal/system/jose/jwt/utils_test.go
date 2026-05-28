@@ -30,9 +30,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/crypto/sign"
-	"github.com/asgardeo/thunder/internal/system/jose/jws"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/cryptolib"
+	"github.com/thunder-id/thunderid/internal/system/jose/jws"
 )
 
 type JWTUtilsTestSuite struct {
@@ -49,7 +49,7 @@ func TestJWTUtilsSuite(t *testing.T) {
 }
 
 func (suite *JWTUtilsTestSuite) SetupTest() {
-	err := config.InitializeThunderRuntime("", &config.Config{
+	err := config.InitializeServerRuntime("", &config.Config{
 		JWT: config.JWTConfig{},
 	})
 	assert.NoError(suite.T(), err)
@@ -97,7 +97,7 @@ func (suite *JWTUtilsTestSuite) createValidJWT() string {
 	payloadBase64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
 	signingInput := headerBase64 + "." + payloadBase64
 
-	signature, err := sign.Generate([]byte(signingInput), sign.RSASHA256, suite.rsaPrivateKey)
+	signature, err := cryptolib.Generate([]byte(signingInput), cryptolib.RSASHA256, suite.rsaPrivateKey)
 	if err != nil {
 		suite.T().Fatalf("Failed to sign JWT: %v", err)
 	}

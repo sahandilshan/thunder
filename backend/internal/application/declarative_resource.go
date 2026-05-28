@@ -20,13 +20,17 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/application/model"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/application/model"
+	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/inboundclient"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 
 	"gopkg.in/yaml.v3"
 )
@@ -69,7 +73,7 @@ func (e *applicationExporter) GetParameterizerType() string {
 func (e *applicationExporter) GetAllResourceIDs(ctx context.Context) ([]string, *serviceerror.ServiceError) {
 	apps, err := e.service.GetApplicationList(ctx)
 	if err != nil {
-		return nil, err
+		return nil, &serviceerror.InternalServerError
 	}
 	ids := make([]string, 0, len(apps.Applications))
 	for _, app := range apps.Applications {
@@ -109,74 +113,50 @@ func (e *applicationExporter) ValidateResource(
 	return app.Name, nil
 }
 
-// loadDeclarativeResources loads application resources from declarative files.
-// Works in both declarative-only and composite modes:
-// - In declarative mode: appStore is a fileBasedStore
-// - In composite mode: appStore is a compositeApplicationStore (contains both file and DB stores)
-func loadDeclarativeResources(appStore applicationStoreInterface, appService ApplicationServiceInterface) error {
-	var fileStore applicationStoreInterface
-	var dbStore applicationStoreInterface
-
-	// Determine store type and extract appropriate stores
-	switch store := appStore.(type) {
-	case *compositeApplicationStore:
-		// Composite mode: both file and DB stores available
-		fileStore = store.fileStore
-		dbStore = store.dbStore
-	case *fileBasedStore:
-		// Declarative-only mode: only file store available
-		fileStore = store
-		dbStore = nil
-	default:
-		return fmt.Errorf("invalid store type for loading declarative resources")
-	}
-
-	// Type assert to access Storer interface for resource loading
-	fileBasedStoreImpl, ok := fileStore.(*fileBasedStore)
-	if !ok {
-		return fmt.Errorf("failed to assert fileStore to *fileBasedStore")
-	}
-
-	// Use a custom loader for applications due to transformation from DTO to ProcessedDTO
-	resourceConfig := declarativeresource.ResourceConfig{
+// makeAppInboundConfig creates the inbound client declarative loader config for applications.
+func makeAppInboundConfig(appService ApplicationServiceInterface) inboundmodel.DeclarativeLoaderConfig {
+	return inboundmodel.DeclarativeLoaderConfig{
 		ResourceType:  "Application",
 		DirectoryName: "applications",
-		Parser:        parseAndValidateApplicationWrapper(appService),
-		Validator: func(data interface{}) error {
-			return validateApplicationWrapper(data, fileStore, dbStore)
-		},
-		IDExtractor: func(data interface{}) string {
-			return data.(*model.ApplicationProcessedDTO).ID
+		Parser:        makeAppInboundParser(appService),
+		Validator: func(p *inboundmodel.InboundClient) error {
+			if p == nil {
+				return fmt.Errorf("parsed profile is nil")
+			}
+			return nil
 		},
 	}
-
-	loader := declarativeresource.NewResourceLoader(resourceConfig, fileBasedStoreImpl)
-	if err := loader.LoadResources(); err != nil {
-		return fmt.Errorf("failed to load application resources: %w", err)
-	}
-
-	return nil
 }
 
-// parseAndValidateApplicationWrapper combines parsing and validation for applications.
-// This is needed because applications undergo transformation from ApplicationDTO to ApplicationProcessedDTO.
-func parseAndValidateApplicationWrapper(appService ApplicationServiceInterface) func([]byte) (interface{}, error) {
-	return func(data []byte) (interface{}, error) {
+// makeAppInboundParser returns a parser that converts application YAML bytes into an InboundClient.
+func makeAppInboundParser(appService ApplicationServiceInterface) func([]byte) (*inboundmodel.InboundClient, error) {
+	return func(data []byte) (*inboundmodel.InboundClient, error) {
 		appDTO, err := parseToApplicationDTO(data)
 		if err != nil {
 			return nil, err
 		}
-
-		// Validate and transform the application
 		validatedApp, _, svcErr := appService.ValidateApplication(context.Background(), appDTO)
 		if svcErr != nil {
 			return nil, fmt.Errorf("error validating application '%s': %v", appDTO.Name, svcErr)
 		}
 
-		return validatedApp, nil
+		profile := toInboundClient(validatedApp)
+
+		for _, inbound := range validatedApp.InboundAuthConfig {
+			if oauthProfile := buildOAuthProfileFromProcessed(inbound); oauthProfile != nil {
+				if profile.Properties == nil {
+					profile.Properties = make(map[string]interface{})
+				}
+				profile.Properties[inboundclient.PropOAuthProfile] = *oauthProfile
+				break
+			}
+		}
+		return &profile, nil
 	}
 }
 
+// parseToApplicationDTO unmarshals YAML bytes into an ApplicationDTO.
+// Handle fields (ou_handle) are preserved in the DTO for the service layer to resolve.
 func parseToApplicationDTO(data []byte) (*model.ApplicationDTO, error) {
 	var appRequest model.ApplicationRequestWithID
 	err := yaml.Unmarshal(data, &appRequest)
@@ -185,48 +165,60 @@ func parseToApplicationDTO(data []byte) (*model.ApplicationDTO, error) {
 	}
 
 	appDTO := model.ApplicationDTO{
-		ID:                        appRequest.ID,
-		Name:                      appRequest.Name,
-		Description:               appRequest.Description,
-		AuthFlowID:                appRequest.AuthFlowID,
-		RegistrationFlowID:        appRequest.RegistrationFlowID,
-		IsRegistrationFlowEnabled: appRequest.IsRegistrationFlowEnabled,
-		ThemeID:                   appRequest.ThemeID,
-		LayoutID:                  appRequest.LayoutID,
-		Template:                  appRequest.Template,
-		URL:                       appRequest.URL,
-		LogoURL:                   appRequest.LogoURL,
-		TosURI:                    appRequest.TosURI,
-		PolicyURI:                 appRequest.PolicyURI,
-		Contacts:                  appRequest.Contacts,
-		Assertion:                 appRequest.Assertion,
-		Certificate:               appRequest.Certificate,
-		AllowedUserTypes:          appRequest.AllowedUserTypes,
-		LoginConsent:              &model.LoginConsentConfig{ValidityPeriod: 0},
-		Metadata:                  appRequest.Metadata,
+		ID:          appRequest.ID,
+		OUID:        appRequest.OUID,
+		OUHandle:    appRequest.OUHandle,
+		Name:        appRequest.Name,
+		Description: appRequest.Description,
+		InboundAuthProfile: inboundmodel.InboundAuthProfile{
+			AuthFlowID:                appRequest.AuthFlowID,
+			AuthFlowHandle:            appRequest.AuthFlowHandle,
+			RegistrationFlowID:        appRequest.RegistrationFlowID,
+			RegistrationFlowHandle:    appRequest.RegistrationFlowHandle,
+			IsRegistrationFlowEnabled: appRequest.IsRegistrationFlowEnabled,
+			RecoveryFlowID:            appRequest.RecoveryFlowID,
+			RecoveryFlowHandle:        appRequest.RecoveryFlowHandle,
+			IsRecoveryFlowEnabled:     appRequest.IsRecoveryFlowEnabled,
+			ThemeID:                   appRequest.ThemeID,
+			LayoutID:                  appRequest.LayoutID,
+			Assertion:                 appRequest.Assertion,
+			Certificate:               appRequest.Certificate,
+			AllowedUserTypes:          appRequest.AllowedUserTypes,
+			LoginConsent:              appRequest.LoginConsent,
+		},
+		Template:  appRequest.Template,
+		URL:       appRequest.URL,
+		LogoURL:   appRequest.LogoURL,
+		TosURI:    appRequest.TosURI,
+		PolicyURI: appRequest.PolicyURI,
+		Contacts:  appRequest.Contacts,
+		Metadata:  appRequest.Metadata,
 	}
 	if len(appRequest.InboundAuthConfig) > 0 {
-		inboundAuthConfigDTOs := make([]model.InboundAuthConfigDTO, 0)
+		inboundAuthConfigDTOs := make([]inboundmodel.InboundAuthConfigWithSecret, 0)
 		for _, config := range appRequest.InboundAuthConfig {
-			if config.Type != model.OAuthInboundAuthType || config.OAuthAppConfig == nil {
+			if config.Type != inboundmodel.OAuthInboundAuthType || config.OAuthConfig == nil {
 				continue
 			}
 
-			inboundAuthConfigDTO := model.InboundAuthConfigDTO{
+			inboundAuthConfigDTO := inboundmodel.InboundAuthConfigWithSecret{
 				Type: config.Type,
-				OAuthAppConfig: &model.OAuthAppConfigDTO{
-					ClientID:                config.OAuthAppConfig.ClientID,
-					ClientSecret:            config.OAuthAppConfig.ClientSecret,
-					RedirectURIs:            config.OAuthAppConfig.RedirectURIs,
-					GrantTypes:              config.OAuthAppConfig.GrantTypes,
-					ResponseTypes:           config.OAuthAppConfig.ResponseTypes,
-					TokenEndpointAuthMethod: config.OAuthAppConfig.TokenEndpointAuthMethod,
-					PKCERequired:            config.OAuthAppConfig.PKCERequired,
-					PublicClient:            config.OAuthAppConfig.PublicClient,
-					Token:                   config.OAuthAppConfig.Token,
-					Scopes:                  config.OAuthAppConfig.Scopes,
-					UserInfo:                config.OAuthAppConfig.UserInfo,
-					ScopeClaims:             config.OAuthAppConfig.ScopeClaims,
+				OAuthConfig: &inboundmodel.OAuthConfigWithSecret{
+					ClientID:                           config.OAuthConfig.ClientID,
+					ClientSecret:                       config.OAuthConfig.ClientSecret,
+					RedirectURIs:                       config.OAuthConfig.RedirectURIs,
+					GrantTypes:                         config.OAuthConfig.GrantTypes,
+					ResponseTypes:                      config.OAuthConfig.ResponseTypes,
+					TokenEndpointAuthMethod:            config.OAuthConfig.TokenEndpointAuthMethod,
+					PKCERequired:                       config.OAuthConfig.PKCERequired,
+					PublicClient:                       config.OAuthConfig.PublicClient,
+					RequirePushedAuthorizationRequests: config.OAuthConfig.RequirePushedAuthorizationRequests,
+					DPoPBoundAccessTokens:              config.OAuthConfig.DPoPBoundAccessTokens,
+					Token:                              config.OAuthConfig.Token,
+					Scopes:                             config.OAuthConfig.Scopes,
+					UserInfo:                           config.OAuthConfig.UserInfo,
+					ScopeClaims:                        config.OAuthConfig.ScopeClaims,
+					Certificate:                        config.OAuthConfig.Certificate,
 				},
 			}
 			inboundAuthConfigDTOs = append(inboundAuthConfigDTOs, inboundAuthConfigDTO)
@@ -236,56 +228,98 @@ func parseToApplicationDTO(data []byte) (*model.ApplicationDTO, error) {
 	return &appDTO, nil
 }
 
-func validateApplicationWrapper(
-	data interface{},
-	fileStore applicationStoreInterface,
-	dbStore applicationStoreInterface,
-) error {
-	app, ok := data.(*model.ApplicationProcessedDTO)
-	if !ok {
-		return fmt.Errorf("invalid type: expected *ApplicationProcessedDTO")
-	}
-
-	if app.Name == "" {
-		return fmt.Errorf("application name cannot be empty")
-	}
-
-	// Check for duplicate ID in the file store
-	exists, err := fileStore.IsApplicationExists(context.Background(), app.ID)
-	if err != nil {
-		return fmt.Errorf("failed to check application existence: %w", err)
-	}
-	if exists {
-		return fmt.Errorf("duplicate application ID '%s': "+
-			"an application with this ID already exists in declarative resources", app.ID)
-	}
-
-	// COMPOSITE MODE: Check for duplicate ID in the database store
-	if dbStore != nil {
-		exists, err := dbStore.IsApplicationExists(context.Background(), app.ID)
-		if err != nil {
-			return fmt.Errorf("failed to check application existence: %w", err)
-		}
-		if exists {
-			return fmt.Errorf("duplicate application ID '%s': "+
-				"an application with this ID already exists in the database store", app.ID)
-		}
-	}
-
-	// TODO: Add more validation as needed
-
-	return nil
-}
-
 // GetResourceRules returns the parameterization rules for applications.
 func (e *applicationExporter) GetResourceRules() *declarativeresource.ResourceRules {
 	return &declarativeresource.ResourceRules{
 		Variables: []string{
-			"InboundAuthConfig[].OAuthAppConfig.ClientID",
-			"InboundAuthConfig[].OAuthAppConfig.ClientSecret",
+			"InboundAuthConfig[].OAuthConfig.ClientID",
+			"InboundAuthConfig[].OAuthConfig.ClientSecret",
 		},
 		ArrayVariables: []string{
-			"InboundAuthConfig[].OAuthAppConfig.RedirectURIs",
+			"InboundAuthConfig[].OAuthConfig.RedirectURIs",
 		},
+	}
+}
+
+// GetResourceRulesForResource returns parameterization rules tailored to the specific application
+// instance. Public clients do not have a client secret, so the ClientSecret variable is excluded
+// from their export to avoid injecting an empty or invalid placeholder into the YAML template.
+func (e *applicationExporter) GetResourceRulesForResource(resource interface{}) *declarativeresource.ResourceRules {
+	app, ok := resource.(*model.Application)
+	if !ok {
+		return e.GetResourceRules()
+	}
+
+	for _, inbound := range app.InboundAuthConfig {
+		if inbound.OAuthConfig != nil && inbound.OAuthConfig.PublicClient {
+			return &declarativeresource.ResourceRules{
+				Variables: []string{
+					"InboundAuthConfig[].OAuthConfig.ClientID",
+				},
+				ArrayVariables: []string{
+					"InboundAuthConfig[].OAuthConfig.RedirectURIs",
+				},
+			}
+		}
+	}
+
+	return e.GetResourceRules()
+}
+
+// makeAppDeclarativeConfig creates the declarative loader config for loading application
+// identity data into the entity file store.
+func makeAppDeclarativeConfig(appService ApplicationServiceInterface) entity.DeclarativeLoaderConfig {
+	return entity.DeclarativeLoaderConfig{
+		Directory: "applications",
+		Category:  entity.EntityCategoryApp,
+		Parser:    makeAppEntityParser(appService),
+	}
+}
+
+// makeAppEntityParser creates a parser that converts application YAML into an entity.
+func makeAppEntityParser(
+	appService ApplicationServiceInterface,
+) func(data []byte) (*entity.Entity, json.RawMessage, json.RawMessage, error) {
+	return func(data []byte) (*entity.Entity, json.RawMessage, json.RawMessage, error) {
+		if appService == nil {
+			return nil, nil, nil, fmt.Errorf("application service is required for declarative entity parsing")
+		}
+
+		appDTO, err := parseToApplicationDTO(data)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to parse application YAML: %w", err)
+		}
+
+		_, inboundAuthConfig, svcErr := appService.ValidateApplication(context.Background(), appDTO)
+		if svcErr != nil {
+			return nil, nil, nil, fmt.Errorf("error validating application '%s': %v", appDTO.Name, svcErr)
+		}
+
+		var clientID, clientSecret string
+		if inboundAuthConfig != nil && inboundAuthConfig.OAuthConfig != nil {
+			clientID = inboundAuthConfig.OAuthConfig.ClientID
+			clientSecret = inboundAuthConfig.OAuthConfig.ClientSecret
+		}
+
+		sysAttrsJSON, err := buildSystemAttributes(appDTO, clientID)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to build system attributes: %w", err)
+		}
+
+		sysCredsJSON, err := buildSystemCredentials(clientSecret)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to build system credentials: %w", err)
+		}
+
+		e := &entity.Entity{
+			ID:               appDTO.ID,
+			Category:         entity.EntityCategoryApp,
+			Type:             "application",
+			State:            entity.EntityStateActive,
+			OUID:             appDTO.OUID,
+			SystemAttributes: sysAttrsJSON,
+		}
+
+		return e, nil, sysCredsJSON, nil
 	}
 }

@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 // Test Suite
@@ -48,8 +48,8 @@ func (suite *LayoutServiceTestSuite) SetupTest() {
 			Enabled: false,
 		},
 	}
-	config.ResetThunderRuntime()
-	err := config.InitializeThunderRuntime("/tmp/test", testConfig)
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
 	if err != nil {
 		suite.Fail("Failed to initialize runtime", err)
 	}
@@ -200,7 +200,7 @@ func (suite *LayoutServiceTestSuite) TestCreateLayout_DuplicateHandle() {
 
 // Test CreateLayout - Declarative mode enabled
 func (suite *LayoutServiceTestSuite) TestCreateLayout_DeclarativeModeEnabled() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Layout.Store = "declarative"
 
 	layoutRequest := CreateLayoutRequest{
@@ -488,7 +488,7 @@ func (suite *LayoutServiceTestSuite) TestDeleteLayout_InUse() {
 
 	assert.NotNil(suite.T(), err)
 	assert.Equal(suite.T(), "LAY-1008", err.Code)
-	assert.Contains(suite.T(), err.ErrorDescription, "5 application(s)")
+	assert.Contains(suite.T(), err.ErrorDescription.DefaultValue, "5 application(s)")
 }
 
 // Test DeleteLayout - Store Error

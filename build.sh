@@ -21,6 +21,18 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Check if --without-consent is passed and remove it from args
+WITHOUT_CONSENT=${WITHOUT_CONSENT:-false}
+NEW_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--without-consent" ]; then
+        WITHOUT_CONSENT="true"
+    else
+        NEW_ARGS+=("$arg")
+    fi
+done
+set -- "${NEW_ARGS[@]}"
+
 # --- Set Default OS and the architecture --- 
 # Auto-detect GO OS
 DEFAULT_OS=$(go env GOOS 2>/dev/null)
@@ -64,7 +76,7 @@ if [ "$SAMPLE_DIST_ARCH" = "amd64" ]; then
     SAMPLE_DIST_ARCH=x64
 fi
 
-# --- Thunder Package Distribution details ---
+# --- Package Distribution details ---
 GO_PACKAGE_OS=$GO_OS
 GO_PACKAGE_ARCH=$GO_ARCH
 
@@ -81,12 +93,14 @@ fi
 
 VERSION_FILE=version.txt
 VERSION=$(cat "$VERSION_FILE")
-THUNDER_VERSION=${VERSION}
-if [[ $THUNDER_VERSION == v* ]]; then
-  THUNDER_VERSION="${THUNDER_VERSION#v}"
+PRODUCT_VERSION=${VERSION}
+if [[ $PRODUCT_VERSION == v* ]]; then
+  PRODUCT_VERSION="${PRODUCT_VERSION#v}"
 fi
-BINARY_NAME=thunder
-PRODUCT_FOLDER=${BINARY_NAME}-${THUNDER_VERSION}-${GO_PACKAGE_OS}-${GO_PACKAGE_ARCH}
+PRODUCT_NAME="ThunderID"
+PRODUCT_NAME_LOWERCASE="$(echo "$PRODUCT_NAME" | tr '[:upper:]' '[:lower:]')"
+BINARY_NAME="${PRODUCT_NAME_LOWERCASE}"
+PRODUCT_FOLDER=${BINARY_NAME}-${PRODUCT_VERSION}-${GO_PACKAGE_OS}-${GO_PACKAGE_ARCH}
 
 # --- Sample App Distribution details ---
 SAMPLE_PACKAGE_OS=$SAMPLE_DIST_OS
@@ -105,6 +119,10 @@ REACT_SDK_SAMPLE_APP_FOLDER="sample-app-react-sdk-${REACT_SDK_SAMPLE_APP_VERSION
 REACT_API_SAMPLE_APP_VERSION=$(grep -o '"version": *"[^"]*"' samples/apps/react-api-based-sample/package.json | sed 's/"version": *"\(.*\)"/\1/')
 REACT_API_SAMPLE_APP_FOLDER="sample-app-react-api-based-${REACT_API_SAMPLE_APP_VERSION}-${SAMPLE_PACKAGE_OS}-${SAMPLE_PACKAGE_ARCH}"
 
+# Wayfinder Sample
+WAYFINDER_SAMPLE_APP_VERSION=$(grep -o '"version": *"[^"]*"' samples/apps/wayfinder-sample/package.json | sed 's/"version": *"\(.*\)"/\1/')
+WAYFINDER_SAMPLE_APP_FOLDER="sample-app-wayfinder-${WAYFINDER_SAMPLE_APP_VERSION}-${SAMPLE_PACKAGE_OS}-${SAMPLE_PACKAGE_ARCH}"
+
 # Directories
 TARGET_DIR=target
 OUTPUT_DIR=$TARGET_DIR/out
@@ -121,13 +139,14 @@ SECURITY_DIR=repository/resources/security
 FRONTEND_BASE_DIR=frontend
 GATE_APP_DIST_DIR=apps/gate
 CONSOLE_APP_DIST_DIR=apps/console
-FRONTEND_GATE_APP_SOURCE_DIR=$FRONTEND_BASE_DIR/apps/thunder-gate
-FRONTEND_CONSOLE_APP_SOURCE_DIR=$FRONTEND_BASE_DIR/apps/thunder-console
+FRONTEND_GATE_APP_SOURCE_DIR=$FRONTEND_BASE_DIR/apps/gate
+FRONTEND_CONSOLE_APP_SOURCE_DIR=$FRONTEND_BASE_DIR/apps/console
 SAMPLE_BASE_DIR=samples
 VANILLA_SAMPLE_APP_DIR=$SAMPLE_BASE_DIR/apps/react-vanilla-sample
 VANILLA_SAMPLE_APP_SERVER_DIR=$VANILLA_SAMPLE_APP_DIR/server
 REACT_SDK_SAMPLE_APP_DIR=$SAMPLE_BASE_DIR/apps/react-sdk-sample
 REACT_API_SAMPLE_APP_DIR=$SAMPLE_BASE_DIR/apps/react-api-based-sample
+WAYFINDER_SAMPLE_APP_DIR=$SAMPLE_BASE_DIR/apps/wayfinder-sample
 
 # Default ports
 GATE_APP_DEFAULT_PORT=5190
@@ -137,6 +156,9 @@ DOCS_DEFAULT_PORT=3000
 # Integration test filters (optional)
 TEST_RUN="${4:-}"
 TEST_PACKAGE="${5:-}"
+
+# PNPM version to use for frontend builds and docs build
+PNPM_VERSION="11.0.9"
 
 # ============================================================================
 # Read Configuration from deployment.yaml
@@ -187,6 +209,20 @@ read_config() {
             HOSTNAME=${HOSTNAME:-localhost}
             PORT=${PORT:-8090}
         fi
+
+        # Read system resource server config (nested under resource:)
+        if command -v yq >/dev/null 2>&1; then
+            SYSTEM_RS_HANDLE=$(yq eval '.resource.system_resource_server.handle // ""' "$config_file" 2>/dev/null)
+            SYSTEM_RS_IDENTIFIER=$(yq eval '.resource.system_resource_server.identifier // ""' "$config_file" 2>/dev/null)
+        else
+            SYSTEM_RS_HANDLE=$(grep -A5 'system_resource_server:' "$config_file" 2>/dev/null | grep -E '^\s*handle:' | awk -F':' '{gsub(/[[:space:]"'\'']/,""); s=""; for(i=2;i<=NF;i++) s=s (i>2?":":"") $i; print s}' | head -1)
+            SYSTEM_RS_IDENTIFIER=$(grep -A5 'system_resource_server:' "$config_file" 2>/dev/null | grep -E '^\s*identifier:' | grep -o '"[^"]*"' | tr -d '"' | head -1)
+            if [ -z "$SYSTEM_RS_IDENTIFIER" ]; then
+                SYSTEM_RS_IDENTIFIER=$(grep -A5 'system_resource_server:' "$config_file" 2>/dev/null | grep -E '^\s*identifier:' | awk -F':' '{gsub(/[[:space:]"'\'']/,""); s=""; for(i=2;i<=NF;i++) s=s (i>2?":":"") $i; print s}' | head -1)
+            fi
+        fi
+        SYSTEM_RS_HANDLE=${SYSTEM_RS_HANDLE:-}
+        SYSTEM_RS_IDENTIFIER=${SYSTEM_RS_IDENTIFIER:-}
     fi
 
     # Determine protocol
@@ -342,41 +378,89 @@ function initialize_databases() {
     echo "================================================================"
 }
 
+function ensure_pnpm() {
+    if ! command -v pnpm >/dev/null 2>&1; then
+        echo "pnpm not found, installing..."
+        npm install -g pnpm@$PNPM_VERSION
+    fi
+}
+
 function build_frontend() {
     echo "================================================================"
     echo "Building frontend apps..."
+    ensure_pnpm
     
-    # Check if pnpm is installed, if not install it
-    if ! command -v pnpm >/dev/null 2>&1; then
-        echo "pnpm not found, installing..."
-        npm install -g pnpm
-    fi
-    
-    # Navigate to frontend directory and install dependencies
-    cd "$FRONTEND_BASE_DIR" || exit 1
+    # Install dependencies
     echo "Installing frontend dependencies..."
     pnpm install --frozen-lockfile
     
     echo "Building frontend applications & packages..."
-    pnpm build
+    pnpm build:frontend
     
     # Return to script directory
     cd "$SCRIPT_DIR" || exit 1
     echo "================================================================"
 }
 
+function build_sdks_js() {
+    ensure_pnpm
+    
+    echo "Installing SDK dependencies..."
+    pnpm install --frozen-lockfile
+    
+    echo "Building JavaScript ecosystem SDK packages..."
+    pnpm --filter './sdks/**' build
+    cd "$SCRIPT_DIR" || exit 1
+}
+
+function test_sdks_js() {
+    ensure_pnpm
+    
+    echo "Installing SDK dependencies..."
+    pnpm install --frozen-lockfile
+    
+    echo "Running JavaScript ecosystem SDK tests..."
+    pnpm --filter './sdks/**' test
+    cd "$SCRIPT_DIR" || exit 1
+}
+
+function lint_sdks_js() {
+    ensure_pnpm
+    
+    echo "Installing SDK dependencies..."
+    pnpm install --frozen-lockfile
+    
+    echo "Linting JavaScript ecosystem SDK packages..."
+    pnpm --filter './sdks/**' lint
+    cd "$SCRIPT_DIR" || exit 1
+}
+
+function build_sdks() {
+    echo "================================================================"
+    echo "Building SDKs..."
+    build_sdks_js
+    echo "================================================================"
+}
+
+function test_sdks() {
+    echo "================================================================"
+    echo "Running SDK tests..."
+    test_sdks_js
+    echo "================================================================"
+}
+
+function lint_sdks() {
+    echo "================================================================"
+    echo "Linting SDKs..."
+    lint_sdks_js
+    echo "================================================================"
+}
+
 function build_docs() {
     echo "================================================================"
     echo "Building documentation..."
+    ensure_pnpm
     
-    # Check if pnpm is installed, if not install it
-    if ! command -v pnpm >/dev/null 2>&1; then
-        echo "pnpm not found, installing..."
-        npm install -g pnpm
-    fi
-    
-    # Navigate to frontend directory first to ensure build:docs script can run
-    cd "$FRONTEND_BASE_DIR" || exit 1
     echo "Installing frontend dependencies (required for docs build)..."
     pnpm install --frozen-lockfile
     
@@ -474,12 +558,23 @@ function package() {
         chmod +x "$DIST_DIR/$PRODUCT_FOLDER/setup.sh"
     fi
 
-    echo "Packaging consent server..."
-    bash "$SCRIPT_DIR/scripts/package-consent-server.sh" \
-            "$GO_OS" "$GO_ARCH" "$(cd "$DIST_DIR/$PRODUCT_FOLDER" && pwd)"
+    if [ "$WITHOUT_CONSENT" != "true" ]; then
+        echo "Packaging consent server..."
+        bash "$SCRIPT_DIR/scripts/package-consent-server.sh" \
+                "$GO_OS" "$GO_ARCH" "$(cd "$DIST_DIR/$PRODUCT_FOLDER" && pwd)"
+    else
+        echo "Skipping consent server packaging (--without-consent)..."
+        local target_yaml="$DIST_DIR/$PRODUCT_FOLDER/repository/conf/deployment.yaml"
+        if command -v yq >/dev/null 2>&1; then
+            yq eval '.consent.enabled = false' -i "$target_yaml" 2>/dev/null || sed -i.bak '/^consent:/ { n; s/enabled: true/enabled: false/; }' "$target_yaml" || true
+        else
+            sed -i.bak '/^consent:/ { n; s/enabled: true/enabled: false/; }' "$target_yaml" || true
+        fi
+        rm -f "${target_yaml}.bak" 2>/dev/null || true
+    fi
 
     echo "Creating zip file..."
-    (cd "$DIST_DIR" && zip -r "$PRODUCT_FOLDER.zip" "$PRODUCT_FOLDER")
+    (cd "$DIST_DIR" && find "$PRODUCT_FOLDER" | sort | zip "$PRODUCT_FOLDER.zip" -@)
     rm -rf "${DIST_DIR:?}/$PRODUCT_FOLDER" "$BUILD_DIR"
     echo "================================================================"
 }
@@ -512,10 +607,10 @@ function build_sample_app() {
 
     cd "$REACT_SDK_SAMPLE_APP_DIR" || exit 1
     echo "Installing React SDK sample dependencies..."
-    npm ci
+    pnpm install
 
     echo "Building React SDK sample app..."
-    npm run build
+    pnpm run build
 
     cd - || exit 1
     echo "✅ React SDK sample app built successfully."
@@ -537,6 +632,25 @@ function build_sample_app() {
     cd - || exit 1
     echo "✅ React API-based sample app built successfully."
 
+    # Build Wayfinder sample (Wayfinder)
+    echo "=== Building Wayfinder sample app ==="
+
+    cd "$WAYFINDER_SAMPLE_APP_DIR/frontend" || exit 1
+    echo "Installing Wayfinder sample frontend dependencies..."
+    npm ci
+
+    echo "Building Wayfinder sample frontend..."
+    npm run build
+
+    cd "$SCRIPT_DIR" || exit 1
+
+    for svc in api mcp ai-agent; do
+        echo "Installing Wayfinder sample $svc dependencies..."
+        (cd "$WAYFINDER_SAMPLE_APP_DIR/$svc" && npm ci)
+    done
+
+    echo "✅ Wayfinder sample app built successfully."
+
     echo "================================================================"
 }
 
@@ -555,6 +669,10 @@ function package_sample_app() {
     # Package React API-based sample
     echo "=== Packaging React API-based sample app ==="
     package_react_api_based_sample
+
+    # Package Wayfinder sample
+    echo "=== Packaging Wayfinder sample app ==="
+    package_wayfinder_sample
 
     echo "================================================================"
 }
@@ -606,8 +724,20 @@ function package_vanilla_sample() {
         cp -r "$VANILLA_SAMPLE_APP_SERVER_DIR/start.sh" "$DIST_DIR/$VANILLA_SAMPLE_APP_FOLDER"
     fi
 
+    # Copy ThunderID declarative resource configs
+    if [ -d "$VANILLA_SAMPLE_APP_DIR/thunderid-config" ]; then
+        echo "Copying ThunderID config..."
+        cp -r "$VANILLA_SAMPLE_APP_DIR/thunderid-config" "$DIST_DIR/$VANILLA_SAMPLE_APP_FOLDER/"
+    else
+        echo "Error: thunderid-config directory not found at $VANILLA_SAMPLE_APP_DIR/thunderid-config"
+        echo "  VANILLA_SAMPLE_APP_DIR=$VANILLA_SAMPLE_APP_DIR"
+        echo "  VANILLA_SAMPLE_APP_FOLDER=$VANILLA_SAMPLE_APP_FOLDER"
+        echo "  DIST_DIR=$DIST_DIR"
+        exit 1
+    fi
+
     echo "Creating React Vanilla sample zip file..."
-    (cd "$DIST_DIR" && zip -r "$VANILLA_SAMPLE_APP_FOLDER.zip" "$VANILLA_SAMPLE_APP_FOLDER")
+    (cd "$DIST_DIR" && find "$VANILLA_SAMPLE_APP_FOLDER" | sort | zip "$VANILLA_SAMPLE_APP_FOLDER.zip" -@)
     rm -rf "${DIST_DIR:?}/$VANILLA_SAMPLE_APP_FOLDER"
 
     echo "✅ React Vanilla sample app packaged successfully as $DIST_DIR/$VANILLA_SAMPLE_APP_FOLDER.zip"
@@ -643,8 +773,20 @@ function package_react_sdk_sample() {
         cp -r "$REACT_SDK_SAMPLE_APP_DIR/start.sh" "$DIST_DIR/$REACT_SDK_SAMPLE_APP_FOLDER"
     fi
 
+    # Copy ThunderID declarative resource configs
+    if [ -d "$REACT_SDK_SAMPLE_APP_DIR/thunderid-config" ]; then
+        echo "Copying ThunderID config..."
+        cp -r "$REACT_SDK_SAMPLE_APP_DIR/thunderid-config" "$DIST_DIR/$REACT_SDK_SAMPLE_APP_FOLDER/"
+    else
+        echo "Error: thunderid-config directory not found at $REACT_SDK_SAMPLE_APP_DIR/thunderid-config"
+        echo "  REACT_SDK_SAMPLE_APP_DIR=$REACT_SDK_SAMPLE_APP_DIR"
+        echo "  REACT_SDK_SAMPLE_APP_FOLDER=$REACT_SDK_SAMPLE_APP_FOLDER"
+        echo "  DIST_DIR=$DIST_DIR"
+        exit 1
+    fi
+
     echo "Creating React SDK sample zip file..."
-    (cd "$DIST_DIR" && zip -r "$REACT_SDK_SAMPLE_APP_FOLDER.zip" "$REACT_SDK_SAMPLE_APP_FOLDER")
+    (cd "$DIST_DIR" && find "$REACT_SDK_SAMPLE_APP_FOLDER" | sort | zip "$REACT_SDK_SAMPLE_APP_FOLDER.zip" -@)
     rm -rf "${DIST_DIR:?}/$REACT_SDK_SAMPLE_APP_FOLDER"
 
     echo "✅ React SDK sample app packaged successfully as $DIST_DIR/$REACT_SDK_SAMPLE_APP_FOLDER.zip"
@@ -680,11 +822,123 @@ function package_react_api_based_sample() {
         cp -r "$REACT_API_SAMPLE_APP_DIR/start.sh" "$DIST_DIR/$REACT_API_SAMPLE_APP_FOLDER"
     fi
 
+    # Copy ThunderID declarative resource configs
+    if [ -d "$REACT_API_SAMPLE_APP_DIR/thunderid-config" ]; then
+        echo "Copying ThunderID config..."
+        cp -r "$REACT_API_SAMPLE_APP_DIR/thunderid-config" "$DIST_DIR/$REACT_API_SAMPLE_APP_FOLDER/"
+    else
+        echo "Error: thunderid-config directory not found at $REACT_API_SAMPLE_APP_DIR/thunderid-config"
+        echo "  REACT_API_SAMPLE_APP_DIR=$REACT_API_SAMPLE_APP_DIR"
+        echo "  REACT_API_SAMPLE_APP_FOLDER=$REACT_API_SAMPLE_APP_FOLDER"
+        echo "  DIST_DIR=$DIST_DIR"
+        exit 1
+    fi
+
     echo "Creating React API-based sample zip file..."
-    (cd "$DIST_DIR" && zip -r "$REACT_API_SAMPLE_APP_FOLDER.zip" "$REACT_API_SAMPLE_APP_FOLDER")
+    (cd "$DIST_DIR" && find "$REACT_API_SAMPLE_APP_FOLDER" | sort | zip "$REACT_API_SAMPLE_APP_FOLDER.zip" -@)
     rm -rf "${DIST_DIR:?}/$REACT_API_SAMPLE_APP_FOLDER"
 
     echo "✅ React API-based sample app packaged successfully as $DIST_DIR/$REACT_API_SAMPLE_APP_FOLDER.zip"
+}
+
+function package_wayfinder_sample() {
+    local dist_folder="$DIST_DIR/$WAYFINDER_SAMPLE_APP_FOLDER"
+    mkdir -p "$dist_folder"
+
+    # Frontend is built ahead of time; the api/mcp/ai-agent services ship as source
+    # because pkg cannot bundle Node 22's node:sqlite binding and the chat agent
+    # requires runtime LLM keys from .env.
+    if [ -d "$WAYFINDER_SAMPLE_APP_DIR/frontend/dist" ]; then
+        echo "Copying Wayfinder sample frontend build output..."
+        mkdir -p "$dist_folder/frontend"
+        cp -r "$WAYFINDER_SAMPLE_APP_DIR/frontend/dist" "$dist_folder/frontend/"
+        cp "$WAYFINDER_SAMPLE_APP_DIR/frontend/package.json" "$dist_folder/frontend/"
+        cp "$WAYFINDER_SAMPLE_APP_DIR/frontend/package-lock.json" "$dist_folder/frontend/" 2>/dev/null || true
+        cp "$WAYFINDER_SAMPLE_APP_DIR/frontend/index.html" "$dist_folder/frontend/" 2>/dev/null || true
+        cp "$WAYFINDER_SAMPLE_APP_DIR/frontend/vite.config.js" "$dist_folder/frontend/" 2>/dev/null || true
+        if [ -d "$WAYFINDER_SAMPLE_APP_DIR/frontend/src" ]; then
+            cp -r "$WAYFINDER_SAMPLE_APP_DIR/frontend/src" "$dist_folder/frontend/"
+        fi
+        if [ -d "$WAYFINDER_SAMPLE_APP_DIR/frontend/public" ]; then
+            cp -r "$WAYFINDER_SAMPLE_APP_DIR/frontend/public" "$dist_folder/frontend/"
+        fi
+        if [ -f "$WAYFINDER_SAMPLE_APP_DIR/frontend/.env.example" ]; then
+            cp "$WAYFINDER_SAMPLE_APP_DIR/frontend/.env.example" "$dist_folder/frontend/"
+        fi
+        if [ -f "$WAYFINDER_SAMPLE_APP_DIR/frontend/README.md" ]; then
+            cp "$WAYFINDER_SAMPLE_APP_DIR/frontend/README.md" "$dist_folder/frontend/"
+        fi
+    else
+        echo "Error: Wayfinder sample frontend build output not found at $WAYFINDER_SAMPLE_APP_DIR/frontend/dist"
+        exit 1
+    fi
+
+    for svc in api mcp ai-agent; do
+        local svc_src="$WAYFINDER_SAMPLE_APP_DIR/$svc"
+        local svc_dest="$dist_folder/$svc"
+        echo "Copying Wayfinder sample $svc source..."
+        mkdir -p "$svc_dest"
+        # Copy package metadata, source, and per-service docs but skip node_modules
+        cp "$svc_src/package.json" "$svc_dest/"
+        cp "$svc_src/package-lock.json" "$svc_dest/" 2>/dev/null || true
+        if [ -f "$svc_src/tsconfig.json" ]; then
+            cp "$svc_src/tsconfig.json" "$svc_dest/"
+        fi
+        if [ -f "$svc_src/README.md" ]; then
+            cp "$svc_src/README.md" "$svc_dest/"
+        fi
+        if [ -f "$svc_src/.env.example" ]; then
+            cp "$svc_src/.env.example" "$svc_dest/"
+        fi
+        if [ -d "$svc_src/src" ]; then
+            cp -r "$svc_src/src" "$svc_dest/"
+        fi
+        if [ -d "$svc_src/scripts" ]; then
+            cp -r "$svc_src/scripts" "$svc_dest/"
+        fi
+        # mcp/ai-agent ship a single TypeScript entry file at the root
+        for entry in server.ts agent.ts; do
+            if [ -f "$svc_src/$entry" ]; then
+                cp "$svc_src/$entry" "$svc_dest/"
+            fi
+        done
+    done
+
+    # Copy top-level files
+    if [ -f "$WAYFINDER_SAMPLE_APP_DIR/README.md" ]; then
+        cp "$WAYFINDER_SAMPLE_APP_DIR/README.md" "$dist_folder/"
+    fi
+    if [ -f "$WAYFINDER_SAMPLE_APP_DIR/package.json" ]; then
+        cp "$WAYFINDER_SAMPLE_APP_DIR/package.json" "$dist_folder/"
+    fi
+
+    # Startup script for the appropriate OS
+    if [ "$SAMPLE_DIST_OS" = "win" ]; then
+        echo "Including Windows start script (start.ps1)..."
+        cp "$WAYFINDER_SAMPLE_APP_DIR/start.ps1" "$dist_folder/"
+    else
+        echo "Including Unix start script (start.sh)..."
+        cp "$WAYFINDER_SAMPLE_APP_DIR/start.sh" "$dist_folder/"
+        chmod +x "$dist_folder/start.sh"
+    fi
+
+    # ThunderID declarative resource configs
+    if [ -d "$WAYFINDER_SAMPLE_APP_DIR/thunderid-config" ]; then
+        echo "Copying ThunderID config..."
+        cp -r "$WAYFINDER_SAMPLE_APP_DIR/thunderid-config" "$dist_folder/"
+    else
+        echo "Error: thunderid-config directory not found at $WAYFINDER_SAMPLE_APP_DIR/thunderid-config"
+        echo "  WAYFINDER_SAMPLE_APP_DIR=$WAYFINDER_SAMPLE_APP_DIR"
+        echo "  WAYFINDER_SAMPLE_APP_FOLDER=$WAYFINDER_SAMPLE_APP_FOLDER"
+        echo "  DIST_DIR=$DIST_DIR"
+        exit 1
+    fi
+
+    echo "Creating Wayfinder sample zip file..."
+    (cd "$DIST_DIR" && find "$WAYFINDER_SAMPLE_APP_FOLDER" | sort | zip "$WAYFINDER_SAMPLE_APP_FOLDER.zip" -@)
+    rm -rf "${DIST_DIR:?}/$WAYFINDER_SAMPLE_APP_FOLDER"
+
+    echo "✅ Wayfinder sample app packaged successfully as $DIST_DIR/$WAYFINDER_SAMPLE_APP_FOLDER.zip"
 }
 
 function test_unit() {
@@ -882,7 +1136,7 @@ function ensure_certificates() {
             openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
                 -keyout "$local_key_file" \
                 -out "$local_cert_file" \
-                -subj "/O=WSO2/OU=Thunder/CN=localhost" \
+                -subj "/O=WSO2/OU=${PRODUCT_NAME}/CN=localhost" \
                 > /dev/null 2>&1
         )
         if [[ $? -ne 0 ]]; then
@@ -964,14 +1218,14 @@ function run() {
     echo "Running frontend apps..."
     run_frontend
 
-    if [ "$CONSENT_ENABLED" = "true" ]; then
+    if [ "$CONSENT_ENABLED" = "true" ] && [ "$WITHOUT_CONSENT" != "true" ]; then
         echo "Running consent server..."
         run_consent
     fi
 
-    # Save original THUNDER_SKIP_SECURITY value and temporarily set to true
-    ORIGINAL_THUNDER_SKIP_SECURITY="${THUNDER_SKIP_SECURITY:-}"
-    export THUNDER_SKIP_SECURITY=true
+    # Save original skip security value and temporarily set to true
+    ORIGINAL_SKIP_SECURITY="${SKIP_SECURITY:-}"
+    export SKIP_SECURITY=true
     run_backend false
 
     # Run initial data setup
@@ -983,7 +1237,7 @@ function run() {
     RETRY_INTERVAL=2
     retries=0
     
-    echo "[INFO] Waiting for Thunder server to be ready..."
+    echo "[INFO] Waiting for ${PRODUCT_NAME} server to be ready..."
     while [ $retries -lt $MAX_RETRIES ]; do
         if curl -k -s -f "$BASE_URL/health/readiness" > /dev/null 2>&1; then
             echo "✓ Server is ready!"
@@ -993,7 +1247,7 @@ function run() {
         retries=$((retries + 1))
         if [ $retries -ge $MAX_RETRIES ]; then
             echo "❌ Server did not become ready after $MAX_RETRIES attempts"
-            echo "💡 Please ensure the Thunder server is running at $BASE_URL"
+            echo "💡 Please ensure the ${PRODUCT_NAME} server is running at $BASE_URL"
             exit 1
         fi
         
@@ -1004,7 +1258,11 @@ function run() {
     echo ""
     
     # Run the bootstrap script directly with environment variable and arguments
-    THUNDER_API_BASE="$BASE_URL" \
+    API_BASE="$BASE_URL" \
+        SYSTEM_RS_HANDLE="$SYSTEM_RS_HANDLE" \
+        SYSTEM_RS_IDENTIFIER="$SYSTEM_RS_IDENTIFIER" \
+        ADMIN_USERNAME="${ADMIN_USERNAME:-}" \
+        ADMIN_PASSWORD="${ADMIN_PASSWORD:-}" \
         "$BACKEND_BASE_DIR/cmd/server/bootstrap/01-default-resources.sh" \
         --console-redirect-uris "https://localhost:$CONSOLE_APP_DEFAULT_PORT/console"
 
@@ -1015,11 +1273,11 @@ function run() {
     fi
 
     echo "🔒 Restoring security setting and restarting backend..."
-    # Restore original THUNDER_SKIP_SECURITY value
-    if [ -n "$ORIGINAL_THUNDER_SKIP_SECURITY" ]; then
-        export THUNDER_SKIP_SECURITY="$ORIGINAL_THUNDER_SKIP_SECURITY"
+    # Restore original SKIP_SECURITY value
+    if [ -n "$ORIGINAL_SKIP_SECURITY" ]; then
+        export SKIP_SECURITY="$ORIGINAL_SKIP_SECURITY"
     else
-        unset THUNDER_SKIP_SECURITY
+        unset SKIP_SECURITY
     fi
     # Start backend with initial output but without final output/wait
     start_backend false
@@ -1058,6 +1316,11 @@ function run_backend() {
     echo "Initializing databases..."
     initialize_databases
 
+    if [ "$CONSENT_ENABLED" = "true" ] && [ "$WITHOUT_CONSENT" != "true" ] && [ -z "$CONSENT_PID" ]; then
+        echo "Running consent server..."
+        run_consent
+    fi
+
     start_backend "$show_final_output" "$debug"
 }
 
@@ -1092,7 +1355,7 @@ function start_backend() {
         echo "👉 Backend : $BASE_URL"
         echo "Press Ctrl+C to stop."
 
-        trap 'echo -e "\n🛑 Shutting down backend server..."; kill $BACKEND_PID 2>/dev/null; echo "✅ Backend server stopped successfully."; exit 0' SIGINT
+        trap 'echo -e "\n🛑 Shutting down servers..."; kill $BACKEND_PID 2>/dev/null; [ -n "$CONSENT_PID" ] && kill $CONSENT_PID 2>/dev/null; echo "✅ Servers stopped successfully."; exit 0' SIGINT
 
         wait $BACKEND_PID 2>/dev/null
     fi
@@ -1101,24 +1364,18 @@ function start_backend() {
 function run_frontend() {
     echo "================================================================"
     echo "Running frontend apps..."
+    ensure_pnpm
     
-    # Check if pnpm is installed, if not install it
-    if ! command -v pnpm >/dev/null 2>&1; then
-        echo "pnpm not found, installing..."
-        npm install -g pnpm
-    fi
-    
-    # Navigate to frontend directory and install dependencies
-    cd "$FRONTEND_BASE_DIR" || exit 1
+    # Install dependencies
     echo "Installing frontend dependencies..."
     pnpm install --frozen-lockfile
     
     echo "Building frontend applications & packages..."
-    pnpm build
+    pnpm build:frontend
     
     echo "Starting frontend applications in the background..."
     # Start frontend processes in background
-    pnpm -r --parallel --filter "@thunder/console" --filter "@thunder/gate" dev &
+    pnpm -r --parallel --filter "@thunderid/console" --filter "@thunderid/gate" dev &
     FRONTEND_PID=$!
     
     # Return to script directory
@@ -1129,15 +1386,9 @@ function run_frontend() {
 function run_docs() {
     echo "================================================================"
     echo "Starting documentation development server..."
+    ensure_pnpm
     
-    # Check if pnpm is installed, if not install it
-    if ! command -v pnpm >/dev/null 2>&1; then
-        echo "pnpm not found, installing..."
-        npm install -g pnpm
-    fi
-    
-    # Navigate to frontend directory first to install all dependencies
-    cd "$FRONTEND_BASE_DIR" || exit 1
+    # Install dependencies
     echo "Installing frontend dependencies (required for docs)..."
     pnpm install --frozen-lockfile
     
@@ -1207,7 +1458,17 @@ case "$1" in
     build_docs)
         build_docs
         ;;
+    build_sdks)
+        build_sdks
+        ;;
+    test_sdks)
+        test_sdks
+        ;;
+    lint_sdks)
+        lint_sdks
+        ;;
     build_samples)
+        build_sdks_js
         build_sample_app
         package_sample_app
         ;;
@@ -1217,6 +1478,7 @@ case "$1" in
     build)
         build_backend
         build_frontend
+        build_sdks
         package
         build_sample_app
         package_sample_app
@@ -1253,20 +1515,25 @@ case "$1" in
         echo "Usage: ./build.sh {clean|build|build_backend|build_frontend|build_docs|test|run} [OS] [ARCH]"
         echo ""
         echo "  clean                    - Clean build artifacts"
-        echo "  build                    - Build the complete Thunder application (backend + frontend + samples)"
-        echo "  build_backend            - Build only the Thunder backend server"
+        echo "  build                    - Build the complete ${PRODUCT_NAME} application (backend + frontend + samples)"
+        echo "  build_backend            - Build only the ${PRODUCT_NAME} backend server"
         echo "  build_frontend           - Build only the Next.js frontend applications"
         echo "  build_docs               - Build only the documentation"
+        echo "  build_sdks               - Build all SDK packages"
+        echo "  test_sdks                - Run tests for all SDK packages"
+        echo "  lint_sdks                - Run linting for all SDK packages"
         echo "  build_samples            - Build the sample applications"
         echo "  test_unit                - Run unit tests with coverage"
         echo "  test_integration         - Run integration tests. Use -run and -package for filtering"
         echo "  merge_coverage           - Merge unit and integration test coverage reports"
         echo "  test                     - Run all tests (unit and integration)"
-        echo "  run                      - Run the Thunder server for development (with automatic initial data setup)"
-        echo "  run_backend              - Run the Thunder backend for development"
-        echo "  debug_backend            - Run the Thunder backend for development in debug mode"
-        echo "  run_frontend             - Run the Thunder frontend for development"
+        echo "  run                      - Run the ${PRODUCT_NAME} server for development (with automatic initial data setup)"
+        echo "  run_backend              - Run the ${PRODUCT_NAME} backend for development"
+        echo "  debug_backend            - Run the ${PRODUCT_NAME} backend for development in debug mode"
+        echo "  run_frontend             - Run the ${PRODUCT_NAME} frontend for development"
         echo "  run_docs                 - Run the documentation development server with live reload"
+        echo ""
+        echo "  --without-consent        - Skip packaging/running the consent server"
         exit 1
         ;;
 esac

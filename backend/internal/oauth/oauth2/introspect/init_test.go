@@ -24,14 +24,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/tests/mocks/jose/jwtmock"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/discovery"
+	"github.com/thunder-id/thunderid/tests/mocks/jose/jwtmock"
+	"github.com/thunder-id/thunderid/tests/mocks/oauth/oauth2/discoverymock"
 )
 
 type InitTestSuite struct {
 	suite.Suite
-	mockJWTService *jwtmock.JWTServiceInterfaceMock
+	mockJWTService       *jwtmock.JWTServiceInterfaceMock
+	mockDiscoveryService *discoverymock.DiscoveryServiceInterfaceMock
 }
 
 func TestInitTestSuite(t *testing.T) {
@@ -40,12 +44,17 @@ func TestInitTestSuite(t *testing.T) {
 
 func (suite *InitTestSuite) SetupTest() {
 	suite.mockJWTService = jwtmock.NewJWTServiceInterfaceMock(suite.T())
+	suite.mockDiscoveryService = discoverymock.NewDiscoveryServiceInterfaceMock(suite.T())
+	suite.mockDiscoveryService.On("GetOAuth2AuthorizationServerMetadata", mock.Anything).
+		Return(&discovery.OAuth2AuthorizationServerMetadata{
+			IntrospectionEndpoint: "https://localhost:8090/oauth2/introspect",
+		})
 }
 
 func (suite *InitTestSuite) TestInitialize() {
 	mux := http.NewServeMux()
 
-	service := Initialize(mux, suite.mockJWTService, nil, nil)
+	service := Initialize(mux, suite.mockJWTService, nil, nil, suite.mockDiscoveryService)
 
 	assert.NotNil(suite.T(), service)
 	assert.Implements(suite.T(), (*TokenIntrospectionServiceInterface)(nil), service)
@@ -54,7 +63,7 @@ func (suite *InitTestSuite) TestInitialize() {
 func (suite *InitTestSuite) TestInitialize_RegistersRoutes() {
 	mux := http.NewServeMux()
 
-	Initialize(mux, suite.mockJWTService, nil, nil)
+	Initialize(mux, suite.mockJWTService, nil, nil, suite.mockDiscoveryService)
 
 	// Verify that the routes are registered by attempting to get a handler for them.
 	// The pattern includes the method because of CORS middleware wrapping.

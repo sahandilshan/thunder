@@ -19,6 +19,8 @@
 package executor
 
 import (
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"encoding/json"
 	"testing"
 
@@ -26,16 +28,17 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/authn/passkey"
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/userprovider"
-	"github.com/asgardeo/thunder/tests/mocks/authn/passkeymock"
-	"github.com/asgardeo/thunder/tests/mocks/flow/coremock"
-	"github.com/asgardeo/thunder/tests/mocks/observability/observabilitymock"
-	"github.com/asgardeo/thunder/tests/mocks/userprovidermock"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/authn/passkey"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/tests/mocks/authn/passkeymock"
+	"github.com/thunder-id/thunderid/tests/mocks/authnprovider/managermock"
+	"github.com/thunder-id/thunderid/tests/mocks/entityprovidermock"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
 )
 
 const (
@@ -50,10 +53,10 @@ const (
 
 type PasskeyAuthExecutorTestSuite struct {
 	suite.Suite
-	mockPasskeyService *passkeymock.PasskeyServiceInterfaceMock
+	mockPasskeyService *passkeymock.WebAuthnAuthnServiceInterfaceMock
+	mockAuthnProvider  *managermock.AuthnProviderManagerInterfaceMock
 	mockFlowFactory    *coremock.FlowFactoryInterfaceMock
-	mockObservability  *observabilitymock.ObservabilityServiceInterfaceMock
-	mockUserProvider   *userprovidermock.UserProviderInterfaceMock
+	mockEntityProvider *entityprovidermock.EntityProviderInterfaceMock
 	executor           *passkeyAuthExecutor
 }
 
@@ -62,10 +65,10 @@ func TestPasskeyAuthExecutorSuite(t *testing.T) {
 }
 
 func (suite *PasskeyAuthExecutorTestSuite) SetupTest() {
-	suite.mockPasskeyService = passkeymock.NewPasskeyServiceInterfaceMock(suite.T())
+	suite.mockPasskeyService = passkeymock.NewWebAuthnAuthnServiceInterfaceMock(suite.T())
+	suite.mockAuthnProvider = managermock.NewAuthnProviderManagerInterfaceMock(suite.T())
 	suite.mockFlowFactory = coremock.NewFlowFactoryInterfaceMock(suite.T())
-	suite.mockObservability = observabilitymock.NewObservabilityServiceInterfaceMock(suite.T())
-	suite.mockUserProvider = userprovidermock.NewUserProviderInterfaceMock(suite.T())
+	suite.mockEntityProvider = entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
 
 	// Create mock identifying executor
 	identifyingMock := createMockIdentifyingExecutor(suite.T())
@@ -78,12 +81,7 @@ func (suite *PasskeyAuthExecutorTestSuite) SetupTest() {
 		mock.Anything, mock.Anything).Return(mockExec)
 
 	suite.executor = newPasskeyAuthExecutor(suite.mockFlowFactory,
-		suite.mockPasskeyService, suite.mockObservability, suite.mockUserProvider)
-}
-
-func (suite *PasskeyAuthExecutorTestSuite) BeforeTest(suiteName, testName string) {
-	suite.mockObservability.ExpectedCalls = nil
-	suite.mockObservability.On("IsEnabled").Return(false).Maybe()
+		suite.mockPasskeyService, suite.mockAuthnProvider, suite.mockEntityProvider)
 }
 
 func createMockPasskeyAuthExecutor(t *testing.T) core.ExecutorInterface {
@@ -139,7 +137,7 @@ func createMockPasskeyAuthExecutor(t *testing.T) core.ExecutorInterface {
 // Helper to create a node context with common properties
 func createPasskeyNodeContext(mode string, flowType common.FlowType) *core.NodeContext {
 	return &core.NodeContext{
-		FlowID:       testPasskeyFlowID,
+		ExecutionID:  testPasskeyFlowID,
 		FlowType:     flowType,
 		ExecutorMode: mode,
 		UserInputs:   make(map[string]string),
@@ -154,7 +152,7 @@ func createPasskeyNodeContext(mode string, flowType common.FlowType) *core.NodeC
 func (suite *PasskeyAuthExecutorTestSuite) TestNewPasskeyAuthExecutor() {
 	assert.NotNil(suite.T(), suite.executor)
 	assert.NotNil(suite.T(), suite.executor.passkeyService)
-	assert.NotNil(suite.T(), suite.executor.userProvider)
+	assert.NotNil(suite.T(), suite.executor.entityProvider)
 }
 
 func (suite *PasskeyAuthExecutorTestSuite) TestExecute_InvalidMode() {
@@ -237,8 +235,10 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteChallenge_ServiceError_Cli
 
 	suite.mockPasskeyService.On("StartAuthentication", mock.Anything, mock.Anything).Return(
 		nil, &serviceerror.ServiceError{
-			Type:             serviceerror.ClientErrorType,
-			ErrorDescription: "User has no registered passkeys",
+			Type: serviceerror.ClientErrorType,
+			ErrorDescription: i18ncore.I18nMessage{
+				Key: "error.test.user_has_no_registered_passkeys", DefaultValue: "User has no registered passkeys",
+			},
 		})
 
 	resp, err := suite.executor.Execute(ctx)
@@ -255,8 +255,10 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteChallenge_ServiceError_Ser
 
 	suite.mockPasskeyService.On("StartAuthentication", mock.Anything, mock.Anything).Return(
 		nil, &serviceerror.ServiceError{
-			Type:             serviceerror.ServerErrorType,
-			ErrorDescription: "Database connection failed",
+			Type: serviceerror.ServerErrorType,
+			ErrorDescription: i18ncore.I18nMessage{
+				Key: "error.test.database_connection_failed", DefaultValue: "Database connection failed",
+			},
 		})
 
 	_, err := suite.executor.Execute(ctx)
@@ -277,20 +279,21 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteVerify_Success() {
 		inputUserHandle:        "user-handle",
 	}
 
-	authResp := &authncm.AuthenticationResponse{
-		ID: testPasskeyUserID,
+	authResp := &authnprovidermgr.AuthnBasicResult{
+		UserID: testPasskeyUserID,
 	}
-	suite.mockPasskeyService.On("FinishAuthentication", mock.Anything, mock.Anything).Return(authResp, nil)
+	suite.mockAuthnProvider.On("AuthenticateUser", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).Return(authnprovidermgr.AuthUser{}, authResp, nil)
 
 	attrs := map[string]interface{}{"email": "test@example.com"}
 	attrsJSON, _ := json.Marshal(attrs)
-	testUser := &userprovider.User{
-		UserID:     testPasskeyUserID,
+	testUser := &entityprovider.Entity{
+		ID:         testPasskeyUserID,
 		OUID:       "ou-123",
-		UserType:   "INTERNAL",
+		Type:       "INTERNAL",
 		Attributes: attrsJSON,
 	}
-	suite.mockUserProvider.On("GetUser", testPasskeyUserID).Return(testUser, nil)
+	suite.mockEntityProvider.On("GetEntity", testPasskeyUserID).Return(testUser, nil)
 
 	resp, err := suite.executor.Execute(ctx)
 
@@ -342,10 +345,13 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteVerify_InvalidPasskey_Clie
 		inputSignature:         "invalid-signature",
 	}
 
-	suite.mockPasskeyService.On("FinishAuthentication", mock.Anything, mock.Anything).Return(
-		nil, &serviceerror.ServiceError{
-			Type:             serviceerror.ClientErrorType,
-			ErrorDescription: "Invalid signature",
+	suite.mockAuthnProvider.On("AuthenticateUser", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).Return(
+		authnprovidermgr.AuthUser{}, (*authnprovidermgr.AuthnBasicResult)(nil), &serviceerror.ServiceError{
+			Type: serviceerror.ClientErrorType,
+			ErrorDescription: i18ncore.I18nMessage{
+				Key: "error.test.invalid_signature", DefaultValue: "Invalid signature",
+			},
 		})
 
 	resp, err := suite.executor.Execute(ctx)
@@ -354,6 +360,15 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteVerify_InvalidPasskey_Clie
 	assert.NotNil(suite.T(), resp)
 	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
 	assert.Contains(suite.T(), resp.FailureReason, "invalid passkey credentials")
+	assert.NotEmpty(suite.T(), resp.Inputs)
+	inputIDs := make([]string, 0, len(resp.Inputs))
+	for _, input := range resp.Inputs {
+		inputIDs = append(inputIDs, input.Identifier)
+	}
+	assert.Contains(suite.T(), inputIDs, inputCredentialID)
+	assert.Contains(suite.T(), inputIDs, inputClientDataJSON)
+	assert.Contains(suite.T(), inputIDs, inputAuthenticatorData)
+	assert.Contains(suite.T(), inputIDs, inputSignature)
 }
 
 func (suite *PasskeyAuthExecutorTestSuite) TestExecuteVerify_ServiceError_Server() {
@@ -367,10 +382,11 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteVerify_ServiceError_Server
 		inputSignature:         "signature",
 	}
 
-	suite.mockPasskeyService.On("FinishAuthentication", mock.Anything, mock.Anything).Return(
-		nil, &serviceerror.ServiceError{
+	suite.mockAuthnProvider.On("AuthenticateUser", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).Return(
+		authnprovidermgr.AuthUser{}, (*authnprovidermgr.AuthnBasicResult)(nil), &serviceerror.ServiceError{
 			Type:             serviceerror.ServerErrorType,
-			ErrorDescription: "Database error",
+			ErrorDescription: i18ncore.I18nMessage{Key: "error.test.database_error", DefaultValue: "Database error"},
 		})
 
 	_, err := suite.executor.Execute(ctx)
@@ -436,7 +452,7 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterStart_ServiceError
 	suite.mockPasskeyService.On("StartRegistration", mock.Anything, mock.Anything).Return(
 		nil, &serviceerror.ServiceError{
 			Type:             serviceerror.ClientErrorType,
-			ErrorDescription: "User not found",
+			ErrorDescription: i18ncore.I18nMessage{Key: "error.test.user_not_found", DefaultValue: "User not found"},
 		})
 
 	resp, err := suite.executor.Execute(ctx)
@@ -453,7 +469,7 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterStart_ServiceError
 	suite.mockPasskeyService.On("StartRegistration", mock.Anything, mock.Anything).Return(
 		nil, &serviceerror.ServiceError{
 			Type:             serviceerror.ServerErrorType,
-			ErrorDescription: "Database error",
+			ErrorDescription: i18ncore.I18nMessage{Key: "error.test.database_error", DefaultValue: "Database error"},
 		})
 
 	_, err := suite.executor.Execute(ctx)
@@ -536,13 +552,13 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_Success_Aut
 
 	attrs := map[string]interface{}{"email": "test@example.com"}
 	attrsJSON, _ := json.Marshal(attrs)
-	testUser := &userprovider.User{
-		UserID:     testPasskeyUserID,
+	testUser := &entityprovider.Entity{
+		ID:         testPasskeyUserID,
 		OUID:       "ou-123",
-		UserType:   "INTERNAL",
+		Type:       "INTERNAL",
 		Attributes: attrsJSON,
 	}
-	suite.mockUserProvider.On("GetUser", testPasskeyUserID).Return(testUser, nil)
+	suite.mockEntityProvider.On("GetEntity", testPasskeyUserID).Return(testUser, nil)
 
 	resp, err := suite.executor.Execute(ctx)
 
@@ -557,13 +573,47 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_MissingInpu
 	ctx := createPasskeyNodeContext(passkeyExecutorModeRegFinish, common.FlowTypeRegistration)
 	ctx.RuntimeData[userAttributeUserID] = testPasskeyUserID
 	ctx.RuntimeData[runtimePasskeySessionToken] = testSessionToken
-	// Empty UserInputs
+	// Empty UserInputs — all required inputs are missing
 
 	resp, err := suite.executor.Execute(ctx)
 
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), resp)
 	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
+	// All missing inputs must be listed so the client knows what to collect
+	assert.NotEmpty(suite.T(), resp.Inputs)
+	inputIDs := make([]string, 0, len(resp.Inputs))
+	for _, input := range resp.Inputs {
+		inputIDs = append(inputIDs, input.Identifier)
+	}
+	assert.Contains(suite.T(), inputIDs, inputCredentialID)
+	assert.Contains(suite.T(), inputIDs, inputClientDataJSON)
+	assert.Contains(suite.T(), inputIDs, inputAttestationObject)
+}
+
+func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_PartialInputs() {
+	ctx := createPasskeyNodeContext(passkeyExecutorModeRegFinish, common.FlowTypeRegistration)
+	ctx.RuntimeData[userAttributeUserID] = testPasskeyUserID
+	ctx.RuntimeData[runtimePasskeySessionToken] = testSessionToken
+	// Provide credentialID but omit the other required inputs
+	ctx.UserInputs = map[string]string{
+		inputCredentialID: testCredentialIDValue,
+	}
+
+	resp, err := suite.executor.Execute(ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), resp)
+	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
+	// The full input list is returned so the client can re-render the entire form
+	assert.NotEmpty(suite.T(), resp.Inputs)
+	inputIDs := make([]string, 0, len(resp.Inputs))
+	for _, input := range resp.Inputs {
+		inputIDs = append(inputIDs, input.Identifier)
+	}
+	assert.Contains(suite.T(), inputIDs, inputCredentialID)
+	assert.Contains(suite.T(), inputIDs, inputClientDataJSON)
+	assert.Contains(suite.T(), inputIDs, inputAttestationObject)
 }
 
 func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_MissingSessionToken() {
@@ -594,8 +644,10 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_ServiceErro
 
 	suite.mockPasskeyService.On("FinishRegistration", mock.Anything, mock.Anything).Return(
 		nil, &serviceerror.ServiceError{
-			Type:             serviceerror.ClientErrorType,
-			ErrorDescription: "Invalid attestation object",
+			Type: serviceerror.ClientErrorType,
+			ErrorDescription: i18ncore.I18nMessage{
+				Key: "error.test.invalid_attestation_object", DefaultValue: "Invalid attestation object",
+			},
 		})
 
 	resp, err := suite.executor.Execute(ctx)
@@ -604,6 +656,15 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_ServiceErro
 	assert.NotNil(suite.T(), resp)
 	assert.Equal(suite.T(), common.ExecUserInputRequired, resp.Status)
 	assert.Contains(suite.T(), resp.FailureReason, "Invalid attestation object")
+	// Client must receive the full input list so it can re-prompt the user
+	assert.NotEmpty(suite.T(), resp.Inputs)
+	inputIDs := make([]string, 0, len(resp.Inputs))
+	for _, input := range resp.Inputs {
+		inputIDs = append(inputIDs, input.Identifier)
+	}
+	assert.Contains(suite.T(), inputIDs, inputCredentialID)
+	assert.Contains(suite.T(), inputIDs, inputClientDataJSON)
+	assert.Contains(suite.T(), inputIDs, inputAttestationObject)
 }
 
 func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_ServiceError_Server() {
@@ -619,7 +680,7 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_ServiceErro
 	suite.mockPasskeyService.On("FinishRegistration", mock.Anything, mock.Anything).Return(
 		nil, &serviceerror.ServiceError{
 			Type:             serviceerror.ServerErrorType,
-			ErrorDescription: "Database error",
+			ErrorDescription: i18ncore.I18nMessage{Key: "error.test.database_error", DefaultValue: "Database error"},
 		})
 
 	_, err := suite.executor.Execute(ctx)
@@ -728,13 +789,13 @@ func (suite *PasskeyAuthExecutorTestSuite) TestGetAuthenticatedUser_Success() {
 
 	attrs := map[string]interface{}{"email": "test@example.com", "name": "Test User"}
 	attrsJSON, _ := json.Marshal(attrs)
-	testUser := &userprovider.User{
-		UserID:     testPasskeyUserID,
+	testUser := &entityprovider.Entity{
+		ID:         testPasskeyUserID,
 		OUID:       "ou-123",
-		UserType:   "INTERNAL",
+		Type:       "INTERNAL",
 		Attributes: attrsJSON,
 	}
-	suite.mockUserProvider.On("GetUser", testPasskeyUserID).Return(testUser, nil)
+	suite.mockEntityProvider.On("GetEntity", testPasskeyUserID).Return(testUser, nil)
 
 	authUser, err := suite.executor.getAuthenticatedUser(ctx, execResp)
 
@@ -757,8 +818,10 @@ func (suite *PasskeyAuthExecutorTestSuite) TestGetAuthenticatedUser_UserNotFound
 		},
 	}
 
-	suite.mockUserProvider.On("GetUser", testPasskeyUserID).Return(
-		nil, &userprovider.UserProviderError{Code: userprovider.ErrorCodeUserNotFound, Message: "User not found"})
+	suite.mockEntityProvider.On("GetEntity", testPasskeyUserID).Return(
+		nil, &entityprovider.EntityProviderError{
+			Code: entityprovider.ErrorCodeEntityNotFound, Message: "User not found",
+		})
 
 	authUser, err := suite.executor.getAuthenticatedUser(ctx, execResp)
 
@@ -777,13 +840,13 @@ func (suite *PasskeyAuthExecutorTestSuite) TestGetAuthenticatedUser_InvalidJSON(
 		},
 	}
 
-	testUser := &userprovider.User{
-		UserID:     testPasskeyUserID,
+	testUser := &entityprovider.Entity{
+		ID:         testPasskeyUserID,
 		OUID:       "ou-123",
-		UserType:   "INTERNAL",
+		Type:       "INTERNAL",
 		Attributes: json.RawMessage(`invalid json`),
 	}
-	suite.mockUserProvider.On("GetUser", testPasskeyUserID).Return(testUser, nil)
+	suite.mockEntityProvider.On("GetEntity", testPasskeyUserID).Return(testUser, nil)
 
 	authUser, err := suite.executor.getAuthenticatedUser(ctx, execResp)
 
@@ -918,14 +981,17 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteVerify_GetAuthenticatedUse
 		inputUserHandle:        "user-handle",
 	}
 
-	authResp := &authncm.AuthenticationResponse{
-		ID: testPasskeyUserID,
+	authResp := &authnprovidermgr.AuthnBasicResult{
+		UserID: testPasskeyUserID,
 	}
-	suite.mockPasskeyService.On("FinishAuthentication", mock.Anything, mock.Anything).Return(authResp, nil)
+	suite.mockAuthnProvider.On("AuthenticateUser", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).Return(authnprovidermgr.AuthUser{}, authResp, nil)
 
 	// Simulate user not found when getting authenticated user details
-	suite.mockUserProvider.On("GetUser", testPasskeyUserID).Return(
-		nil, &userprovider.UserProviderError{Code: userprovider.ErrorCodeUserNotFound, Message: "User not found"})
+	suite.mockEntityProvider.On("GetEntity", testPasskeyUserID).Return(
+		nil, &entityprovider.EntityProviderError{
+			Code: entityprovider.ErrorCodeEntityNotFound, Message: "User not found",
+		})
 
 	_, err := suite.executor.Execute(ctx)
 
@@ -951,8 +1017,10 @@ func (suite *PasskeyAuthExecutorTestSuite) TestExecuteRegisterFinish_GetAuthenti
 	suite.mockPasskeyService.On("FinishRegistration", mock.Anything, mock.Anything).Return(finishData, nil)
 
 	// Simulate user not found when getting authenticated user details
-	suite.mockUserProvider.On("GetUser", testPasskeyUserID).Return(
-		nil, &userprovider.UserProviderError{Code: userprovider.ErrorCodeUserNotFound, Message: "User not found"})
+	suite.mockEntityProvider.On("GetEntity", testPasskeyUserID).Return(
+		nil, &entityprovider.EntityProviderError{
+			Code: entityprovider.ErrorCodeEntityNotFound, Message: "User not found",
+		})
 
 	_, err := suite.executor.Execute(ctx)
 
@@ -1023,13 +1091,13 @@ func (suite *PasskeyAuthExecutorTestSuite) TestGetAuthenticatedUser_UserIDFromCo
 
 	attrs := map[string]interface{}{"email": "test@example.com"}
 	attrsJSON, _ := json.Marshal(attrs)
-	testUser := &userprovider.User{
-		UserID:     testPasskeyUserID,
+	testUser := &entityprovider.Entity{
+		ID:         testPasskeyUserID,
 		OUID:       "ou-123",
-		UserType:   "INTERNAL",
+		Type:       "INTERNAL",
 		Attributes: attrsJSON,
 	}
-	suite.mockUserProvider.On("GetUser", testPasskeyUserID).Return(testUser, nil)
+	suite.mockEntityProvider.On("GetEntity", testPasskeyUserID).Return(testUser, nil)
 
 	authUser, err := suite.executor.getAuthenticatedUser(ctx, execResp)
 

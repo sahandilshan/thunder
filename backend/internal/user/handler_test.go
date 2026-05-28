@@ -29,9 +29,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/asgardeo/thunder/internal/system/error/apierror"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/security"
+	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/system/error/apierror"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/security"
 )
 
 const (
@@ -507,7 +508,7 @@ func TestHandleUserGroupsGetRequest_Success(t *testing.T) {
 	userID := testUserID123
 	expectedResp := &UserGroupListResponse{
 		TotalResults: 2,
-		Groups:       []UserGroup{{ID: "group-1", Name: "Admin"}},
+		Groups:       []entity.EntityGroup{{ID: "group-1", Name: "Admin"}},
 	}
 	mockSvc.On("GetUserGroups", mock.Anything, userID, 10, 0).Return(expectedResp, nil)
 
@@ -592,7 +593,7 @@ func TestHandleUserPostRequest_ErrorCases(t *testing.T) {
 	})
 
 	t.Run("ServiceError", func(t *testing.T) {
-		mockSvc.On("CreateUser", mock.Anything, mock.Anything).Return(nil, &ErrorInternalServerError).Once()
+		mockSvc.On("CreateUser", mock.Anything, mock.Anything).Return(nil, &serviceerror.InternalServerError).Once()
 		req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"type":"customer"}`))
 		rr := httptest.NewRecorder()
 		handler.HandleUserPostRequest(rr, req)
@@ -636,7 +637,8 @@ func TestHandleUserPutRequest_ErrorCases(t *testing.T) {
 	})
 
 	t.Run("ServiceError", func(t *testing.T) {
-		mockSvc.On("UpdateUser", mock.Anything, userID, mock.Anything).Return(nil, &ErrorInternalServerError).Once()
+		svcErr := &serviceerror.InternalServerError
+		mockSvc.On("UpdateUser", mock.Anything, userID, mock.Anything).Return(nil, svcErr).Once()
 		req := httptest.NewRequest(http.MethodPut, "/users/"+userID, strings.NewReader(`{"attributes":{}}`))
 		req.SetPathValue("id", userID)
 		rr := httptest.NewRecorder()
@@ -658,7 +660,7 @@ func TestHandleUserDeleteRequest_ErrorCases(t *testing.T) {
 	})
 
 	t.Run("ServiceError", func(t *testing.T) {
-		mockSvc.On("DeleteUser", mock.Anything, userID).Return(&ErrorInternalServerError).Once()
+		mockSvc.On("DeleteUser", mock.Anything, userID).Return(&serviceerror.InternalServerError).Once()
 		req := httptest.NewRequest(http.MethodDelete, "/users/"+userID, nil)
 		req.SetPathValue("id", userID)
 		rr := httptest.NewRecorder()
@@ -685,7 +687,7 @@ func TestHandleError_ErrorUnauthorized_Returns403(t *testing.T) {
 		},
 		{
 			name:     "InternalServerError_Returns500",
-			svcErr:   &ErrorInternalServerError,
+			svcErr:   &serviceerror.InternalServerError,
 			wantCode: http.StatusInternalServerError,
 		},
 		{

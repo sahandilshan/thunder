@@ -23,26 +23,28 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userschema"
+	"github.com/thunder-id/thunderid/internal/entitytype"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
 	userTypeResolverLoggerComponentName = "UserTypeResolver"
 )
 
-// schemaWithOU represents a user schema along with its associated organization unit ID.
-type schemaWithOU struct {
-	userSchema *userschema.UserSchema
+// entityTypeWithOU represents an entity type along with its associated organization unit ID.
+type entityTypeWithOU struct {
+	entityType *entitytype.EntityType
 	ouID       string
 }
 
 // userTypeResolver is a registration-flow executor that resolves the user type at flow start.
 type userTypeResolver struct {
 	core.ExecutorInterface
-	userSchemaService userschema.UserSchemaServiceInterface
+	entityTypeService entitytype.EntityTypeServiceInterface
+	ouService         ou.OrganizationUnitServiceInterface
 	logger            *log.Logger
 }
 
@@ -51,7 +53,8 @@ var _ core.ExecutorInterface = (*userTypeResolver)(nil)
 // newUserTypeResolver creates a new instance of the UserTypeResolver executor.
 func newUserTypeResolver(
 	flowFactory core.FlowFactoryInterface,
-	userSchemaService userschema.UserSchemaServiceInterface,
+	entityTypeService entitytype.EntityTypeServiceInterface,
+	ouService ou.OrganizationUnitServiceInterface,
 ) *userTypeResolver {
 	logger := log.GetLogger().With(
 		log.String(log.LoggerKeyComponentName, userTypeResolverLoggerComponentName),
@@ -71,14 +74,15 @@ func newUserTypeResolver(
 
 	return &userTypeResolver{
 		ExecutorInterface: base,
-		userSchemaService: userSchemaService,
+		entityTypeService: entityTypeService,
+		ouService:         ouService,
 		logger:            logger,
 	}
 }
 
 // Execute resolves the user type from inputs or prompts the user to select one.
 func (u *userTypeResolver) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := u.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := u.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing user type resolver")
 
 	execResp := &common.ExecutorResponse{
@@ -105,7 +109,7 @@ func (u *userTypeResolver) Execute(ctx *core.NodeContext) (*common.ExecutorRespo
 // handleAuthenticationFlows handles user type resolution for authentication flows.
 func (u *userTypeResolver) handleAuthenticationFlows(ctx *core.NodeContext, execResp *common.ExecutorResponse) (
 	*common.ExecutorResponse, error) {
-	logger := u.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := u.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 
 	// Validate that allowed user types are defined
 	if len(ctx.Application.AllowedUserTypes) == 0 {
@@ -123,7 +127,7 @@ func (u *userTypeResolver) handleAuthenticationFlows(ctx *core.NodeContext, exec
 func (u *userTypeResolver) handleRegistrationFlows(ctx *core.NodeContext, execResp *common.ExecutorResponse) (
 	*common.ExecutorResponse, error) {
 	reqCtx := ctx.Context
-	logger := u.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := u.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	allowed := ctx.Application.AllowedUserTypes
 
 	// Check for allowed user types to decide next steps
@@ -180,7 +184,7 @@ func (u *userTypeResolver) handleRegistrationFlows(ctx *core.NodeContext, execRe
 // handleUserOnboardingFlows handles user type resolution for user onboarding flows.
 func (u *userTypeResolver) handleUserOnboardingFlows(ctx *core.NodeContext,
 	execResp *common.ExecutorResponse) (*common.ExecutorResponse, error) {
-	logger := u.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := u.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 
 	// Read optional allowedUserTypes from node properties
 	allowedUserTypes := u.getAllowedUserTypesFromProperties(ctx)
@@ -196,49 +200,80 @@ func (u *userTypeResolver) handleUserOnboardingFlows(ctx *core.NodeContext,
 			return execResp, nil
 		}
 
-		userSchema, ouID, err := u.getUserSchemaAndOU(ctx.Context, userType)
+		entityType, ouID, err := u.getEntityTypeAndOU(ctx.Context, userType)
 		if err != nil {
 			execResp.Status = common.ExecFailure
 			execResp.FailureReason = "Invalid user type"
 			return execResp, nil
 		}
 
+		// If an OU was already selected (OU-first onboarding flow), validate the user type is valid for that OU.
+		if selectedOUID, exists := ctx.RuntimeData[ouIDKey]; exists && selectedOUID != "" {
+			isValid, svcErr := u.ouService.IsParent(ctx.Context, ouID, selectedOUID)
+			if svcErr != nil {
+				logger.Error("Failed to validate user type against selected OU",
+					log.String(userTypeKey, userType), log.String(ouIDKey, selectedOUID),
+					log.String("error", svcErr.Error.DefaultValue))
+				return nil, fmt.Errorf("failed to validate user type against selected OU: %s",
+					svcErr.Error.DefaultValue)
+			}
+			if !isValid {
+				logger.Debug("User type not valid for selected OU",
+					log.String(userTypeKey, userType), log.String(ouIDKey, selectedOUID))
+				execResp.Status = common.ExecFailure
+				execResp.FailureReason = "User type is not valid for the selected organization unit"
+				return execResp, nil
+			}
+		}
+
 		execResp.RuntimeData[userTypeKey] = userType
 		execResp.RuntimeData[defaultOUIDKey] = ouID
 		logger.Debug("User type resolved for user onboarding", log.String(userTypeKey, userType),
-			log.String(ouIDKey, userSchema.OUID))
+			log.String(ouIDKey, entityType.OUID))
 		execResp.Status = common.ExecComplete
 		return execResp, nil
 	}
 
-	// List all available user schemas
-	schemas, svcErr := u.userSchemaService.GetUserSchemaList(ctx.Context, 100, 0)
+	// List all available user types
+	schemas, svcErr := u.entityTypeService.GetEntityTypeList(ctx.Context,
+		entitytype.TypeCategoryUser, 100, 0, false)
 	if svcErr != nil {
-		logger.Debug("Failed to list user schemas", log.String("error", svcErr.Error))
+		logger.Debug("Failed to list user types", log.String("error", svcErr.Error.DefaultValue))
 		execResp.Status = common.ExecFailure
 		execResp.FailureReason = "Failed to retrieve user types"
 		return execResp, nil
 	}
 
-	if len(schemas.Schemas) == 0 {
-		logger.Debug("No user schemas available")
+	if len(schemas.Types) == 0 {
+		logger.Debug("No user types available")
 		execResp.Status = common.ExecFailure
 		execResp.FailureReason = "No user types available"
 		return execResp, nil
 	}
 
 	// Build the list of available schema names, filtering by allowedUserTypes if configured
-	availableSchemas := u.filterSchemasByAllowedTypes(schemas.Schemas, allowedUserTypes)
+	availableSchemas := u.filterSchemasByAllowedTypes(schemas.Types, allowedUserTypes)
+
+	// If an OU was already selected (OU-first onboarding flow), filter schemas to those valid for that OU.
+	// This only applies to USER_ONBOARDING flows where OUResolver with "promptAll" runs first.
+	// Registration flows derive the OU from the user type's schema, so ouId is never in RuntimeData.
+	if selectedOUID, exists := ctx.RuntimeData[ouIDKey]; exists && selectedOUID != "" {
+		var err error
+		availableSchemas, err = u.filterSchemasByOU(ctx, availableSchemas, selectedOUID, logger)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if len(availableSchemas) == 0 {
-		logger.Debug("No valid user types found after filtering with allowedUserTypes",
+		logger.Debug("No valid user types found after filtering",
 			log.Any("allowedUserTypes", allowedUserTypes))
 		execResp.Status = common.ExecFailure
 		execResp.FailureReason = "No valid user types available for this flow"
 		return execResp, nil
 	}
 
-	// If only one user schema is available, select it automatically
+	// If only one user type is available, select it automatically
 	if len(availableSchemas) == 1 {
 		schema := availableSchemas[0]
 		logger.Debug("User type auto-selected for user onboarding", log.String(userTypeKey, schema.Name),
@@ -294,13 +329,13 @@ func (u *userTypeResolver) getAllowedUserTypesFromProperties(ctx *core.NodeConte
 // filterSchemasByAllowedTypes filters schemas by the allowedUserTypes list.
 // If allowedUserTypes is empty, all schemas are returned.
 func (u *userTypeResolver) filterSchemasByAllowedTypes(
-	schemas []userschema.UserSchemaListItem, allowedUserTypes []string,
-) []userschema.UserSchemaListItem {
+	schemas []entitytype.EntityTypeListItem, allowedUserTypes []string,
+) []entitytype.EntityTypeListItem {
 	if len(allowedUserTypes) == 0 {
 		return schemas
 	}
 
-	filtered := make([]userschema.UserSchemaListItem, 0, len(schemas))
+	filtered := make([]entitytype.EntityTypeListItem, 0, len(schemas))
 	for _, schema := range schemas {
 		if slices.Contains(allowedUserTypes, schema.Name) {
 			filtered = append(filtered, schema)
@@ -310,6 +345,33 @@ func (u *userTypeResolver) filterSchemasByAllowedTypes(
 	return filtered
 }
 
+// filterSchemasByOU filters schemas to only those valid for the given OU.
+// A schema is valid if its OUID is an ancestor of (or equal to) the selected OU.
+func (u *userTypeResolver) filterSchemasByOU(ctx *core.NodeContext,
+	schemas []entitytype.EntityTypeListItem, selectedOUID string, logger *log.Logger,
+) ([]entitytype.EntityTypeListItem, error) {
+	filtered := make([]entitytype.EntityTypeListItem, 0, len(schemas))
+	for _, schema := range schemas {
+		isValid, svcErr := u.ouService.IsParent(ctx.Context, schema.OUID, selectedOUID)
+		if svcErr != nil {
+			logger.Error("Failed to check OU ancestry for schema",
+				log.String("schema", schema.Name), log.String("error", svcErr.Error.DefaultValue))
+			return nil, fmt.Errorf("failed to check OU ancestry for schema %s: %s",
+				schema.Name, svcErr.Error.DefaultValue)
+		}
+		if isValid {
+			filtered = append(filtered, schema)
+		}
+	}
+
+	logger.Debug("Filtered schemas by selected OU",
+		log.String(ouIDKey, selectedOUID),
+		log.Int("before", len(schemas)),
+		log.Int("after", len(filtered)))
+
+	return filtered, nil
+}
+
 // resolveUserTypeFromInput resolves the user type from input and updates the executor response.
 func (u *userTypeResolver) resolveUserTypeFromInput(ctx context.Context, execResp *common.ExecutorResponse,
 	userType string, allowed []string) error {
@@ -317,11 +379,11 @@ func (u *userTypeResolver) resolveUserTypeFromInput(ctx context.Context, execRes
 	if slices.Contains(allowed, userType) {
 		logger.Debug("User type resolved from input", log.String(userTypeKey, userType))
 
-		userSchema, ouID, err := u.getUserSchemaAndOU(ctx, userType)
+		entityType, ouID, err := u.getEntityTypeAndOU(ctx, userType)
 		if err != nil {
 			return err
 		}
-		if !userSchema.AllowSelfRegistration {
+		if !entityType.AllowSelfRegistration {
 			logger.Debug("Self registration not enabled for user type", log.String(userTypeKey, userType))
 			execResp.Status = common.ExecFailure
 			execResp.FailureReason = "Self-registration not enabled for the user type"
@@ -345,12 +407,12 @@ func (u *userTypeResolver) resolveUserTypeFromInput(ctx context.Context, execRes
 func (u *userTypeResolver) resolveUserTypeFromSingleAllowed(ctx context.Context, execResp *common.ExecutorResponse,
 	allowedUserType string) error {
 	logger := u.logger
-	userSchema, ouID, err := u.getUserSchemaAndOU(ctx, allowedUserType)
+	entityType, ouID, err := u.getEntityTypeAndOU(ctx, allowedUserType)
 	if err != nil {
 		return err
 	}
 
-	if !userSchema.AllowSelfRegistration {
+	if !entityType.AllowSelfRegistration {
 		logger.Debug("Self registration not enabled for user type", log.String(userTypeKey, allowedUserType))
 		execResp.Status = common.ExecFailure
 		execResp.FailureReason = "Self-registration not enabled for the user type"
@@ -373,15 +435,15 @@ func (u *userTypeResolver) resolveUserTypeFromMultipleAllowed(ctx context.Contex
 	logger := u.logger
 
 	// Filter self registration enabled user types
-	selfRegEnabledUserTypes := make([]schemaWithOU, 0)
+	selfRegEnabledUserTypes := make([]entityTypeWithOU, 0)
 	for _, userType := range allowed {
-		userSchema, ouID, err := u.getUserSchemaAndOU(ctx, userType)
+		entityType, ouID, err := u.getEntityTypeAndOU(ctx, userType)
 		if err != nil {
 			return err
 		}
-		if userSchema.AllowSelfRegistration {
-			selfRegEnabledUserTypes = append(selfRegEnabledUserTypes, schemaWithOU{
-				userSchema: userSchema,
+		if entityType.AllowSelfRegistration {
+			selfRegEnabledUserTypes = append(selfRegEnabledUserTypes, entityTypeWithOU{
+				entityType: entityType,
 				ouID:       ouID,
 			})
 		}
@@ -398,10 +460,10 @@ func (u *userTypeResolver) resolveUserTypeFromMultipleAllowed(ctx context.Contex
 	// If only one user type has self registration enabled, select it automatically
 	if len(selfRegEnabledUserTypes) == 1 {
 		record := selfRegEnabledUserTypes[0]
-		logger.Debug("User type auto-selected", log.String(userTypeKey, record.userSchema.Name))
+		logger.Debug("User type auto-selected", log.String(userTypeKey, record.entityType.Name))
 
 		// Add userType and ouID to runtime data
-		execResp.RuntimeData[userTypeKey] = record.userSchema.Name
+		execResp.RuntimeData[userTypeKey] = record.entityType.Name
 		execResp.RuntimeData[defaultOUIDKey] = record.ouID
 
 		execResp.Status = common.ExecComplete
@@ -411,7 +473,7 @@ func (u *userTypeResolver) resolveUserTypeFromMultipleAllowed(ctx context.Contex
 	// If multiple user types are allowed, prompt the user to select one
 	selfRegUserTypes := make([]string, 0, len(selfRegEnabledUserTypes))
 	for _, record := range selfRegEnabledUserTypes {
-		selfRegUserTypes = append(selfRegUserTypes, record.userSchema.Name)
+		selfRegUserTypes = append(selfRegUserTypes, record.entityType.Name)
 	}
 
 	logger.Debug("Prompting for user type selection as multiple user types are available for self registration",
@@ -421,27 +483,27 @@ func (u *userTypeResolver) resolveUserTypeFromMultipleAllowed(ctx context.Contex
 	return nil
 }
 
-// getUserSchemaAndOU retrieves the user schema by name and returns the schema and organization unit ID.
-func (u *userTypeResolver) getUserSchemaAndOU(
+// getEntityTypeAndOU retrieves the entity type by name and returns the entity type and organization unit ID.
+func (u *userTypeResolver) getEntityTypeAndOU(
 	ctx context.Context, userType string,
-) (*userschema.UserSchema, string, error) {
+) (*entitytype.EntityType, string, error) {
 	logger := u.logger.With(log.String(userTypeKey, userType))
 
-	userSchema, svcErr := u.userSchemaService.GetUserSchemaByName(ctx, userType)
+	entityType, svcErr := u.entityTypeService.GetEntityTypeByName(ctx, entitytype.TypeCategoryUser, userType)
 	if svcErr != nil {
-		logger.Error("Failed to resolve user schema for user type",
-			log.String(userTypeKey, userType), log.String("error", svcErr.Error))
-		return nil, "", fmt.Errorf("failed to resolve user schema for user type: %s", userType)
+		logger.Error("Failed to resolve user type",
+			log.String(userTypeKey, userType), log.String("error", svcErr.Error.DefaultValue))
+		return nil, "", fmt.Errorf("failed to resolve user type: %s", userType)
 	}
 
-	if userSchema.OUID == "" {
+	if entityType.OUID == "" {
 		logger.Error("No organization unit found for user type", log.String(userTypeKey, userType))
 		return nil, "", fmt.Errorf("no organization unit found for user type: %s", userType)
 	}
 
-	logger.Debug("User schema resolved for user type", log.String(userTypeKey, userType),
-		log.String(ouIDKey, userSchema.OUID))
-	return userSchema, userSchema.OUID, nil
+	logger.Debug("Entity type resolved for user type", log.String(userTypeKey, userType),
+		log.String(ouIDKey, entityType.OUID))
+	return entityType, entityType.OUID, nil
 }
 
 // promptUserSelection prompts the user to select a user type from the provided options.

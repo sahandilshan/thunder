@@ -1,0 +1,120 @@
+{
+  "id": "nextjs",
+  "displayName": "Next.js",
+  "description": "Server-side rendered application built with Next.js",
+  "defaults": {
+    "name": "Next.js Application",
+    "inboundAuthConfig": [
+      {
+        "type": "oauth2",
+        "config": {
+          "grantTypes": ["authorization_code", "refresh_token"],
+          "responseTypes": ["code"],
+          "redirectUris": ["http://localhost:3000"],
+          "pkceRequired": false,
+          "tokenEndpointAuthMethod": "client_secret_post",
+          "publicClient": false
+        }
+      }
+    ],
+    "allowedUserTypes": []
+  },
+  "fieldConstraints": {
+    "oauth2": {
+      "publicClient": {
+        "readOnly": true,
+        "value": false
+      },
+      "pkceRequired": {
+        "readOnly": true,
+        "value": false
+      },
+      "tokenEndpointAuthMethod": {
+        "readOnly": true,
+        "value": "client_secret_post"
+      }
+    }
+  },
+  "integrationGuides": {
+    "INBUILT": {
+      "llm_prompt": {
+        "id": "llm-prompt",
+        "title": "Integrate with a Coding Agent Prompt",
+        "description": "Use AI to generate integration code for your Next.js application",
+        "type": "llm",
+        "icon": "sparkles",
+        "content": "# Integrate {{productName}} Authentication in Next.js Application\n\n## Context\nI have a Next.js application (App Router) and I want to integrate {{productName}}'s authentication system using the {{productName}} Next.js SDK with {{productName}}-hosted login pages.\n\n## Requirements\n- Use @thunderid/nextjs SDK for authentication\n- Configure {{productName}}-hosted login pages (not custom/embedded)\n- Use the App Router (not Pages Router)\n- Implement sign-in and sign-out with prebuilt components\n- Add middleware for route protection and automatic token refresh\n- Display signed-in user's profile information\n\n## Configuration\n- **Client ID**: {{clientId}}\n- **Base URL**: https://localhost:8090 (or your {{productName}} instance URL)\n- **SDK**: @thunderid/nextjs\n\n## IMPORTANT Configuration Rules\n- Use environment variables for configuration (NOT props on the provider)\n- Required env vars: NEXT_PUBLIC_THUNDERID_BASE_URL, NEXT_PUBLIC_THUNDERID_CLIENT_ID, THUNDERID_CLIENT_SECRET, THUNDERID_SECRET\n- Import ThunderIDProvider from '@thunderid/nextjs/server' (NOT from '@thunderid/nextjs')\n- Import middleware utilities from '@thunderid/nextjs/middleware'\n- Import UI components from '@thunderid/nextjs'\n- The ThunderIDProvider handles the OAuth callback automatically — no manual callback route is needed\n\n## Implementation Steps\n1. Create a Next.js app: npx create-next-app@latest nextjs-demo\n2. Navigate into the project: cd nextjs-demo\n3. Install @thunderid/nextjs: npm install @thunderid/nextjs\n4. Create .env.local with NEXT_PUBLIC_THUNDERID_BASE_URL, NEXT_PUBLIC_THUNDERID_CLIENT_ID, THUNDERID_CLIENT_SECRET, THUNDERID_SECRET\n5. Wrap root layout with <ThunderIDProvider> from '@thunderid/nextjs/server'\n6. Create middleware.ts with thunderIDMiddleware and createRouteMatcher for route protection\n7. Add SignInButton, SignOutButton, SignedIn, SignedOut, UserDropdown components to pages\n8. Run: npm run dev\n\nPlease provide complete, working code with proper configuration for {{productName}} authentication using the {{productName}} Next.js SDK."
+      },
+      "manual_steps": [
+        {
+          "step": 1,
+          "title": "Create a Next.js app",
+          "description": "Run the following command to create a new Next.js app:",
+          "code": {
+            "language": "terminal",
+            "content": "npx create-next-app@latest nextjs-demo\ncd nextjs-demo"
+          }
+        },
+        {
+          "step": 2,
+          "title": "Install @thunderid/nextjs",
+          "description": "The {{productName}} Next.js SDK provides server-side authentication, middleware, and prebuilt UI components.",
+          "subDescription": "Run the following command to install the SDK:",
+          "code": {
+            "language": "terminal",
+            "content": "npm install @thunderid/nextjs"
+          }
+        },
+        {
+          "step": 3,
+          "title": "Set environment variables",
+          "description": "Create a .env.local file in your project root with the following configuration:",
+          "code": {
+            "language": "bash",
+            "filename": ".env.local",
+            "content": "NEXT_PUBLIC_THUNDERID_BASE_URL=https://localhost:8090\nNEXT_PUBLIC_THUNDERID_CLIENT_ID={{clientId}}\nTHUNDERID_CLIENT_SECRET=<your-client-secret>\nTHUNDERID_SECRET=<a-random-secret-at-least-32-chars>"
+          }
+        },
+        {
+          "step": 4,
+          "title": "Add <ThunderIDProvider /> to your layout",
+          "description": "Wrap your root layout with the ThunderIDProvider from the server export:",
+          "code": {
+            "language": "typescript",
+            "filename": "app/layout.tsx",
+            "content": "import { ThunderIDProvider } from '@thunderid/nextjs/server'\n\nexport default function RootLayout({\n  children,\n}: {\n  children: React.ReactNode\n}) {\n  return (\n    <html lang=\"en\">\n      <body>\n        <ThunderIDProvider>\n          {children}\n        </ThunderIDProvider>\n      </body>\n    </html>\n  )\n}"
+          }
+        },
+        {
+          "step": 5,
+          "title": "Add middleware for route protection",
+          "description": "Create a middleware.ts file at your project root:",
+          "code": {
+            "language": "typescript",
+            "filename": "middleware.ts",
+            "content": "import {\n  thunderIDMiddleware,\n  createRouteMatcher,\n} from '@thunderid/nextjs/middleware'\n\nconst isProtectedRoute = createRouteMatcher(['/dashboard(.*)'])\n\nexport default thunderIDMiddleware(async (thunderid, request) => {\n  if (isProtectedRoute(request)) {\n    await thunderid.protectRoute()\n  }\n})\n\nexport const config = {\n  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],\n}"
+          }
+        },
+        {
+          "step": 6,
+          "title": "Add sign-in and sign-out",
+          "description": "Update your home page with authentication components:",
+          "code": {
+            "language": "typescript",
+            "filename": "app/page.tsx",
+            "content": "import {\n  SignedIn,\n  SignedOut,\n  SignInButton,\n  SignOutButton,\n  UserDropdown,\n} from '@thunderid/nextjs'\n\nexport default function Home() {\n  return (\n    <main>\n      <h1>{{productName}} Next.js Demo</h1>\n\n      <SignedOut>\n        <SignInButton>Sign In</SignInButton>\n      </SignedOut>\n\n      <SignedIn>\n        <UserDropdown />\n        <SignOutButton>Sign Out</SignOutButton>\n      </SignedIn>\n    </main>\n  )\n}"
+          }
+        },
+        {
+          "step": 7,
+          "title": "Run the app",
+          "description": "Start your development server and test the authentication flow:",
+          "code": {
+            "language": "terminal",
+            "content": "npm run dev"
+          }
+        }
+      ]
+    }
+  }
+}

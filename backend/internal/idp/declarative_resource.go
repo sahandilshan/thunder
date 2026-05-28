@@ -24,10 +24,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/asgardeo/thunder/internal/system/cmodels"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/cmodels"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 
 	"gopkg.in/yaml.v3"
 )
@@ -159,6 +159,20 @@ func parseToIDPDTO(data []byte) (*IDPDTO, error) {
 		return nil, err
 	}
 
+	return buildIDPDTOFromRequest(idpRequest)
+}
+
+// ParseIDPDTOFromNode decodes a yaml.Node into an IDPDTO, converting PropertyDTOs to Properties.
+func ParseIDPDTOFromNode(node *yaml.Node) (*IDPDTO, error) {
+	var idpRequest idpRequestWithID
+	if err := node.Decode(&idpRequest); err != nil {
+		return nil, err
+	}
+
+	return buildIDPDTOFromRequest(idpRequest)
+}
+
+func buildIDPDTOFromRequest(idpRequest idpRequestWithID) (*IDPDTO, error) {
 	idpDTO := &IDPDTO{
 		ID:          idpRequest.ID,
 		Name:        idpRequest.Name,

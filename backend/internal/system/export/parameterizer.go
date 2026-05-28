@@ -27,15 +27,15 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/log"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 type templatingRules struct {
 	Application        *resourceRules `yaml:"Application,omitempty"`
 	IdentityProvider   *resourceRules `yaml:"IdentityProvider,omitempty"`
 	NotificationSender *resourceRules `yaml:"NotificationSender,omitempty"`
-	UserSchema         *resourceRules `yaml:"UserSchema,omitempty"`
+	EntityType         *resourceRules `yaml:"EntityType,omitempty"`
 }
 
 // ResourceRules defines variables and array variables to parameterize
@@ -44,6 +44,11 @@ type resourceRules struct {
 	ArrayVariables        []string `yaml:"ArrayVariables,omitempty"`
 	DynamicPropertyFields []string `yaml:"DynamicPropertyFields,omitempty"`
 }
+
+const (
+	yamlTagOmitEmpty = "omitempty"
+	yamlTagInline    = "inline"
+)
 
 // Parameterizer handles the templating logic
 type parameterizer struct {
@@ -55,10 +60,11 @@ func newParameterizer(rules templatingRules) *parameterizer {
 	return &parameterizer{rules: rules}
 }
 
-// ToParameterizedYAML converts an object directly to parameterized YAML
-// This is the easiest method when you already have the object
+// ToParameterizedYAML converts an object directly to parameterized YAML.
+// It returns the template string and a map of variable names to their original values.
 func (p *parameterizer) ToParameterizedYAML(obj interface{},
-	resourceType string, resourceName string, rules *declarativeresource.ResourceRules) (string, error) {
+	resourceType string, resourceName string,
+	rules *declarativeresource.ResourceRules) (string, map[string]string, error) {
 	// Convert imported type to local type for compatibility
 	var localRules *resourceRules
 	if rules != nil {
@@ -73,7 +79,7 @@ func (p *parameterizer) ToParameterizedYAML(obj interface{},
 	// Pass rules so fields in parameterization rules bypass omitempty
 	var node yaml.Node
 	if err := p.structToNodeIgnoringOmitempty(obj, &node, localRules, "", resourceName); err != nil {
-		return "", fmt.Errorf("failed to convert object to node: %w", err)
+		return "", nil, fmt.Errorf("failed to convert object to node: %w", err)
 	}
 
 	if localRules == nil {
@@ -82,31 +88,238 @@ func (p *parameterizer) ToParameterizedYAML(obj interface{},
 		encoder := yaml.NewEncoder(&buf)
 		encoder.SetIndent(2)
 		if err := encoder.Encode(&node); err != nil {
-			return "", fmt.Errorf("failed to marshal data: %w", err)
+			return "", nil, fmt.Errorf("failed to marshal data: %w", err)
 		}
 		err := encoder.Close()
 		if err != nil {
-			return "", fmt.Errorf("failed to close encoder: %w", err)
+			return "", nil, fmt.Errorf("failed to close encoder: %w", err)
 		}
-		return buf.String(), nil
+		return buf.String(), nil, nil
 	}
 
 	// Convert struct field paths to YAML field paths
 	rulesWithYAMLPaths := p.convertStructPathsToYAMLPaths(obj, localRules)
 
+	// Capture original values before parameterization replaces them.
+	// Dynamic property values must be extracted from the original struct here because
+	// structToNodeIgnoringOmitempty already baked template placeholders into their nodes.
+	variableValues := p.extractValuesFromNode(&node, rulesWithYAMLPaths, resourceName)
+	for k, v := range p.extractDynamicPropertyValues(obj, localRules, resourceName) {
+		variableValues[k] = v
+	}
+
 	// Apply parameterization to the node tree
 	if err := p.parameterizeNode(&node, rulesWithYAMLPaths, resourceName); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Marshal back to YAML with preserved indentation
 	// Use custom renderer to handle template syntax properly
 	var buf bytes.Buffer
 	if err := p.renderNode(&buf, &node, 0); err != nil {
-		return "", fmt.Errorf("failed to render parameterized YAML: %w", err)
+		return "", nil, fmt.Errorf("failed to render parameterized YAML: %w", err)
 	}
 
-	return buf.String(), nil
+	return buf.String(), variableValues, nil
+}
+
+// extractValuesFromNode reads the original values of parameterization variables from the node
+// tree before they are replaced with template placeholders.
+func (p *parameterizer) extractValuesFromNode(
+	node *yaml.Node, rules *resourceRules, resourceName string,
+) map[string]string {
+	values := make(map[string]string)
+	if node.Kind != yaml.DocumentNode || len(node.Content) == 0 {
+		return values
+	}
+	root := node.Content[0]
+
+	for _, path := range rules.Variables {
+		varName := p.pathToVariableName(resourceName, path)
+		if val := p.getScalarFromNode(root, path); val != "" {
+			values[varName] = val
+		}
+	}
+
+	for _, path := range rules.ArrayVariables {
+		varName := p.pathToVariableName(resourceName, path)
+		if vals := p.getArrayFromNode(root, path); vals != nil {
+			jsonBytes, err := json.Marshal(vals)
+			if err == nil {
+				values[varName] = string(jsonBytes)
+			}
+		}
+	}
+
+	return values
+}
+
+// extractDynamicPropertyValues reads actual property values from the original struct before
+// structToNodeIgnoringOmitempty converts them to template placeholders.
+// It navigates each DynamicPropertyFields path, iterates the []cmodels.Property slice found
+// there, and maps generatePropertyVarName(resourceName, propName) → actual value.
+func (p *parameterizer) extractDynamicPropertyValues(
+	obj interface{}, rules *resourceRules, resourceName string,
+) map[string]string {
+	values := make(map[string]string)
+	if rules == nil || len(rules.DynamicPropertyFields) == 0 {
+		return values
+	}
+
+	v := reflect.ValueOf(obj)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return values
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return values
+	}
+
+	for _, fieldPath := range rules.DynamicPropertyFields {
+		field, found := p.findFieldByNameCaseInsensitive(v.Type(), fieldPath)
+		if !found {
+			continue
+		}
+		fieldVal := v.FieldByName(field.Name)
+		if !fieldVal.IsValid() || fieldVal.Kind() != reflect.Slice {
+			continue
+		}
+
+		for i := 0; i < fieldVal.Len(); i++ {
+			propVal := fieldVal.Index(i)
+			if propVal.CanAddr() {
+				propVal = propVal.Addr()
+			}
+
+			nameMethod := propVal.MethodByName("GetName")
+			if !nameMethod.IsValid() {
+				continue
+			}
+			nameResults := nameMethod.Call(nil)
+			if len(nameResults) == 0 {
+				continue
+			}
+			propName := nameResults[0].String()
+
+			valueMethod := propVal.MethodByName("GetValue")
+			if !valueMethod.IsValid() {
+				continue
+			}
+			valueResults := valueMethod.Call(nil)
+			// GetValue returns (string, error); skip on error
+			if len(valueResults) < 2 || !valueResults[1].IsNil() {
+				continue
+			}
+			propValue := valueResults[0].String()
+
+			varName := p.generatePropertyVarName(resourceName, propName)
+			values[varName] = propValue
+		}
+	}
+
+	return values
+}
+
+// getScalarFromNode traverses the YAML node tree and returns the scalar value at the given path.
+// Returns an empty string when the path does not exist or the target is not a scalar.
+func (p *parameterizer) getScalarFromNode(node *yaml.Node, path string) string {
+	parts := strings.Split(path, ".")
+	current := node
+
+	for i, part := range parts {
+		isArrayAccess := strings.HasSuffix(part, "[]")
+		fieldName := strings.TrimSuffix(part, "[]")
+
+		if current.Kind != yaml.MappingNode {
+			return ""
+		}
+
+		found := false
+		for j := 0; j < len(current.Content); j += 2 {
+			if current.Content[j].Value != fieldName {
+				continue
+			}
+			valueNode := current.Content[j+1]
+			if isArrayAccess {
+				if valueNode.Kind == yaml.SequenceNode && i < len(parts)-1 {
+					remainingPath := strings.Join(parts[i+1:], ".")
+					for _, elem := range valueNode.Content {
+						if val := p.getScalarFromNode(elem, remainingPath); val != "" {
+							return val
+						}
+					}
+				}
+				return ""
+			}
+			if i == len(parts)-1 {
+				if valueNode.Kind == yaml.ScalarNode {
+					return valueNode.Value
+				}
+				return ""
+			}
+			current = valueNode
+			found = true
+			break
+		}
+		if !found {
+			return ""
+		}
+	}
+	return ""
+}
+
+// getArrayFromNode traverses the YAML node tree and returns the values of the sequence at the
+// given path. Returns nil when the path does not exist or the target is not a sequence.
+func (p *parameterizer) getArrayFromNode(node *yaml.Node, path string) []string {
+	parts := strings.Split(path, ".")
+	current := node
+
+	for i, part := range parts {
+		isArrayAccess := strings.HasSuffix(part, "[]")
+		fieldName := strings.TrimSuffix(part, "[]")
+
+		if current.Kind != yaml.MappingNode {
+			return nil
+		}
+
+		for j := 0; j < len(current.Content); j += 2 {
+			if current.Content[j].Value != fieldName {
+				continue
+			}
+			valueNode := current.Content[j+1]
+			if isArrayAccess {
+				if valueNode.Kind == yaml.SequenceNode && i < len(parts)-1 {
+					remainingPath := strings.Join(parts[i+1:], ".")
+					var results []string
+					for _, elem := range valueNode.Content {
+						results = append(results, p.getArrayFromNode(elem, remainingPath)...)
+					}
+					return results
+				}
+				return nil
+			}
+			if i == len(parts)-1 {
+				if valueNode.Kind == yaml.SequenceNode {
+					vals := make([]string, 0)
+					for _, elem := range valueNode.Content {
+						if elem.Kind == yaml.ScalarNode && elem.Value != "" {
+							vals = append(vals, elem.Value)
+						}
+					}
+					return vals
+				}
+				if valueNode.Kind == yaml.ScalarNode && valueNode.Value != "" {
+					return []string{valueNode.Value}
+				}
+				return nil
+			}
+			current = valueNode
+			break
+		}
+	}
+	return nil
 }
 
 // structToNodeIgnoringOmitempty converts a struct to yaml.Node while preserving field order
@@ -153,16 +366,32 @@ func (p *parameterizer) structToNodeIgnoringOmitempty(
 			continue
 		}
 
-		// Parse yaml tag to check for omitempty
+		// Parse yaml tag to detect omitempty and inline options
 		tagParts := strings.Split(yamlTag, ",")
 		yamlFieldName := tagParts[0]
 		hasOmitEmpty := false
+		isInline := false
 		for _, part := range tagParts[1:] {
-			if part == "omitempty" {
+			switch part {
+			case yamlTagOmitEmpty:
 				hasOmitEmpty = true
-				break
+			case yamlTagInline:
+				isInline = true
 			}
 		}
+
+		// Mirror yaml.v3's `yaml:",inline"` semantics: flatten the embedded struct's fields
+		// into the current mapping rather than nesting them under an empty key.
+		if isInline {
+			err := p.appendInlineStructFields(mappingNode, fieldValue, rules, currentPath, resourceName)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
+		// Check for forced quoting via yamlfmt tag
+		forceQuoted := field.Tag.Get("yamlfmt") == "quoted"
 
 		// Build the current field path (using struct field names)
 		fieldPath := field.Name
@@ -188,11 +417,85 @@ func (p *parameterizer) structToNodeIgnoringOmitempty(
 			return err
 		}
 
+		// Apply forced quoting if requested
+		if forceQuoted && valueNode.Kind == yaml.ScalarNode {
+			valueNode.Style = yaml.DoubleQuotedStyle
+		}
+
 		// Add key-value pair to mapping
 		mappingNode.Content = append(mappingNode.Content, keyNode, valueNode)
 	}
 
 	node.Content = []*yaml.Node{mappingNode}
+	return nil
+}
+
+// appendInlineStructFields flattens a `yaml:",inline"` embedded struct's fields into the
+// given mapping node, honoring per-field omitempty / rules / yamlfmt as the regular walkers do.
+func (p *parameterizer) appendInlineStructFields(
+	mapping *yaml.Node, fieldValue reflect.Value,
+	rules *resourceRules, currentPath, resourceName string,
+) error {
+	v := fieldValue
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil
+	}
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		field := t.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		yamlTag := field.Tag.Get("yaml")
+		if yamlTag == "" || yamlTag == "-" {
+			continue
+		}
+		tagParts := strings.Split(yamlTag, ",")
+		yamlFieldName := tagParts[0]
+		hasOmitEmpty := false
+		isInline := false
+		for _, part := range tagParts[1:] {
+			switch part {
+			case yamlTagOmitEmpty:
+				hasOmitEmpty = true
+			case yamlTagInline:
+				isInline = true
+			}
+		}
+
+		innerValue := v.Field(i)
+		nestedPath := field.Name
+		if currentPath != "" {
+			nestedPath = currentPath + "." + field.Name
+		}
+
+		if isInline {
+			if err := p.appendInlineStructFields(mapping, innerValue, rules, currentPath, resourceName); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if hasOmitEmpty && p.isEmptyValue(innerValue) && !p.isFieldInRules(rules, nestedPath) {
+			continue
+		}
+
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: yamlFieldName}
+		valueNode, err := p.fieldToNode(innerValue, rules, nestedPath, resourceName)
+		if err != nil {
+			return err
+		}
+		if field.Tag.Get("yamlfmt") == "quoted" && valueNode.Kind == yaml.ScalarNode {
+			valueNode.Style = yaml.DoubleQuotedStyle
+		}
+		mapping.Content = append(mapping.Content, keyNode, valueNode)
+	}
 	return nil
 }
 
@@ -226,7 +529,9 @@ func (p *parameterizer) isFieldInRules(rules *resourceRules, fieldPath string) b
 
 	// Check Variables
 	for _, varPath := range rules.Variables {
-		normalizedVarPath := strings.ToLower(varPath)
+		// Strip [] slice notation before comparing: rules use "Foo[].Bar" but traversal
+		// produces "Foo.Bar" (index not tracked in path).
+		normalizedVarPath := strings.ToLower(strings.ReplaceAll(varPath, "[]", ""))
 		if normalizedVarPath == normalizedPath {
 			return true
 		}
@@ -234,7 +539,7 @@ func (p *parameterizer) isFieldInRules(rules *resourceRules, fieldPath string) b
 
 	// Check ArrayVariables
 	for _, arrPath := range rules.ArrayVariables {
-		normalizedArrPath := strings.ToLower(arrPath)
+		normalizedArrPath := strings.ToLower(strings.ReplaceAll(arrPath, "[]", ""))
 		if normalizedArrPath == normalizedPath {
 			return true
 		}
@@ -412,14 +717,24 @@ func (p *parameterizer) handleStructNode(
 
 		tagParts := strings.Split(yamlTag, ",")
 		yamlFieldName := tagParts[0]
-
-		// Check if this field has omitempty
 		hasOmitEmpty := false
+		isInline := false
 		for _, part := range tagParts[1:] {
-			if part == "omitempty" {
+			switch part {
+			case yamlTagOmitEmpty:
 				hasOmitEmpty = true
-				break
+			case yamlTagInline:
+				isInline = true
 			}
+		}
+
+		fieldValue := v.Field(i)
+
+		if isInline {
+			if err := p.appendInlineStructFields(node, fieldValue, rules, currentPath, resourceName); err != nil {
+				return nil, err
+			}
+			continue
 		}
 
 		// Build the nested field path
@@ -429,7 +744,6 @@ func (p *parameterizer) handleStructNode(
 		}
 
 		// Skip empty fields if omitempty is set AND field is NOT in parameterization rules
-		fieldValue := v.Field(i)
 		if hasOmitEmpty && p.isEmptyValue(fieldValue) && !p.isFieldInRules(rules, nestedFieldPath) {
 			continue
 		}
@@ -713,7 +1027,7 @@ func (p *parameterizer) convertFieldToInterface(v reflect.Value) interface{} {
 }
 
 // convertStructPathsToYAMLPaths converts Go struct field paths to YAML field paths
-// e.g., "InboundAuthConfig[].OAuthAppConfig.ClientID" -> "inbound_auth_config[].config.client_id"
+// e.g., "InboundAuthConfig[].OAuthConfig.ClientID" -> "inbound_auth_config[].config.client_id"
 func (p *parameterizer) convertStructPathsToYAMLPaths(obj interface{}, rules *resourceRules) *resourceRules {
 	logger := log.GetLogger().With(log.String("component", "Parameterizer"))
 
@@ -1070,10 +1384,21 @@ func (p *parameterizer) renderTemplateSequence(buf *bytes.Buffer, node *yaml.Nod
 func (p *parameterizer) renderMappingValue(buf *bytes.Buffer, valueNode *yaml.Node, indent int) error {
 	// Check if value needs special handling
 	if valueNode.Kind == yaml.ScalarNode && strings.HasPrefix(valueNode.Value, "{{") {
-		// Template value - write inline
-		buf.WriteString(" ")
-		buf.WriteString(valueNode.Value)
-		buf.WriteString("\n")
+		if templateVariablePattern.MatchString(valueNode.Value) {
+			// Go template parameterization variable (e.g. {{.MY_VAR}}) - write inline without quotes.
+			// These are replaced before the file is used as YAML, so quoting is not needed.
+			buf.WriteString(" ")
+			buf.WriteString(valueNode.Value)
+			buf.WriteString("\n")
+		} else {
+			// Non-parameterization value starting with {{ (e.g. i18n refs like {{ t(key) }}).
+			// Must be quoted because bare { is a YAML flow-mapping indicator.
+			// Use single-quoted YAML strings to avoid escaping issues with backslashes.
+			buf.WriteString(` '`)
+			buf.WriteString(strings.ReplaceAll(valueNode.Value, `'`, `''`))
+			buf.WriteString(`'`)
+			buf.WriteString("\n")
+		}
 	} else if p.isTemplateSequence(valueNode) {
 		// Template sequence - render template syntax
 		buf.WriteString("\n")
@@ -1115,9 +1440,20 @@ func (p *parameterizer) renderSequenceItemMapping(buf *bytes.Buffer, item *yaml.
 		buf.WriteString(":")
 
 		if valueNode.Kind == yaml.ScalarNode {
-			// Template or regular scalar value
 			buf.WriteString(" ")
-			buf.WriteString(valueNode.Value)
+			val := valueNode.Value
+			// Quote values that begin with { or [ (YAML flow-collection indicators) unless
+			// they are actual Go template parameterization variables like {{.MY_VAR}}.
+			if (strings.HasPrefix(val, "{") || strings.HasPrefix(val, "[")) &&
+				!templateVariablePattern.MatchString(val) {
+				// Use single-quoted YAML strings to avoid escaping issues with backslashes
+				// in values that contain JSON (e.g. meta field with \" sequences).
+				buf.WriteString(`'`)
+				buf.WriteString(strings.ReplaceAll(val, `'`, `''`))
+				buf.WriteString(`'`)
+			} else {
+				buf.WriteString(val)
+			}
 			buf.WriteString("\n")
 		} else if p.isTemplateSequence(valueNode) {
 			// Template sequence

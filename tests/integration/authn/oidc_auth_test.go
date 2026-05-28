@@ -26,7 +26,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -43,14 +43,14 @@ var oidcAuthTestOU = testutils.OrganizationUnit{
 	Parent:      nil,
 }
 
-var oidcUserSchema = testutils.UserSchema{
+var oidcEntityType = testutils.UserType{
 	Name: "oidc_user",
 	Schema: map[string]interface{}{
 		"username": map[string]interface{}{
 			"type": "string",
 		},
 		"password": map[string]interface{}{
-			"type": "string",
+			"type":       "string",
 			"credential": true,
 		},
 		"sub": map[string]interface{}{
@@ -73,7 +73,7 @@ type OIDCAuthTestSuite struct {
 	mockOIDCServer *testutils.MockOIDCServer
 	idpID          string
 	userID         string
-	userSchemaID   string
+	entityTypeID   string
 	ouID           string
 }
 
@@ -108,10 +108,10 @@ func (suite *OIDCAuthTestSuite) SetupSuite() {
 	suite.Require().NoError(err, "Failed to create test organization unit")
 	suite.ouID = ouID
 
-	oidcUserSchema.OUID = suite.ouID
-	schemaID, err := testutils.CreateUserType(oidcUserSchema)
-	suite.Require().NoError(err, "Failed to create OIDC user schema")
-	suite.userSchemaID = schemaID
+	oidcEntityType.OUID = suite.ouID
+	schemaID, err := testutils.CreateUserType(oidcEntityType)
+	suite.Require().NoError(err, "Failed to create OIDC user type")
+	suite.entityTypeID = schemaID
 
 	userAttributes := map[string]interface{}{
 		"username":   "oidcuser",
@@ -126,9 +126,9 @@ func (suite *OIDCAuthTestSuite) SetupSuite() {
 	suite.Require().NoError(err)
 
 	user := testutils.User{
-		Type:             oidcUserSchema.Name,
-		OUID:             suite.ouID,
-		Attributes:       json.RawMessage(attributesJSON),
+		Type:       oidcEntityType.Name,
+		OUID:       suite.ouID,
+		Attributes: json.RawMessage(attributesJSON),
 	}
 
 	userID, err := testutils.CreateUser(user)
@@ -193,8 +193,8 @@ func (suite *OIDCAuthTestSuite) TearDownSuite() {
 		_ = testutils.DeleteUser(suite.userID)
 	}
 
-	if suite.userSchemaID != "" {
-		_ = testutils.DeleteUserType(suite.userSchemaID)
+	if suite.entityTypeID != "" {
+		_ = testutils.DeleteUserType(suite.entityTypeID)
 	}
 
 	if suite.idpID != "" {
@@ -245,7 +245,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthStartSuccess() {
 	suite.Contains(redirectURL, "client_id=test-oidc-client")
 	suite.Contains(redirectURL, "response_type=code")
 	suite.Contains(redirectURL, "scope=")
-	// Note: Thunder's OIDC implementation does not currently generate nonce values
+	// Note: Server's OIDC implementation does not currently generate nonce values
 }
 
 func (suite *OIDCAuthTestSuite) TestOIDCAuthStartInvalidIDPID() {
@@ -270,7 +270,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthStartInvalidIDPID() {
 	err = json.NewDecoder(resp.Body).Decode(&errorResponse)
 	suite.Require().NoError(err)
 	suite.NotEmpty(errorResponse.Code)
-	suite.NotEmpty(errorResponse.Message)
+	suite.NotEmpty(errorResponse.Message.DefaultValue)
 }
 
 func (suite *OIDCAuthTestSuite) TestOIDCAuthStartMissingIDPID() {
@@ -320,7 +320,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthCompleteFlowSuccess() {
 
 	finishRequest := map[string]interface{}{
 		"sessionToken": sessionToken,
-		"code":          authCode,
+		"code":         authCode,
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
 	suite.Require().NoError(err)
@@ -349,7 +349,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthCompleteFlowSuccess() {
 func (suite *OIDCAuthTestSuite) TestOIDCAuthFinishInvalidSessionToken() {
 	finishRequest := map[string]interface{}{
 		"sessionToken": "invalid-session-token",
-		"code":          "some-auth-code",
+		"code":         "some-auth-code",
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
 	suite.Require().NoError(err)
@@ -386,7 +386,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthFinishMissingCode() {
 }
 
 func (suite *OIDCAuthTestSuite) TestOIDCAuthWithNonce() {
-	// Note: Thunder's current OIDC implementation does not generate nonce values.
+	// Note: Server's current OIDC implementation does not generate nonce values.
 	// This test verifies that authentication still works without nonce.
 
 	// Start authentication
@@ -420,7 +420,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthWithNonce() {
 	suite.NotEmpty(query.Get("client_id"), "client_id should be present")
 	suite.NotEmpty(query.Get("response_type"), "response_type should be present")
 	suite.NotEmpty(query.Get("scope"), "scope should be present")
-	// nonce is optional - Thunder doesn't generate it currently
+	// nonce is optional - Server doesn't generate it currently
 }
 
 // TestOIDCAuthCompleteFlowWithSkipAssertionFalse tests complete OIDC flow with skipAssertion=false
@@ -454,7 +454,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthCompleteFlowWithSkipAssertionFalse()
 
 	finishRequest := map[string]interface{}{
 		"sessionToken":  sessionToken,
-		"code":           authCode,
+		"code":          authCode,
 		"skipAssertion": false,
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
@@ -512,7 +512,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthCompleteFlowWithSkipAssertionTrue() 
 
 	finishRequest := map[string]interface{}{
 		"sessionToken":  sessionToken,
-		"code":           authCode,
+		"code":          authCode,
 		"skipAssertion": true,
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
@@ -570,7 +570,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthWithAssuranceLevelAAL1() {
 
 	finishRequest := map[string]interface{}{
 		"sessionToken":  sessionToken,
-		"code":           authCode,
+		"code":          authCode,
 		"skipAssertion": false,
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)
@@ -631,7 +631,7 @@ func (suite *OIDCAuthTestSuite) TestOIDCAuthWithSkipAssertion() {
 
 	finishRequest := map[string]interface{}{
 		"sessionToken":  sessionToken,
-		"code":           authCode,
+		"code":          authCode,
 		"skipAssertion": true,
 	}
 	finishRequestJSON, err := json.Marshal(finishRequest)

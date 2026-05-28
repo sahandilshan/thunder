@@ -24,25 +24,23 @@ import (
 	"encoding/json"
 	"errors"
 
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
-	authncreds "github.com/asgardeo/thunder/internal/authn/credentials"
-	"github.com/asgardeo/thunder/internal/authnprovider"
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/observability"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	authnprovidercm "github.com/thunder-id/thunderid/internal/authnprovider/common"
+	authnprovidermgr "github.com/thunder-id/thunderid/internal/authnprovider/manager"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // basicAuthExecutor implements the ExecutorInterface for basic authentication.
 type basicAuthExecutor struct {
 	core.ExecutorInterface
 	identifyingExecutorInterface
-	userProvider     userprovider.UserProviderInterface
-	credsAuthSvc     authncreds.CredentialsAuthnServiceInterface
-	observabilitySvc observability.ObservabilityServiceInterface
-	logger           *log.Logger
+	entityProvider entityprovider.EntityProviderInterface
+	authnProvider  authnprovidermgr.AuthnProviderManagerInterface
+	logger         *log.Logger
 }
 
 var _ core.ExecutorInterface = (*basicAuthExecutor)(nil)
@@ -51,9 +49,8 @@ var _ identifyingExecutorInterface = (*basicAuthExecutor)(nil)
 // newBasicAuthExecutor creates a new instance of BasicAuthExecutor.
 func newBasicAuthExecutor(
 	flowFactory core.FlowFactoryInterface,
-	userProvider userprovider.UserProviderInterface,
-	credsAuthSvc authncreds.CredentialsAuthnServiceInterface,
-	observabilitySvc observability.ObservabilityServiceInterface,
+	entityProvider entityprovider.EntityProviderInterface,
+	authnProvider authnprovidermgr.AuthnProviderManagerInterface,
 ) *basicAuthExecutor {
 	defaultInputs := []common.Input{
 		{
@@ -72,23 +69,22 @@ func newBasicAuthExecutor(
 		log.String(log.LoggerKeyExecutorName, ExecutorNameBasicAuth))
 
 	identifyExec := newIdentifyingExecutor(ExecutorNameBasicAuth, defaultInputs, []common.Input{},
-		flowFactory, userProvider)
+		flowFactory, entityProvider)
 	base := flowFactory.CreateExecutor(ExecutorNameBasicAuth, common.ExecutorTypeAuthentication,
 		defaultInputs, []common.Input{})
 
 	return &basicAuthExecutor{
 		ExecutorInterface:            base,
 		identifyingExecutorInterface: identifyExec,
-		userProvider:                 userProvider,
-		credsAuthSvc:                 credsAuthSvc,
-		observabilitySvc:             observabilitySvc,
+		entityProvider:               entityProvider,
+		authnProvider:                authnProvider,
 		logger:                       logger,
 	}
 }
 
 // Execute executes the basic authentication logic.
 func (b *basicAuthExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := b.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := b.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing basic authentication executor")
 
 	execResp := &common.ExecutorResponse{
@@ -96,7 +92,24 @@ func (b *basicAuthExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorResp
 		RuntimeData:    make(map[string]string),
 	}
 
-	if !b.HasRequiredInputs(ctx, execResp) {
+	// When a userID is pre-resolved (e.g., by an IdentifyingExecutor in resolve mode),
+	// only credential inputs are required — skip the identifier input check.
+	hasPreResolvedUser := ctx.RuntimeData[userAttributeUserID] != ""
+	if hasPreResolvedUser {
+		credentialInputs := b.getCredentialInputs(ctx)
+		hasMissingCredentials := false
+		for _, input := range credentialInputs {
+			if ctx.UserInputs[input.Identifier] == "" {
+				hasMissingCredentials = true
+				break
+			}
+		}
+		if hasMissingCredentials {
+			execResp.Status = common.ExecUserInputRequired
+			execResp.Inputs = credentialInputs
+			return execResp, nil
+		}
+	} else if !b.HasRequiredInputs(ctx, execResp) {
 		logger.Debug("Required inputs for basic authentication executor is not provided")
 		execResp.Status = common.ExecUserInputRequired
 		return execResp, nil
@@ -121,7 +134,11 @@ func (b *basicAuthExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorResp
 	}
 	if !authenticatedUser.IsAuthenticated && ctx.FlowType != common.FlowTypeRegistration {
 		execResp.Status = common.ExecUserInputRequired
-		execResp.Inputs = b.GetRequiredInputs(ctx)
+		if hasPreResolvedUser {
+			execResp.Inputs = b.getCredentialInputs(ctx)
+		} else {
+			execResp.Inputs = b.GetRequiredInputs(ctx)
+		}
 		execResp.FailureReason = "User authentication failed."
 		return execResp, nil
 	}
@@ -136,14 +153,30 @@ func (b *basicAuthExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorResp
 	return execResp, nil
 }
 
+// getCredentialInputs returns the sensitive (credential) inputs from the node's required inputs.
+func (b *basicAuthExecutor) getCredentialInputs(ctx *core.NodeContext) []common.Input {
+	var credentials []common.Input
+	for _, input := range b.GetRequiredInputs(ctx) {
+		if input.IsSensitive() {
+			credentials = append(credentials, input)
+		}
+	}
+	return credentials
+}
+
 // getAuthenticatedUser perform authentication based on the provided identifying and
 // credential attributes and returns the authenticated user details.
 func (b *basicAuthExecutor) getAuthenticatedUser(ctx *core.NodeContext,
 	execResp *common.ExecutorResponse) (*authncm.AuthenticatedUser, error) {
-	logger := b.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := b.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 
 	userIdentifiers := map[string]interface{}{}
 	userCredentials := map[string]interface{}{}
+
+	// When a userID is pre-resolved, use it as the identifier for authentication.
+	if preResolvedUserID, ok := ctx.RuntimeData[userAttributeUserID]; ok {
+		userIdentifiers[userAttributeUserID] = preResolvedUserID
+	}
 
 	for _, inputData := range b.GetRequiredInputs(ctx) {
 		if value, ok := ctx.UserInputs[inputData.Identifier]; ok {
@@ -180,42 +213,44 @@ func (b *basicAuthExecutor) getAuthenticatedUser(ctx *core.NodeContext,
 
 	// For authentication flows, call Authenticate directly.
 	metadata := b.buildAuthnMetadata(ctx)
-	authnResult, svcErr := b.credsAuthSvc.Authenticate(ctx.Context, userIdentifiers, userCredentials, metadata)
+	newAuthUser, authnResult, svcErr := b.authnProvider.AuthenticateUser(ctx.Context, userIdentifiers,
+		userCredentials, nil, metadata, ctx.AuthUser)
 	if svcErr != nil {
 		if svcErr.Type == serviceerror.ClientErrorType {
 			execResp.Status = common.ExecUserInputRequired
 			execResp.Inputs = b.GetRequiredInputs(ctx)
 
 			switch svcErr.Code {
-			case authncm.ErrorUserNotFound.Code:
+			case authnprovidermgr.ErrorUserNotFound.Code:
 				execResp.FailureReason = failureReasonUserNotFound
-			case authncreds.ErrorInvalidCredentials.Code:
+			case authnprovidermgr.ErrorAuthenticationFailed.Code:
 				execResp.FailureReason = failureReasonInvalidCredentials
 			default:
-				execResp.FailureReason = "Failed to authenticate user: " + svcErr.ErrorDescription
+				execResp.FailureReason = "Failed to authenticate user: " + svcErr.ErrorDescription.DefaultValue
 			}
 
 			return nil, nil
 		}
 
 		logger.Error("Failed to authenticate user",
-			log.String("errorCode", svcErr.Code), log.String("errorDescription", svcErr.ErrorDescription))
+			log.String("errorCode", svcErr.Code), log.String("errorDescription", svcErr.ErrorDescription.DefaultValue))
 		return nil, errors.New("failed to authenticate user")
 	}
+	execResp.AuthUser = newAuthUser
 
 	// Try to retrieve the user and get the attributes
 	userAttributes := map[string]interface{}{}
-	user, err := b.userProvider.GetUser(authnResult.UserID)
+	user, err := b.entityProvider.GetEntity(authnResult.UserID)
 
 	if err != nil {
-		if err.Code != userprovider.ErrorCodeNotImplemented {
+		if err.Code != entityprovider.ErrorCodeNotImplemented {
 			logger.Error("Failed to get user attributes", log.Error(err))
 			return nil, errors.New("failed to get user attributes")
 		}
 		logger.Debug("User provider is not implemented. User attributes will be empty.")
 	}
 
-	if err == nil && user != nil {
+	if err == nil && user != nil && len(user.Attributes) > 0 {
 		if err := json.Unmarshal(user.Attributes, &userAttributes); err != nil {
 			logger.Error("Failed to unmarshal user attributes", log.Error(err))
 			return nil, errors.New("failed to unmarshal user attributes")
@@ -223,19 +258,17 @@ func (b *basicAuthExecutor) getAuthenticatedUser(ctx *core.NodeContext,
 	}
 
 	return &authncm.AuthenticatedUser{
-		IsAuthenticated:     true,
-		UserID:              authnResult.UserID,
-		OUID:                authnResult.OUID,
-		UserType:            authnResult.UserType,
-		Attributes:          userAttributes,
-		AvailableAttributes: authnResult.AvailableAttributes,
-		Token:               authnResult.Token,
+		IsAuthenticated: true,
+		UserID:          authnResult.UserID,
+		OUID:            authnResult.OUID,
+		UserType:        authnResult.UserType,
+		Attributes:      userAttributes,
 	}, nil
 }
 
 // buildAuthnMetadata constructs the metadata for authentication.
-func (b *basicAuthExecutor) buildAuthnMetadata(ctx *core.NodeContext) *authnprovider.AuthnMetadata {
-	metadata := &authnprovider.AuthnMetadata{
+func (b *basicAuthExecutor) buildAuthnMetadata(ctx *core.NodeContext) *authnprovidercm.AuthnMetadata {
+	metadata := &authnprovidercm.AuthnMetadata{
 		AppMetadata: make(map[string]interface{}),
 	}
 
@@ -249,8 +282,8 @@ func (b *basicAuthExecutor) buildAuthnMetadata(ctx *core.NodeContext) *authnprov
 	// Extract client IDs from InboundAuthConfig
 	var clientIDs []string
 	for _, inboundConfig := range ctx.Application.InboundAuthConfig {
-		if inboundConfig.OAuthAppConfig != nil && inboundConfig.OAuthAppConfig.ClientID != "" {
-			clientIDs = append(clientIDs, inboundConfig.OAuthAppConfig.ClientID)
+		if inboundConfig.OAuthConfig != nil && inboundConfig.OAuthConfig.ClientID != "" {
+			clientIDs = append(clientIDs, inboundConfig.OAuthConfig.ClientID)
 		}
 	}
 

@@ -25,11 +25,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 // authRequestContext holds OAuth authorization request information.
@@ -56,7 +56,7 @@ func newAuthorizationRequestStore() authorizationRequestStoreInterface {
 	return &authorizationRequestStore{
 		dbProvider:     provider.GetDBProvider(),
 		validityPeriod: 10 * time.Minute,
-		deploymentID:   config.GetThunderRuntime().Config.Server.Identifier,
+		deploymentID:   config.GetServerRuntime().Config.Server.Identifier,
 	}
 }
 
@@ -151,9 +151,10 @@ func (authzRS *authorizationRequestStore) getJSONDataBytes(authRequestCtx authRe
 		jsonKeyPermissionScopes:    authRequestCtx.OAuthParameters.PermissionScopes,
 		jsonKeyCodeChallenge:       authRequestCtx.OAuthParameters.CodeChallenge,
 		jsonKeyCodeChallengeMethod: authRequestCtx.OAuthParameters.CodeChallengeMethod,
-		jsonKeyResource:            authRequestCtx.OAuthParameters.Resource,
+		jsonKeyResource:            authRequestCtx.OAuthParameters.Resources,
 		jsonKeyClaimsLocales:       authRequestCtx.OAuthParameters.ClaimsLocales,
 		jsonKeyNonce:               authRequestCtx.OAuthParameters.Nonce,
+		jsonKeyDPoPJkt:             authRequestCtx.OAuthParameters.DPoPJkt,
 	}
 
 	// Add claims_request if present
@@ -225,8 +226,10 @@ func (authzRS *authorizationRequestStore) buildAuthRequestContextFromResultRow(
 	if codeChallengeMethod, ok := requestDataMap[jsonKeyCodeChallengeMethod].(string); ok {
 		oauthParams.CodeChallengeMethod = codeChallengeMethod
 	}
-	if resource, ok := requestDataMap[jsonKeyResource].(string); ok {
-		oauthParams.Resource = resource
+	if rawResources, ok := requestDataMap[jsonKeyResource].([]interface{}); ok {
+		oauthParams.Resources = convertToStringArray(rawResources)
+	} else if resources, ok := requestDataMap[jsonKeyResource].([]string); ok {
+		oauthParams.Resources = resources
 	}
 	if claimsLocales, ok := requestDataMap[jsonKeyClaimsLocales].(string); ok {
 		oauthParams.ClaimsLocales = claimsLocales
@@ -236,6 +239,9 @@ func (authzRS *authorizationRequestStore) buildAuthRequestContextFromResultRow(
 		if nonce, ok := requestDataMap[jsonKeyNonce].(string); ok {
 			oauthParams.Nonce = nonce
 		}
+	}
+	if dpopJkt, ok := requestDataMap[jsonKeyDPoPJkt].(string); ok {
+		oauthParams.DPoPJkt = dpopJkt
 	}
 
 	// Parse claims_request if present

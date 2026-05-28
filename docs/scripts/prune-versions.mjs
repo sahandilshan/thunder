@@ -18,8 +18,6 @@
  * under the License.
  */
 
-/* eslint-disable @thunder/copyright-header, import/no-extraneous-dependencies, no-underscore-dangle */
-
 /**
  * Prunes old Docusaurus documentation versions, keeping only the N most recent.
  *
@@ -46,8 +44,8 @@
 
 import {readFileSync, writeFileSync, rmSync, existsSync} from 'fs';
 import {join, dirname} from 'path';
-import {createLogger} from '@thunder/logger';
 import {fileURLToPath} from 'url';
+import {createLogger} from '@thunderid/logger';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

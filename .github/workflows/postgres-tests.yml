@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       distribution-url:
-        description: 'URL to download Thunder distribution (optional, will build if not provided)'
+        description: 'URL to download Distribution (optional, will build if not provided)'
         required: false
         type: string
       version:
@@ -27,6 +27,8 @@ on:
 
 env:
   GOFLAGS: "-mod=readonly"
+  PRODUCT_NAME: "ThunderID"
+  PRODUCT_NAME_LOWER: "thunderid"
 
 jobs:
   build-if-needed:
@@ -79,14 +81,14 @@ jobs:
           make build_with_coverage_only OS=$(go env GOOS) ARCH=$(go env GOARCH)
           
           # Find the built distribution
-          DIST_PATH=$(find target/dist -name "thunder-*.zip" | head -1)
+          DIST_PATH=$(find target/dist -name "$PRODUCT_NAME_LOWER-*.zip" | head -1)
           echo "distribution-path=$DIST_PATH" >> $GITHUB_OUTPUT
           echo "Built distribution: $DIST_PATH"
 
       - name: 📦 Upload Built Distribution
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: thunder-distribution
+          name: product-distribution
           path: target/dist/*.zip
           if-no-files-found: error
 
@@ -101,7 +103,7 @@ jobs:
         id: download
         run: |
           DIST_URL="${{ github.event.inputs.distribution-url }}"
-          DIST_FILENAME="thunder-distribution.zip"
+          DIST_FILENAME="product-distribution.zip"
           
           echo "Downloading distribution from: $DIST_URL"
           curl -L -o "$DIST_FILENAME" "$DIST_URL"
@@ -124,9 +126,9 @@ jobs:
       postgres:
         image: postgres:latest
         env:
-          POSTGRES_USER: asgthunder
-          POSTGRES_PASSWORD: asgthunder
-          POSTGRES_DB: thunderdb
+          POSTGRES_USER: dbuser
+          POSTGRES_PASSWORD: dbpassword
+          POSTGRES_DB: postgredb
         ports:
           - 5432:5432
         options: >-
@@ -155,7 +157,7 @@ jobs:
       - name: 📥 Download Built Distribution
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: thunder-distribution
+          name: product-distribution
           path: target/dist/
 
       - name: 📦 Install Dependencies

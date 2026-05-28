@@ -24,10 +24,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -37,12 +37,13 @@ const (
 
 // roleExporter implements declarativeresource.ResourceExporter for roles.
 type roleExporter struct {
-	service RoleServiceInterface
+	service           RoleServiceInterface
+	assignmentService RoleAssignmentServiceInterface
 }
 
 // newRoleExporter creates a new role exporter.
-func newRoleExporter(service RoleServiceInterface) *roleExporter {
-	return &roleExporter{service: service}
+func newRoleExporter(service RoleServiceInterface, assignmentService RoleAssignmentServiceInterface) *roleExporter {
+	return &roleExporter{service: service, assignmentService: assignmentService}
 }
 
 // GetResourceType returns the resource type for roles.
@@ -102,12 +103,17 @@ func (e *roleExporter) GetResourceByID(
 		return nil, "", err
 	}
 
-	role := &RoleWithPermissionsAndAssignments{
+	perms := make([]roleDeclarativePermission, 0, len(roleWithPermissions.Permissions))
+	for _, p := range roleWithPermissions.Permissions {
+		perms = append(perms, roleDeclarativePermission(p))
+	}
+
+	role := &roleDeclarativeResource{
 		ID:          roleWithPermissions.ID,
 		Name:        roleWithPermissions.Name,
 		Description: roleWithPermissions.Description,
 		OUID:        roleWithPermissions.OUID,
-		Permissions: roleWithPermissions.Permissions,
+		Permissions: perms,
 		Assignments: assignments,
 	}
 
@@ -118,7 +124,7 @@ func (e *roleExporter) GetResourceByID(
 func (e *roleExporter) ValidateResource(
 	resource interface{}, id string, logger *log.Logger,
 ) (string, *declarativeresource.ExportError) {
-	role, ok := resource.(*RoleWithPermissionsAndAssignments)
+	role, ok := resource.(*roleDeclarativeResource)
 	if !ok {
 		return "", declarativeresource.CreateTypeError(resourceTypeRole, id)
 	}
@@ -141,13 +147,16 @@ func (e *roleExporter) GetResourceRules() *declarativeresource.ResourceRules {
 
 // loadDeclarativeResources loads immutable role resources from files.
 // The dbStore parameter is optional (can be nil) and is used for duplicate checking in composite mode.
-func loadDeclarativeResources(fileStore *fileBasedStore, dbStore roleStoreInterface) error {
+// The service parameter is optional (can be nil) and is used to resolve ou_handle to ou_id.
+func loadDeclarativeResources(
+	fileStore *fileBasedStore, dbStore roleStoreInterface, service RoleServiceInterface,
+) error {
 	resourceConfig := declarativeresource.ResourceConfig{
 		ResourceType:  "Role",
 		DirectoryName: "roles",
 		Parser:        parseToRoleWrapper,
 		Validator: func(data interface{}) error {
-			return validateRoleWrapper(data, fileStore, dbStore)
+			return validateRoleWrapper(data, fileStore, dbStore, service)
 		},
 		IDExtractor: func(data interface{}) string {
 			// Use safe type assertion to prevent panic
@@ -179,7 +188,8 @@ type roleDeclarativeResource struct {
 	ID          string                      `yaml:"id"`
 	Name        string                      `yaml:"name"`
 	Description string                      `yaml:"description,omitempty"`
-	OUID        string                      `yaml:"ou_id"`
+	OUID        string                      `yaml:"ou_id,omitempty"`
+	OUHandle    string                      `yaml:"ou_handle,omitempty"`
 	Permissions []roleDeclarativePermission `yaml:"permissions"`
 	Assignments []RoleAssignment            `yaml:"assignments,omitempty"`
 }
@@ -201,11 +211,19 @@ func parseToRole(data []byte) (*RoleWithPermissionsAndAssignments, error) {
 		permissions = append(permissions, toResourcePermissions(perm))
 	}
 
+	// Translate public 'user'/'app'/'agent' assignment types to the internal 'entity' type.
+	for i, a := range roleResource.Assignments {
+		if a.Type.IsEntityType() {
+			roleResource.Assignments[i].Type = assigneeTypeEntity
+		}
+	}
+
 	role := &RoleWithPermissionsAndAssignments{
 		ID:          roleResource.ID,
 		Name:        roleResource.Name,
 		Description: roleResource.Description,
 		OUID:        roleResource.OUID,
+		OUHandle:    roleResource.OUHandle,
 		Permissions: permissions,
 		Assignments: roleResource.Assignments,
 	}
@@ -214,7 +232,10 @@ func parseToRole(data []byte) (*RoleWithPermissionsAndAssignments, error) {
 }
 
 // validateRoleWrapper validates role declarative resources and checks for duplicates.
-func validateRoleWrapper(data interface{}, fileStore *fileBasedStore, dbStore roleStoreInterface) error {
+// When a service is provided, OU handles are resolved before validation runs.
+func validateRoleWrapper(
+	data interface{}, fileStore *fileBasedStore, dbStore roleStoreInterface, service RoleServiceInterface,
+) error {
 	role, ok := data.(*RoleWithPermissionsAndAssignments)
 	if !ok {
 		return fmt.Errorf("invalid type: expected *RoleWithPermissionsAndAssignments")
@@ -226,15 +247,21 @@ func validateRoleWrapper(data interface{}, fileStore *fileBasedStore, dbStore ro
 	if role.Name == "" {
 		return fmt.Errorf("role name is required")
 	}
+	if service != nil {
+		if svcErr := service.ResolveRoleOUHandle(context.Background(), role); svcErr != nil {
+			return fmt.Errorf("organization unit with handle %q not found for role '%s'",
+				role.OUHandle, role.Name)
+		}
+	}
 	if role.OUID == "" {
-		return fmt.Errorf("organization unit ID is required")
+		return fmt.Errorf("ou_id or ou_handle is required for role '%s'", role.Name)
 	}
 
 	for _, assignment := range role.Assignments {
 		if assignment.ID == "" {
 			return fmt.Errorf("assignment ID is required")
 		}
-		if assignment.Type != AssigneeTypeUser && assignment.Type != AssigneeTypeGroup {
+		if assignment.Type != assigneeTypeEntity && assignment.Type != AssigneeTypeGroup {
 			return fmt.Errorf("invalid assignment type '%s'", assignment.Type)
 		}
 	}
@@ -274,7 +301,7 @@ func (e *roleExporter) getAllRoleAssignments(
 	assignments := []RoleAssignment{}
 
 	for {
-		list, err := e.service.GetRoleAssignments(ctx, roleID, limit, offset, false)
+		list, err := e.assignmentService.GetRoleAssignments(ctx, roleID, limit, offset, false)
 		if err != nil {
 			return nil, err
 		}

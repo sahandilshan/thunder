@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/config"
 )
 
 // Test Suite
@@ -48,8 +48,8 @@ func (suite *ThemeServiceTestSuite) SetupTest() {
 			Enabled: false,
 		},
 	}
-	config.ResetThunderRuntime()
-	err := config.InitializeThunderRuntime("/tmp/test", testConfig)
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
 	if err != nil {
 		suite.Fail("Failed to initialize runtime", err)
 	}
@@ -128,15 +128,21 @@ func (suite *ThemeServiceTestSuite) TestGetThemeList_InvalidOffset() {
 
 // Test CreateTheme - Success
 func (suite *ThemeServiceTestSuite) TestCreateTheme_Success() {
-	themeRequest := CreateThemeRequest{
+	themeRequest := CreateThemeRequestWithID{
 		Handle:      "new-theme",
 		DisplayName: "New Theme",
 		Description: "A new theme",
 		Theme:       json.RawMessage(`{"colors": {"primary": "#ff0000"}}`),
 	}
+	storeReq := CreateThemeRequest{
+		Handle:      themeRequest.Handle,
+		DisplayName: themeRequest.DisplayName,
+		Description: themeRequest.Description,
+		Theme:       themeRequest.Theme,
+	}
 
 	suite.mockStore.On("IsThemeHandleConflict", "new-theme", "").Return(false, nil)
-	suite.mockStore.On("CreateTheme", mock.AnythingOfType("string"), themeRequest).Return(nil)
+	suite.mockStore.On("CreateTheme", mock.AnythingOfType("string"), storeReq).Return(nil)
 
 	result, err := suite.service.CreateTheme(themeRequest)
 
@@ -150,7 +156,7 @@ func (suite *ThemeServiceTestSuite) TestCreateTheme_Success() {
 
 // Test CreateTheme - Missing Display Name
 func (suite *ThemeServiceTestSuite) TestCreateTheme_MissingDisplayName() {
-	themeRequest := CreateThemeRequest{
+	themeRequest := CreateThemeRequestWithID{
 		Handle:      "my-theme",
 		DisplayName: "",
 		Description: "A theme without name",
@@ -166,7 +172,7 @@ func (suite *ThemeServiceTestSuite) TestCreateTheme_MissingDisplayName() {
 
 // Test CreateTheme - Missing Handle
 func (suite *ThemeServiceTestSuite) TestCreateTheme_MissingHandle() {
-	themeRequest := CreateThemeRequest{
+	themeRequest := CreateThemeRequestWithID{
 		Handle:      "",
 		DisplayName: "My Theme",
 		Description: "A theme without handle",
@@ -182,7 +188,7 @@ func (suite *ThemeServiceTestSuite) TestCreateTheme_MissingHandle() {
 
 // Test CreateTheme - Duplicate Handle
 func (suite *ThemeServiceTestSuite) TestCreateTheme_DuplicateHandle() {
-	themeRequest := CreateThemeRequest{
+	themeRequest := CreateThemeRequestWithID{
 		Handle:      "existing-theme",
 		DisplayName: "My Theme",
 		Description: "A theme with duplicate handle",
@@ -200,10 +206,10 @@ func (suite *ThemeServiceTestSuite) TestCreateTheme_DuplicateHandle() {
 
 // Test CreateTheme - Declarative mode enabled
 func (suite *ThemeServiceTestSuite) TestCreateTheme_DeclarativeModeEnabled() {
-	runtime := config.GetThunderRuntime()
+	runtime := config.GetServerRuntime()
 	runtime.Config.Theme.Store = "declarative"
 
-	themeRequest := CreateThemeRequest{
+	themeRequest := CreateThemeRequestWithID{
 		Handle:      "declarative-theme",
 		DisplayName: "Declarative Theme",
 		Description: "Should be blocked",
@@ -219,7 +225,7 @@ func (suite *ThemeServiceTestSuite) TestCreateTheme_DeclarativeModeEnabled() {
 
 // Test CreateTheme - Invalid Theme JSON
 func (suite *ThemeServiceTestSuite) TestCreateTheme_InvalidJSON() {
-	themeRequest := CreateThemeRequest{
+	themeRequest := CreateThemeRequestWithID{
 		Handle:      "my-theme",
 		DisplayName: "Theme",
 		Description: "Invalid JSON theme",
@@ -237,15 +243,21 @@ func (suite *ThemeServiceTestSuite) TestCreateTheme_InvalidJSON() {
 
 // Test CreateTheme - Store Error
 func (suite *ThemeServiceTestSuite) TestCreateTheme_StoreError() {
-	themeRequest := CreateThemeRequest{
+	themeRequest := CreateThemeRequestWithID{
 		Handle:      "my-theme",
 		DisplayName: "Theme",
 		Description: "A theme",
 		Theme:       json.RawMessage(`{"colors": {"primary": "#ff0000"}}`),
 	}
+	storeReq := CreateThemeRequest{
+		Handle:      themeRequest.Handle,
+		DisplayName: themeRequest.DisplayName,
+		Description: themeRequest.Description,
+		Theme:       themeRequest.Theme,
+	}
 
 	suite.mockStore.On("IsThemeHandleConflict", "my-theme", "").Return(false, nil)
-	suite.mockStore.On("CreateTheme", mock.AnythingOfType("string"), themeRequest).Return(errors.New("database error"))
+	suite.mockStore.On("CreateTheme", mock.AnythingOfType("string"), storeReq).Return(errors.New("database error"))
 
 	result, err := suite.service.CreateTheme(themeRequest)
 
@@ -533,7 +545,7 @@ func (suite *ThemeServiceTestSuite) TestIsThemeExist_StoreError() {
 
 // Test CreateTheme - Handle conflict check error
 func (suite *ThemeServiceTestSuite) TestCreateTheme_HandleConflictError() {
-	themeRequest := CreateThemeRequest{
+	themeRequest := CreateThemeRequestWithID{
 		Handle:      "my-theme",
 		DisplayName: "Theme",
 		Description: "A theme",

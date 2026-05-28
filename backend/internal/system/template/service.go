@@ -23,8 +23,8 @@ import (
 	"errors"
 	"regexp"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 var ctxPlaceholderRegex = regexp.MustCompile(`\{\{ctx\((\w+)\)}}`)
@@ -43,11 +43,16 @@ func newTemplateService(store templateStoreInterface) TemplateServiceInterface {
 	}
 }
 
-// GetTemplateByScenario retrieves a template for the specified scenario.
+// GetTemplateByScenario retrieves a template for the specified scenario and template type.
 func (s *templateService) GetTemplateByScenario(
-	ctx context.Context, scenario ScenarioType) (*TemplateDTO, *serviceerror.I18nServiceError) {
-	s.logger.Debug("Retrieving template by scenario", log.String("scenario", string(scenario)))
-	tmpl, err := s.store.GetTemplateByScenario(ctx, scenario)
+	ctx context.Context,
+	scenario ScenarioType,
+	tmplType TemplateType,
+) (*TemplateDTO, *serviceerror.ServiceError) {
+	s.logger.Debug("Retrieving template by scenario and type",
+		log.String("scenario", string(scenario)),
+		log.String("type", string(tmplType)))
+	tmpl, err := s.store.GetTemplateByScenario(ctx, scenario, tmplType)
 	if err != nil {
 		if errors.Is(err, errTemplateNotFound) {
 			return nil, &ErrorTemplateNotFound
@@ -55,41 +60,54 @@ func (s *templateService) GetTemplateByScenario(
 		s.logger.Error("Failed to retrieve template by scenario",
 			log.String("scenario", string(scenario)),
 			log.Error(err))
-		return nil, &serviceerror.InternalServerErrorWithI18n
+		return nil, &serviceerror.InternalServerError
 	}
 
 	return tmpl, nil
 }
 
-// Render renders a template for the specified scenario using the provided data.
+// Render renders a template for the specified scenario and template type using the provided data.
 func (s *templateService) Render(
-	ctx context.Context, scenario ScenarioType, data TemplateData) (*RenderedTemplate, *serviceerror.I18nServiceError) {
+	ctx context.Context,
+	scenario ScenarioType,
+	tmplType TemplateType,
+	data TemplateData,
+) (*RenderedTemplate, *serviceerror.ServiceError) {
 	s.logger.Debug("Rendering template", log.String("scenario", string(scenario)))
-	tmpl, svcErr := s.GetTemplateByScenario(ctx, scenario)
+	tmpl, svcErr := s.GetTemplateByScenario(ctx, scenario, tmplType)
 	if svcErr != nil {
 		return nil, svcErr
 	}
 
-	body := ctxPlaceholderRegex.ReplaceAllStringFunc(tmpl.Body, func(match string) string {
-		// Extract the key from {{ctx(key)}}
-		submatches := ctxPlaceholderRegex.FindStringSubmatch(match)
-		if len(submatches) < 2 {
+	replacePlaceholders := func(s string) string {
+		return ctxPlaceholderRegex.ReplaceAllStringFunc(s, func(match string) string {
+			// Extract the key from {{ctx(key)}}
+			submatches := ctxPlaceholderRegex.FindStringSubmatch(match)
+			if len(submatches) < 2 {
+				return match
+			}
+			key := submatches[1]
+			if val, ok := data[key]; ok {
+				return val
+			}
 			return match
-		}
-		key := submatches[1]
-		if val, ok := data[key]; ok {
-			return val
-		}
-		return match
-	})
+		})
+	}
+
+	rendered := &RenderedTemplate{
+		Subject: replacePlaceholders(tmpl.Subject),
+		Body:    replacePlaceholders(tmpl.Body),
+		IsHTML:  tmpl.ContentType == "text/html",
+	}
 
 	s.logger.Debug("Template rendered successfully",
 		log.String("scenario", string(scenario)),
 		log.String("templateID", tmpl.ID))
 
-	return &RenderedTemplate{
-		Subject: tmpl.Subject,
-		Body:    body,
-		IsHTML:  tmpl.ContentType == "text/html",
-	}, nil
+	if tmpl.Type == TemplateTypeSMS && len(rendered.Body) > 160 {
+		s.logger.Warn("Rendered SMS body exceeds 160 characters; message may be split into multiple segments",
+			log.Int("length", len(rendered.Body)))
+	}
+
+	return rendered, nil
 }

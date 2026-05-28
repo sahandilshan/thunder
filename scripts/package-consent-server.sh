@@ -19,7 +19,7 @@
 # ----------------------------------------------------------------------------
 
 # package-consent-server.sh
-# Download, configure, and stage the default consent server into thunder distribution.
+# Download, configure, and stage the default consent server into distribution.
 #
 # Usage: ./scripts/package-consent-server.sh <GO_OS> <GO_ARCH> <DIST_OUTPUT_PATH>
 #

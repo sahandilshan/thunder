@@ -23,10 +23,11 @@ import (
 	"container/list"
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // lfuHeapItem represents an item in the LFU heap.
@@ -94,9 +95,9 @@ type inMemoryCache[T any] struct {
 	size           int
 	ttl            time.Duration
 	evictionPolicy evictionPolicy
-	hitCount       int64
-	missCount      int64
-	evictCount     int64
+	hitCount       atomic.Int64
+	missCount      atomic.Int64
+	evictCount     atomic.Int64
 }
 
 // getEvictionPolicy retrieves the eviction policy from the cache configuration.
@@ -260,7 +261,7 @@ func (c *inMemoryCache[T]) Get(_ context.Context, key CacheKey) (T, bool) {
 
 	entry, exists := c.cache[key]
 	if !exists {
-		c.missCount++
+		c.missCount.Add(1)
 		var zero T
 		return zero, false
 	}
@@ -268,7 +269,7 @@ func (c *inMemoryCache[T]) Get(_ context.Context, key CacheKey) (T, bool) {
 	// Check if the entry has expired
 	if time.Now().After(entry.ExpiryTime) {
 		c.deleteEntry(key, entry)
-		c.missCount++
+		c.missCount.Add(1)
 		var zero T
 		return zero, false
 	}
@@ -277,7 +278,7 @@ func (c *inMemoryCache[T]) Get(_ context.Context, key CacheKey) (T, bool) {
 	entry.lastAccess = time.Now()
 	entry.accessCount++
 	c.accessOrder.MoveToFront(entry.listElement)
-	c.hitCount++
+	c.hitCount.Add(1)
 
 	// Update the heap item for LFU eviction
 	if c.evictionPolicy == evictionPolicyLFU && entry.heapItem != nil {
@@ -322,9 +323,9 @@ func (c *inMemoryCache[T]) Clear(_ context.Context) error {
 	c.accessOrder.Init()
 	c.lfuHeap = &lfuHeap{}
 	heap.Init(c.lfuHeap)
-	c.hitCount = 0
-	c.missCount = 0
-	c.evictCount = 0
+	c.hitCount.Store(0)
+	c.missCount.Store(0)
+	c.evictCount.Store(0)
 
 	logger.Debug("Cleared all entries in the cache")
 	return nil
@@ -347,23 +348,25 @@ func (c *inMemoryCache[T]) GetStats() CacheStat {
 	}
 
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	size := len(c.cache)
-	totalOps := c.hitCount + c.missCount
+	c.mu.RUnlock()
+
+	hits := c.hitCount.Load()
+	misses := c.missCount.Load()
+	totalOps := hits + misses
 	var hitRate float64
 	if totalOps > 0 {
-		hitRate = float64(c.hitCount) / float64(totalOps)
+		hitRate = float64(hits) / float64(totalOps)
 	}
 
 	return CacheStat{
 		Enabled:    true,
 		Size:       size,
 		MaxSize:    c.size,
-		HitCount:   c.hitCount,
-		MissCount:  c.missCount,
+		HitCount:   hits,
+		MissCount:  misses,
 		HitRate:    hitRate,
-		EvictCount: c.evictCount,
+		EvictCount: c.evictCount.Load(),
 	}
 }
 
@@ -391,7 +394,7 @@ func (c *inMemoryCache[T]) evictOldest() {
 		key := oldest.Value.(CacheKey)
 		if entry, exists := c.cache[key]; exists {
 			c.deleteEntry(key, entry)
-			c.evictCount++
+			c.evictCount.Add(1)
 			logger.Debug("Cache entry evicted", log.String("key", key.ToString()))
 		}
 	}
@@ -411,7 +414,7 @@ func (c *inMemoryCache[T]) evictLeastFrequent() {
 
 	if entry, exists := c.cache[leastFrequentItem.key]; exists {
 		c.deleteEntry(leastFrequentItem.key, entry)
-		c.evictCount++
+		c.evictCount.Add(1)
 		logger.Debug("Cache entry evicted (LFU)", log.String("key", leastFrequentItem.key.ToString()),
 			log.Any("accessCount", leastFrequentItem.accessCount))
 	}

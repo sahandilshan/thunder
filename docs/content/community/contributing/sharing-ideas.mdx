@@ -1,13 +1,13 @@
 ---
 title: Sharing Ideas
-description: Learn how to share ideas, explore problems, and create feature requests for Thunder through discussions and formal issues.
+description: Learn how to share ideas, explore problems, and create feature requests through discussions and formal issues.
 sidebar_position: 2
 hide_table_of_contents: false
 ---
 
 # Sharing Ideas
 
-This guide explains how to share ideas, explore problems, and create feature requests for Thunder.
+This guide explains how to share ideas, explore problems, and create feature requests for <ProductName />.
 
 ## 🎯 When to Use This Guide
 
@@ -20,8 +20,8 @@ Use this guide when:
 
 **Don't use this guide for**:
 
-* ❌ Bug reports → Use [bug report](README.md#-reporting-bugs)
-* ❌ Minor improvements → Use [fast track](README.md#-making-improvements)
+* ❌ Bug reports → Use [bug report](../overview#-reporting-bugs)
+* ❌ Minor improvements → Use [fast track](../overview#-fast-track-contributions)
 
 ## 📝 Two Ways to Share
 
@@ -58,7 +58,7 @@ Choose the approach that fits your situation:
 **Start with a discussion if**:
 
 * You're exploring an idea
-* The problem isn't clearly defined yet
+* The problem is not defined yet
 * You want feedback before formal submission
 
 **Create an issue directly if**:
@@ -87,14 +87,14 @@ Before sharing, crystallize your thinking:
 
 **Good problems are**:
 
-* Specific (not "Thunder needs better UX")
+* Specific (not "<ProductName /> needs better UX")
 * Observable (not theoretical)
 * Impactful (affects real users)
 * Current (not solved elsewhere)
 
 ### Step 2: Create the Discussion
 
-1. Go to [GitHub Discussions](https://github.com/asgardeo/thunder/discussions/new/choose)
+1. Go to <RepoLink path="/discussions/new/choose">GitHub Discussions</RepoLink>
 2. Select **"Ideas"** category
 3. Fill in your idea
 
@@ -107,7 +107,7 @@ Once posted, the community will help refine your idea.
 * "Have you considered...?"
 * "How would this work for...?"
 * "What about existing users who...?"
-* "Is this similar to...?"
+* "Does this match...?"
 
 **Your role**:
 
@@ -152,7 +152,7 @@ After community discussion, the idea will evolve:
 
 **Next steps**:
 
-1. Create a [Bug Report](https://github.com/asgardeo/thunder/issues/new?template=bug.yml)
+1. Create a <RepoLink path="/issues/new?template=bug.yml">Bug Report</RepoLink>
 2. Close the discussion
 
 **Outcome**: Bug fix process (faster than feature development).
@@ -161,21 +161,21 @@ After community discussion, the idea will evolve:
 
 **Next steps**:
 
-1. Create an [Improvement Issue](https://github.com/asgardeo/thunder/issues/new?template=improvement.yml)
+1. Create an <RepoLink path="/issues/new?template=improvement.yml">Improvement Issue</RepoLink>
 2. Close the discussion
 
 **Outcome**: Faster path to implementation.
 
 #### ❌ Not Viable / Out of Scope
 
-**What it means**: Good idea, but not appropriate for Thunder.
+**What it means**: Good idea, but not appropriate for <ProductName />.
 
 **Reasons**:
 
-* Out of Thunder's scope
+* Out of <ProductName />'s scope
 * Already solved differently
 * Technical infeasibility
-* Conflicts with Thunder's vision
+* Conflicts with <ProductName />'s vision
 
 **Outcome**: Maintainer explains reasoning, discussion closed and documented.
 
@@ -189,12 +189,12 @@ Use feature issues to formally define problems that need solving.
 
 Ensure you can answer these **three critical questions**:
 
-#### Question 1: What problem are we solving?
+#### Question 1: What Problem Are We Solving?
 
 Be specific about the problem, not the solution.
 
-**Bad** ❌: "Thunder needs SAML support"  
-**Good** ✅: "Enterprise customers cannot integrate Thunder with their existing SAML-based SSO systems, forcing them to maintain duplicate user identities."
+**Bad** ❌: "<ProductName /> needs SAML support"  
+**Good** ✅: "Enterprise customers cannot integrate <ProductName /> with their existing SAML-based SSO systems, forcing them to maintain duplicate user identities."
 
 **Template**:
 
@@ -203,7 +203,7 @@ When [user type] wants to [goal], they [current limitation/problem],
 which causes [negative impact].
 ```
 
-#### Question 2: Why should we solve this now?
+#### Question 2: Why Should We Solve This Now?
 
 Provide justification for prioritization.
 
@@ -219,20 +219,20 @@ Provide justification for prioritization.
 ```
 Why now:
 - 12 enterprise customers requested this in Q3 (3 deals blocked)
-- Competitors have this as standard (Okta, Auth0)
+- Competitors have this as standard
 - Largest prospect requires this by end of year
 - Estimated $500K annual revenue impact
 ```
 
-#### Question 3: Who are we solving this for?
+#### Question 3: Who Are We Solving This For?
 
 Identify user personas and their goals.
 
 **Personas to consider**:
 
 * **End Users**: People using the application
-* **Administrators**: Configure and manage Thunder
-* **Developers**: Integrate applications with Thunder
+* **Administrators**: Configure and manage <ProductName />
+* **Developers**: Integrate applications with <ProductName />
 * **Security Teams**: Ensure compliance and security
 
 **Example**:
@@ -245,13 +245,13 @@ Primary: Enterprise IT administrators
 
 Secondary: End users
 - Goal: Use existing corporate credentials
-- Pain: Need to remember separate Thunder password
+- Pain: Need to remember separate password
 - Success metric: Single sign-on with LDAP credentials
 ```
 
 ### Create the Issue
 
-1. Navigate to [Issues → New Issue](https://github.com/asgardeo/thunder/issues/new/choose)
+1. Navigate to <RepoLink path="/issues/new/choose">Issues → New Issue</RepoLink>
 2. Select **"Feature Request"** template
 3. Fill in all sections
 
@@ -263,7 +263,7 @@ After you create your issue:
 
 Maintainers will review and:
 
-* Evaluate strategic fit and priority
+* Review strategic fit and priority
 * Assess scope and effort
 * Add appropriate labels
 * Decide if approved for work
@@ -280,7 +280,7 @@ If approved:
 ### Questions?
 
 * Comment on your issue
-* Join [community discussions](https://github.com/asgardeo/thunder/discussions)
+* Join <RepoLink path="/discussions">community discussions</RepoLink>
 
 **Note**: Not all issues will be accepted. High-priority issues move faster.
 
@@ -295,7 +295,7 @@ After your issue is approved, anyone can work on it!
 3. Estimate your timeline
 4. Wait for maintainer to assign you
 
-**Once assigned**: Move to the [Design Guide](design.md) to start designing the solution.
+**Once assigned**: Move to the [Design Guide](../proposing-features) to start designing the solution.
 
 **You can stop here!** Let someone else design and implement if you prefer.
 
@@ -351,7 +351,7 @@ After your issue is approved, anyone can work on it!
 A: Discussion if exploring, issue if problem is clear.
 
 **Q: How long does triage take?**  
-A: Usually within 1 week. Complex features may take longer.
+A: Within 1 week. Complex features may take longer.
 
 **Q: What if my issue is declined?**  
 A: Ask why in the issue. Sometimes timing is wrong, sometimes there's a better approach.
@@ -381,8 +381,8 @@ A: If it requires architectural changes or new capabilities, it's a feature. Whe
 * Wait for triage
 * Respond to maintainer questions
 * Express interest in working on it (optional)
-* Move to [Design Guide](design.md) if assigned
+* Move to [Design Guide](../proposing-features) if assigned
 
-**Thank you for helping shape Thunder's roadmap!** Every problem definition makes Thunder better. 🙏⚡
+**Thank you for helping shape <ProductName />'s roadmap!** Every problem definition makes <ProductName /> better. 🙏⚡
 
-**Questions?** Ask in [Discussions](https://github.com/asgardeo/thunder/discussions/new?category=q-a)
+**Questions?** Ask in <RepoLink path="/discussions/new?category=q-a">Discussions</RepoLink>

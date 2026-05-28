@@ -31,6 +31,8 @@ const (
 	FlowTypeRegistration FlowType = "REGISTRATION"
 	// FlowTypeUserOnboarding represents an admin-initiated user onboarding flow.
 	FlowTypeUserOnboarding FlowType = "USER_ONBOARDING"
+	// FlowTypeRecovery represents a flow execution for account recovery (e.g., password reset).
+	FlowTypeRecovery FlowType = "RECOVERY"
 )
 
 // FlowStatus defines the status of a flow execution.
@@ -135,21 +137,39 @@ const (
 	DataInviteLink = "inviteLink"
 	// DataEmailSent is the key used to indicate that an email was sent successfully in the flow response.
 	DataEmailSent = "emailSent"
+	// DataSMSSent is the key used to indicate that an SMS was sent successfully in the flow response.
+	DataSMSSent = "smsSent"
 	// DataRootOUID is the key used to pass the root OU ID to the frontend for the OU tree picker.
 	DataRootOUID = "rootOuId"
+	// DataPromptMessage is the key used to pass a message to be displayed in the prompt node.
+	DataPromptMessage = "message"
 )
 
 // DefaultHTTPTimeout defines the default timeout duration for HTTP requests.
 const DefaultHTTPTimeout = 5 * time.Second
+
+// NodeVariant identifies a PROMPT node sub-type that activates a variant-specific code path.
+type NodeVariant string
+
+const (
+	// NodeVariantLoginOptions identifies a PROMPT node that presents login method choices to the user.
+	NodeVariantLoginOptions NodeVariant = "LOGIN_OPTIONS"
+)
 
 const (
 	// NodePropertyAllowAuthenticationWithoutLocalUser indicates whether authentication is allowed without a local user
 	NodePropertyAllowAuthenticationWithoutLocalUser = "allowAuthenticationWithoutLocalUser"
 	// NodePropertyAllowRegistrationWithExistingUser indicates whether registration is allowed with an existing user
 	NodePropertyAllowRegistrationWithExistingUser = "allowRegistrationWithExistingUser"
+	// NodePropertyAllowCrossOUProvisioning indicates whether an existing user should be provisioned to the
+	// target OU when they accept an invite. Used together with allowRegistrationWithExistingUser. When true,
+	// the user is created in the target OU; when false, provisioning is skipped entirely.
+	NodePropertyAllowCrossOUProvisioning = "allowCrossOUProvisioning"
 	// NodePropertyOUResolveFrom specifies the strategy for resolving the organization unit.
 	// Supported values: "caller" (use the caller's OU).
 	NodePropertyOUResolveFrom = "resolveFrom"
+	// NodePropertyAuthMethodMapping maps authentication classes to action refs on login_options PROMPT nodes.
+	NodePropertyAuthMethodMapping = "authMethodMapping"
 )
 
 const (
@@ -157,12 +177,17 @@ const (
 	RuntimeKeyUserAutoProvisioned = "userAutoProvisioned"
 	// RuntimeKeyUserEligibleForProvisioning indicates whether the user is eligible for auto provisioning
 	RuntimeKeyUserEligibleForProvisioning = "userEligibleForProvisioning"
+	// RuntimeKeyUserAmbiguous indicates the user exists in multiple OUs and requires disambiguation
+	RuntimeKeyUserAmbiguous = "userAmbiguous"
 	// RuntimeKeySkipProvisioning indicates whether to skip provisioning
 	RuntimeKeySkipProvisioning = "skipProvisioning"
 	// RuntimeKeyClientID holds the OAuth client ID for the current flow execution, if applicable.
 	RuntimeKeyClientID = "clientId"
 	// RuntimeKeyRequestedPermissions holds the space-separated permission scopes requested by the OAuth client.
 	RuntimeKeyRequestedPermissions = "requested_permissions"
+	// RuntimeKeyConsentedPermissions holds the space-separated permission scopes the user has consented to
+	// release to the client, as produced by the ConsentExecutor.
+	RuntimeKeyConsentedPermissions = "consented_permissions"
 	// RuntimeKeyRequiredEssentialAttributes holds the space-separated essential user attributes required for the flow.
 	RuntimeKeyRequiredEssentialAttributes = "required_essential_attributes"
 	// RuntimeKeyRequiredOptionalAttributes holds the space-separated optional user attributes required for the flow.
@@ -183,6 +208,35 @@ const (
 	RuntimeKeyUserAttributesCacheTTLSeconds = "user_attributes_cache_ttl_seconds"
 	// RuntimeKeyInviteLink holds the generated invite link for downstream executors (e.g., EmailExecutor).
 	RuntimeKeyInviteLink = "inviteLink"
+	// RuntimeKeyMagicLinkURL holds the generated magic link URL for downstream executors.
+	RuntimeKeyMagicLinkURL = "magicLinkURL"
+	// RuntimeKeyMagicLinkExpiryMinutes holds the expiry duration used by the magic-link email template.
+	RuntimeKeyMagicLinkExpiryMinutes = "magicLinkExpiryMinutes"
+	// RuntimeKeyMagicLinkDestinationAttribute holds the destination attribute used to generate the magic link.
+	RuntimeKeyMagicLinkDestinationAttribute = "magicLinkDestinationAttribute"
+	// RuntimeKeySkipDelivery indicates that delivery should be skipped for the current flow.
+	RuntimeKeySkipDelivery = "skipDelivery"
+	// RuntimeKeyCandidateUsers holds serialized candidate users during disambiguation in resolve mode.
+	RuntimeKeyCandidateUsers = "candidateUsers"
+	// RuntimeKeyPresentedOptionalInputs holds a space-separated list of optional input identifiers
+	// that have already been prompted to the user, even if the user left them empty.
+	RuntimeKeyPresentedOptionalInputs = "presentedOptionalInputs"
+	// RuntimeKeySMSOTPMobileNumber holds the resolved mobile number for SMS OTP verification.
+	// TODO: Revisit when the generic OTP executor is implemented.
+	RuntimeKeySMSOTPMobileNumber = "smsOTPMobileNumber"
+	// RuntimeKeySMSOTPPhoneAttr holds the schema attribute name used to look up the mobile number.
+	// TODO: Revisit when the generic OTP executor is implemented.
+	RuntimeKeySMSOTPPhoneAttr = "smsOTPPhoneAttr"
+	// RuntimeKeyMagicLinkUsedJti is the JWT ID claim value of a magic link token that has already been used.
+	RuntimeKeyMagicLinkUsedJti = "magicLinkUsedJti"
+	// RuntimeKeyOAuthState holds the generated OAuth state parameter for CSRF validation.
+	RuntimeKeyOAuthState = "oauthState"
+	// RuntimeKeyRequestedAuthClasses holds the space-separated ACR values from acr_values.
+	RuntimeKeyRequestedAuthClasses = "requested_auth_classes"
+	// RuntimeKeySelectedAuthClass holds the ACR value of the chosen authentication method.
+	RuntimeKeySelectedAuthClass = "selected_auth_class"
+	// RuntimeKeyAllowedLoginOptions holds the space-separated action refs allowed on a LOGIN_OPTIONS node.
+	RuntimeKeyAllowedLoginOptions = "allowed_login_options"
 )
 
 // TODO: Define a go type for InputType when formalizing input types
@@ -191,6 +245,8 @@ const (
 const (
 	// InputTypeText represents a text input type.
 	InputTypeText = "TEXT_INPUT"
+	// InputTypeEmail represents an email input type.
+	InputTypeEmail = "EMAIL_INPUT"
 	// InputTypePassword represents a password credential input type.
 	InputTypePassword = "PASSWORD_INPUT"
 	// InputTypeOTP represents a one-time password input type.
@@ -199,6 +255,10 @@ const (
 	InputTypePhone = "PHONE_INPUT"
 	// InputTypeConsent represents a consent decisions input type.
 	InputTypeConsent = "CONSENT_INPUT"
+	// InputTypeHidden represents a hidden input type.
+	InputTypeHidden = "HIDDEN"
+	// InputTypeSelect represents a select (dropdown) input type.
+	InputTypeSelect = "SELECT"
 
 	// TODO: Add support for other sensitive input types:
 	// - Passkey credential fields (credentialId, clientDataJSON, authenticatorData, signature, userHandle)
@@ -207,16 +267,73 @@ const (
 	// - Invite tokens
 )
 
+// MetaComponentType constants define known component types used in flow meta definitions.
+const (
+	// MetaComponentTypeBlock represents a block container component.
+	MetaComponentTypeBlock = "BLOCK"
+	// MetaComponentTypeAction represents an action (button) component.
+	MetaComponentTypeAction = "ACTION"
+	// MetaComponentTypeDynamicInputPlaceholder marks the insertion point for dynamically
+	// derived input components. The renderer replaces this component with the resolved inputs.
+	MetaComponentTypeDynamicInputPlaceholder = "DYNAMIC_INPUT_PLACEHOLDER"
+)
+
+// Attribute name constants for well-known user attributes used across flow executors.
+const (
+	// AttributeMobileNumber is the default attribute name for a user's mobile phone number.
+	AttributeMobileNumber = "mobileNumber"
+)
+
 // sensitiveInputTypes contains the list of input types that are considered sensitive.
 var sensitiveInputTypes = []string{
 	InputTypePassword,
 	InputTypeOTP,
 }
 
+const (
+	// AttributeEmail is the default attribute name for a user's email.
+	AttributeEmail = "email"
+)
+
+// ActionType represents the type of action in a prompt.
+type ActionType string
+
+const (
+	// ActionTypeSubmit represents a primary/approve action
+	ActionTypeSubmit ActionType = "SUBMIT"
+	// ActionTypeReject represents a reject/deny action
+	ActionTypeReject ActionType = "REJECT"
+)
+
 // ForwardedData key constants define keys used in the ForwardedData map.
 const (
-	// ForwardedDataKeyInputs is the key used to store input data in ForwardedData.
+	// ForwardedDataKeyInputs is the key used to store input data in ForwardedData
 	ForwardedDataKeyInputs = "inputs"
-	// ForwardedDataKeyConsentPrompt is the key used to forward consent prompt data to the prompt node.
+	// ForwardedDataKeyConsentPrompt is the key used to forward consent prompt data to the prompt node
 	ForwardedDataKeyConsentPrompt = "consent_prompt"
+	// ForwardedDataKeyActionType holds the action type selected by the user for the immediate next node
+	ForwardedDataKeyActionType = "actionType"
+	// ForwardedDataKeyTemplateData holds template parameters for notification executors
+	ForwardedDataKeyTemplateData = "templateData"
+)
+
+// ValidationType identifies the constraint type of a ValidationRule.
+type ValidationType string
+
+// Validation rule types.
+const (
+	// ValidationTypeRegex matches the submitted value against a regex pattern.
+	ValidationTypeRegex ValidationType = "regex"
+	// ValidationTypeMinLength enforces a minimum string length on the submitted value.
+	ValidationTypeMinLength ValidationType = "minLength"
+	// ValidationTypeMaxLength enforces a maximum string length on the submitted value.
+	ValidationTypeMaxLength ValidationType = "maxLength"
+)
+
+// Default i18n fallback message keys returned in fieldErrors when a validation
+// rule does not specify a message.
+const (
+	DefaultValidationMessageRegex     = "validation.pattern.invalid"
+	DefaultValidationMessageMinLength = "validation.minLength.invalid"
+	DefaultValidationMessageMaxLength = "validation.maxLength.invalid"
 )

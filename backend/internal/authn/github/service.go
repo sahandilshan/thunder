@@ -23,13 +23,12 @@ import (
 	"context"
 	"slices"
 
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
-	authnoauth "github.com/asgardeo/thunder/internal/authn/oauth"
-	"github.com/asgardeo/thunder/internal/idp"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	syshttp "github.com/asgardeo/thunder/internal/system/http"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	authnoauth "github.com/thunder-id/thunderid/internal/authn/oauth"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	syshttp "github.com/thunder-id/thunderid/internal/system/http"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -49,19 +48,13 @@ type githubOAuthAuthnService struct {
 }
 
 // newGithubOAuthAuthnService creates a new instance of GitHub OAuth authenticator service.
-func newGithubOAuthAuthnService(idpSvc idp.IDPServiceInterface,
-	userProvider userprovider.UserProviderInterface) GithubOAuthAuthnServiceInterface {
-	httpClient := syshttp.NewHTTPClient()
-	internal := authnoauth.NewOAuthAuthnService(httpClient, idpSvc, userProvider)
-
-	service := &githubOAuthAuthnService{
+func newGithubOAuthAuthnService(internal authnoauth.OAuthAuthnServiceInterface,
+	httpClient syshttp.HTTPClientInterface) GithubOAuthAuthnServiceInterface {
+	return &githubOAuthAuthnService{
 		internal:   internal,
 		httpClient: httpClient,
 		logger:     log.GetLogger().With(log.String(log.LoggerKeyComponentName, loggerComponentName)),
 	}
-	authncm.RegisterAuthenticator(service.getMetadata())
-
-	return service
 }
 
 // BuildAuthorizeURL constructs the authorization request URL for GitHub OAuth authentication.
@@ -150,7 +143,7 @@ func (g *githubOAuthAuthnService) fetchPrimaryEmail(
 }
 
 // GetInternalUser retrieves the internal user based on the external subject identifier.
-func (g *githubOAuthAuthnService) GetInternalUser(sub string) (*userprovider.User, *serviceerror.ServiceError) {
+func (g *githubOAuthAuthnService) GetInternalUser(sub string) (*entityprovider.Entity, *serviceerror.ServiceError) {
 	return g.internal.GetInternalUser(sub)
 }
 
@@ -160,11 +153,50 @@ func (g *githubOAuthAuthnService) GetOAuthClientConfig(ctx context.Context, idpI
 	return g.internal.GetOAuthClientConfig(ctx, idpID)
 }
 
-// getMetadata returns the authenticator metadata for GitHub OAuth authenticator.
-func (g *githubOAuthAuthnService) getMetadata() authncm.AuthenticatorMeta {
-	return authncm.AuthenticatorMeta{
-		Name:          authncm.AuthenticatorGithub,
-		Factors:       []authncm.AuthenticationFactor{authncm.FactorKnowledge},
-		AssociatedIDP: idp.IDPTypeGitHub,
+// Authenticate performs the full GitHub OAuth authentication flow: exchanges the code for a token,
+// fetches user info, and resolves the internal user.
+// A missing internal user is NOT an error — the caller decides how to handle it.
+func (g *githubOAuthAuthnService) Authenticate(ctx context.Context, idpID, code string) (
+	*authncm.FederatedAuthResult, *serviceerror.ServiceError) {
+	logger := g.logger.With(log.String("idpId", idpID))
+	logger.Debug("Performing federated GitHub OAuth authentication")
+
+	tokenResp, svcErr := g.ExchangeCodeForToken(ctx, idpID, code, true)
+	if svcErr != nil {
+		return nil, svcErr
 	}
+
+	userInfo, svcErr := g.FetchUserInfo(ctx, idpID, tokenResp.AccessToken)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	sub := ""
+	if subVal, ok := userInfo["sub"]; ok && subVal != nil {
+		if subStr, ok := subVal.(string); ok && subStr != "" {
+			sub = subStr
+		}
+	}
+	if sub == "" {
+		logger.Debug("sub claim not found in user info")
+		return nil, &authncm.ErrorSubClaimNotFound
+	}
+
+	result := &authncm.FederatedAuthResult{
+		Sub:    sub,
+		Claims: userInfo,
+	}
+	user, svcErr := g.GetInternalUser(sub)
+	if svcErr != nil {
+		if svcErr.Code == authncm.ErrorUserNotFound.Code {
+			return result, nil
+		}
+		if svcErr.Code == authncm.ErrorAmbiguousUser.Code {
+			result.IsAmbiguousUser = true
+			return result, nil
+		}
+		return nil, svcErr
+	}
+	result.InternalEntity = user
+	return result, nil
 }

@@ -23,9 +23,9 @@ package sysauthz
 import (
 	"context"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/security"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/security"
 )
 
 // SystemAuthorizationServiceInterface defines the contract for system-level authorization.
@@ -95,7 +95,7 @@ func (s *systemAuthorizationService) IsActionAllowed(ctx context.Context, action
 
 	// Step 1: Check if SKIP_SECURITY flag is set.
 	if security.IsSecuritySkipped(ctx) {
-		logger.Debug("Authorization skipped: THUNDER_SKIP_SECURITY is enabled",
+		logger.Debug("Authorization skipped: SKIP_SECURITY is enabled",
 			log.String("action", string(action)))
 		return true, nil
 	}
@@ -127,7 +127,7 @@ func (s *systemAuthorizationService) IsActionAllowed(ctx context.Context, action
 		if logger.IsDebugEnabled() {
 			logger.Debug("Authorization granted: resource owner",
 				log.String("action", string(action)),
-				log.String("subject", log.MaskString(subject)))
+				log.MaskedString("subject", subject))
 		}
 		return true, nil
 	}
@@ -138,7 +138,7 @@ func (s *systemAuthorizationService) IsActionAllowed(ctx context.Context, action
 		if logger.IsDebugEnabled() {
 			logger.Debug("Authorization denied: insufficient permissions",
 				log.String("action", string(action)),
-				log.String("subject", log.MaskString(subject)))
+				log.MaskedString("subject", subject))
 		}
 		return false, nil
 	}
@@ -152,7 +152,7 @@ func (s *systemAuthorizationService) IsActionAllowed(ctx context.Context, action
 		if logger.IsDebugEnabled() {
 			logger.Debug("Authorization denied: policy evaluation failed",
 				log.String("action", string(action)),
-				log.String("subject", log.MaskString(subject)))
+				log.MaskedString("subject", subject))
 		}
 		return false, nil
 	}
@@ -160,7 +160,7 @@ func (s *systemAuthorizationService) IsActionAllowed(ctx context.Context, action
 	if logger.IsDebugEnabled() {
 		logger.Debug("Authorization granted",
 			log.String("action", string(action)),
-			log.String("subject", log.MaskString(subject)))
+			log.MaskedString("subject", subject))
 	}
 
 	return true, nil
@@ -195,7 +195,7 @@ func (s *systemAuthorizationService) GetAccessibleResources(ctx context.Context,
 
 	// Step 1: Check if SKIP_SECURITY flag is set.
 	if security.IsSecuritySkipped(ctx) {
-		logger.Debug("GetAccessibleResources skipped: THUNDER_SKIP_SECURITY is enabled",
+		logger.Debug("GetAccessibleResources skipped: SKIP_SECURITY is enabled",
 			log.String("action", string(action)),
 			log.String("resourceType", string(resourceType)))
 		return &AccessibleResources{AllAllowed: true}, nil
@@ -232,7 +232,7 @@ func (s *systemAuthorizationService) GetAccessibleResources(ctx context.Context,
 			logger.Debug("GetAccessibleResources denied: insufficient permissions",
 				log.String("action", string(action)),
 				log.String("resourceType", string(resourceType)),
-				log.String("subject", log.MaskString(subject)))
+				log.MaskedString("subject", subject))
 		}
 		return &AccessibleResources{AllAllowed: false, IDs: []string{}}, nil
 	}
@@ -246,7 +246,7 @@ func (s *systemAuthorizationService) GetAccessibleResources(ctx context.Context,
 		logger.Debug("GetAccessibleResources: restricted by policy",
 			log.String("action", string(action)),
 			log.String("resourceType", string(resourceType)),
-			log.String("subject", log.MaskString(subject)),
+			log.MaskedString("subject", subject),
 			log.Int("accessibleCount", len(result.IDs)))
 	}
 	return result, nil

@@ -20,27 +20,34 @@ package discovery
 
 import (
 	"context"
+	"errors"
+	"slices"
+	"sort"
 
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/pkce"
-	"github.com/asgardeo/thunder/internal/system/config"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/pkce"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	kmprovider "github.com/thunder-id/thunderid/internal/system/kmprovider/common"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // DiscoveryServiceInterface defines the interface for discovery services
 type DiscoveryServiceInterface interface {
 	GetOAuth2AuthorizationServerMetadata(ctx context.Context) *OAuth2AuthorizationServerMetadata
-	GetOIDCMetadata(ctx context.Context) *OIDCProviderMetadata
+	GetOIDCMetadata(ctx context.Context) (*OIDCProviderMetadata, error)
 }
 
 // discoveryService implements DiscoveryServiceInterface
 type discoveryService struct {
-	baseURL string
+	baseURL        string
+	cryptoProvider kmprovider.RuntimeCryptoProvider
 }
 
-// NewDiscoveryService creates a new discovery service instance
-func newDiscoveryService() DiscoveryServiceInterface {
-	runtime := config.GetThunderRuntime()
-	ds := &discoveryService{}
+// newDiscoveryService creates a new discovery service instance
+func newDiscoveryService(cryptoProvider kmprovider.RuntimeCryptoProvider) DiscoveryServiceInterface {
+	runtime := config.GetServerRuntime()
+	ds := &discoveryService{cryptoProvider: cryptoProvider}
 	ds.baseURL = config.GetServerURL(&runtime.Config.Server)
 	return ds
 }
@@ -49,37 +56,53 @@ func newDiscoveryService() DiscoveryServiceInterface {
 func (ds *discoveryService) GetOAuth2AuthorizationServerMetadata(
 	ctx context.Context,
 ) *OAuth2AuthorizationServerMetadata {
-	return &OAuth2AuthorizationServerMetadata{
-		Issuer:                            ds.getIssuer(),
-		AuthorizationEndpoint:             ds.getAuthorizationEndpoint(),
-		TokenEndpoint:                     ds.getTokenEndpoint(),
-		UserInfoEndpoint:                  ds.getUserInfoEndpoint(),
-		JWKSUri:                           ds.getJWKSUri(),
-		RegistrationEndpoint:              ds.getRegistrationEndpoint(),
-		IntrospectionEndpoint:             ds.getIntrospectionEndpoint(),
-		ScopesSupported:                   ds.getSupportedScopes(),
-		ResponseTypesSupported:            ds.getSupportedResponseTypes(),
-		GrantTypesSupported:               ds.getSupportedGrantTypes(),
-		TokenEndpointAuthMethodsSupported: ds.getSupportedTokenEndpointAuthMethods(),
-		CodeChallengeMethodsSupported:     ds.getSupportedCodeChallengeMethods(),
+	metadata := &OAuth2AuthorizationServerMetadata{
+		Issuer:                                     ds.getIssuer(),
+		AuthorizationEndpoint:                      ds.getAuthorizationEndpoint(),
+		TokenEndpoint:                              ds.getTokenEndpoint(),
+		UserInfoEndpoint:                           ds.getUserInfoEndpoint(),
+		JWKSUri:                                    ds.getJWKSUri(),
+		RegistrationEndpoint:                       ds.getRegistrationEndpoint(),
+		IntrospectionEndpoint:                      ds.getIntrospectionEndpoint(),
+		PushedAuthorizationRequestEndpoint:         ds.getPAREndpoint(),
+		RequirePushedAuthorizationRequests:         ds.isGlobalPARRequired(),
+		ScopesSupported:                            ds.getSupportedScopes(),
+		ResponseTypesSupported:                     ds.getSupportedResponseTypes(),
+		GrantTypesSupported:                        ds.getSupportedGrantTypes(),
+		TokenEndpointAuthMethodsSupported:          ds.getSupportedTokenEndpointAuthMethods(),
+		CodeChallengeMethodsSupported:              ds.getSupportedCodeChallengeMethods(),
+		AuthorizationResponseIssParameterSupported: true,
+		DPoPSigningAlgValuesSupported:              ds.getSupportedDPoPSigningAlgs(),
 	}
+
+	return metadata
 }
 
 // GetOIDCMetadata returns OpenID Connect Provider Metadata
-func (ds *discoveryService) GetOIDCMetadata(ctx context.Context) *OIDCProviderMetadata {
+func (ds *discoveryService) GetOIDCMetadata(ctx context.Context) (*OIDCProviderMetadata, error) {
 	oauth2Meta := ds.GetOAuth2AuthorizationServerMetadata(ctx)
 
-	return &OIDCProviderMetadata{
-		OAuth2AuthorizationServerMetadata: *oauth2Meta,
-		SubjectTypesSupported:             ds.getSupportedSubjectTypes(),
-		IDTokenSigningAlgValuesSupported:  ds.getSupportedIDTokenSigningAlgorithms(),
-		ClaimsSupported:                   ds.getSupportedClaims(),
-		ClaimsParameterSupported:          true,
+	signingAlgs, err := ds.getSupportedSigningAlgorithms(ctx)
+	if err != nil {
+		return nil, err
 	}
+	return &OIDCProviderMetadata{
+		OAuth2AuthorizationServerMetadata:    *oauth2Meta,
+		SubjectTypesSupported:                ds.getSupportedSubjectTypes(),
+		IDTokenSigningAlgValuesSupported:     signingAlgs,
+		UserInfoSigningAlgValuesSupported:    signingAlgs,
+		UserInfoEncryptionAlgValuesSupported: inboundmodel.SupportedUserInfoEncryptionAlgs,
+		UserInfoEncryptionEncValuesSupported: inboundmodel.SupportedUserInfoEncryptionEncs,
+		IDTokenEncryptionAlgValuesSupported:  inboundmodel.SupportedIDTokenEncryptionAlgs,
+		IDTokenEncryptionEncValuesSupported:  inboundmodel.SupportedIDTokenEncryptionEncs,
+		ClaimsSupported:                      ds.getSupportedClaims(),
+		ClaimsParameterSupported:             true,
+		AcrValuesSupported:                   ds.getSupportedAcrValues(),
+	}, nil
 }
 
 func (ds *discoveryService) getIssuer() string {
-	return config.GetThunderRuntime().Config.JWT.Issuer
+	return config.GetServerRuntime().Config.JWT.Issuer
 }
 
 func (ds *discoveryService) getAuthorizationEndpoint() string {
@@ -130,12 +153,58 @@ func (ds *discoveryService) getSupportedCodeChallengeMethods() []string {
 	return pkce.GetSupportedCodeChallengeMethods()
 }
 
+func (ds *discoveryService) getPAREndpoint() string {
+	return ds.baseURL + constants.OAuth2PAREndpoint
+}
+
+func (ds *discoveryService) isGlobalPARRequired() bool {
+	return config.GetServerRuntime().Config.OAuth.PAR.RequirePAR
+}
+
+func (ds *discoveryService) getSupportedDPoPSigningAlgs() []string {
+	algs := config.GetServerRuntime().Config.OAuth.DPoP.AllowedAlgs
+	if len(algs) == 0 {
+		return nil
+	}
+	out := make([]string, len(algs))
+	copy(out, algs)
+	return out
+}
+
 func (ds *discoveryService) getSupportedSubjectTypes() []string {
 	return constants.GetSupportedSubjectTypes()
 }
 
-func (ds *discoveryService) getSupportedIDTokenSigningAlgorithms() []string {
-	return constants.GetSupportedIDTokenSigningAlgorithms()
+func (ds *discoveryService) getSupportedSigningAlgorithms(ctx context.Context) ([]string, error) {
+	keys, err := ds.cryptoProvider.GetPublicKeys(ctx, kmprovider.PublicKeyFilter{})
+	if err != nil {
+		log.GetLogger().Error("Failed to retrieve public keys for signing algorithm discovery", log.Error(err))
+		return nil, err
+	}
+	result := make([]string, 0, len(keys))
+	for _, k := range keys {
+		alg := string(k.Algorithm)
+		if alg == "" || slices.Contains(result, alg) {
+			continue
+		}
+		result = append(result, alg)
+	}
+	if len(result) == 0 {
+		err = errors.New("no valid signing algorithms found")
+		log.GetLogger().Error("No valid signing algorithms found in registered public keys", log.Error(err))
+		return nil, err
+	}
+	return result, nil
+}
+
+func (ds *discoveryService) getSupportedAcrValues() []string {
+	acrAMR := config.GetServerRuntime().Config.OAuth.AuthClass.AcrAMR
+	acrs := make([]string, 0, len(acrAMR))
+	for acr := range acrAMR {
+		acrs = append(acrs, acr)
+	}
+	sort.Strings(acrs)
+	return acrs
 }
 
 func (ds *discoveryService) getSupportedClaims() []string {

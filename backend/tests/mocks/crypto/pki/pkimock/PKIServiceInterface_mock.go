@@ -8,8 +8,8 @@ import (
 	"crypto"
 	"crypto/x509"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 )
 
 // NewPKIServiceInterfaceMock creates a new instance of PKIServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -207,6 +207,52 @@ func (_c *PKIServiceInterfaceMock_GetPrivateKey_Call) Return(privateKey crypto.P
 }
 
 func (_c *PKIServiceInterfaceMock_GetPrivateKey_Call) RunAndReturn(run func(id string) (crypto.PrivateKey, *serviceerror.ServiceError)) *PKIServiceInterfaceMock_GetPrivateKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSupportedSigningAlgorithms provides a mock function for the type PKIServiceInterfaceMock
+func (_mock *PKIServiceInterfaceMock) GetSupportedSigningAlgorithms() []string {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSupportedSigningAlgorithms")
+	}
+
+	var r0 []string
+	if returnFunc, ok := ret.Get(0).(func() []string); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+	return r0
+}
+
+// PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSupportedSigningAlgorithms'
+type PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call struct {
+	*mock.Call
+}
+
+// GetSupportedSigningAlgorithms is a helper method to define mock.On call
+func (_e *PKIServiceInterfaceMock_Expecter) GetSupportedSigningAlgorithms() *PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call {
+	return &PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call{Call: _e.mock.On("GetSupportedSigningAlgorithms")}
+}
+
+func (_c *PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call) Run(run func()) *PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call) Return(strings []string) *PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call {
+	_c.Call.Return(strings)
+	return _c
+}
+
+func (_c *PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call) RunAndReturn(run func() []string) *PKIServiceInterfaceMock_GetSupportedSigningAlgorithms_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -16,9 +16,9 @@
  * under the License.
  */
 
-import React, {ReactNode, Children, isValidElement} from 'react';
 import {Grid, Typography, List, ListItem, ListItemIcon, ListItemText, Box} from '@wso2/oxygen-ui';
 import {Box as Cube} from '@wso2/oxygen-ui-icons-react';
+import {ReactNode, Children, isValidElement} from 'react';
 
 interface TutorialHeroProps {
   children: ReactNode;
@@ -35,7 +35,7 @@ interface SectionData {
 }
 
 // TutorialHeroItem component - used in MDX to pass custom icons
-export function TutorialHeroItem({icon, children}: TutorialHeroItemProps) {
+export function TutorialHeroItem({icon = undefined, children}: TutorialHeroItemProps) {
   return (
     <ListItem sx={{}}>
       <ListItemIcon sx={{minWidth: 40}}>
@@ -60,7 +60,7 @@ export function TutorialHeroItem({icon, children}: TutorialHeroItemProps) {
               color: 'primary.main',
             }}
           >
-            {icon || <Cube />}
+            {icon ?? <Cube />}
           </Box>
         </Box>
       </ListItemIcon>
@@ -73,6 +73,8 @@ export function TutorialHeroItem({icon, children}: TutorialHeroItemProps) {
 function renderContentWithIcons(content: ReactNode[]): ReactNode {
   return content.map((item, index) => {
     if (isValidElement(item)) {
+      const elementKey = item.key ?? `content-${index}`;
+
       // Check if it's a TutorialHeroItem
       const isTutorialHeroItem =
         item.type === TutorialHeroItem ||
@@ -80,9 +82,8 @@ function renderContentWithIcons(content: ReactNode[]): ReactNode {
         item.props?.mdxType === 'TutorialHeroItem';
 
       if (isTutorialHeroItem) {
-        // Render TutorialHeroItem as-is within a List
         return (
-          <List key={index} sx={{py: 0}}>
+          <List key={elementKey} sx={{py: 0}}>
             {item}
           </List>
         );
@@ -97,15 +98,15 @@ function renderContentWithIcons(content: ReactNode[]): ReactNode {
         item.props?.mdxType === 'ol';
 
       if (isList && item.props.children) {
-        const listItems = Children.toArray(item.props.children).filter((child) => isValidElement(child));
+        const listItems = Children.toArray(item.props.children as ReactNode).filter((child) => isValidElement(child));
 
         return (
-          <List key={index} sx={{py: 0}}>
-            {listItems.map((listItem, liIndex) => {
+          <List key={elementKey} sx={{py: 0}}>
+            {listItems.map((listItem) => {
               if (isValidElement(listItem)) {
-                const text = extractTextFromChildren(listItem.props.children);
+                const text = extractTextFromChildren(listItem.props.children as ReactNode);
                 return (
-                  <ListItem key={liIndex} sx={{px: 0, py: 0.5}}>
+                  <ListItem key={listItem.key ?? text} sx={{px: 0, py: 0.5}}>
                     <ListItemIcon sx={{minWidth: 40}}>
                       <Box
                         sx={{
@@ -119,7 +120,7 @@ function renderContentWithIcons(content: ReactNode[]): ReactNode {
                           color: 'primary.main',
                         }}
                       >
-                        <CubeOutlineIcon />
+                        <Cube />
                       </Box>
                     </ListItemIcon>
                     <ListItemText primary={text} />
@@ -132,7 +133,7 @@ function renderContentWithIcons(content: ReactNode[]): ReactNode {
         );
       }
     }
-    return <Box key={index}>{item}</Box>;
+    return <Box key={extractTextFromChildren(item)}>{item}</Box>;
   });
 }
 
@@ -164,8 +165,8 @@ export default function TutorialHero({children}: TutorialHeroProps) {
       currentSection = {
         title:
           typeof child.props.children === 'string'
-            ? child.props.children
-            : extractTextFromChildren(child.props.children),
+            ? (child.props.children as string)
+            : extractTextFromChildren(child.props.children as ReactNode),
         content: [],
       };
     } else if (currentSection) {
@@ -213,7 +214,7 @@ function extractTextFromChildren(children: ReactNode): string {
     return children.map(extractTextFromChildren).join('');
   }
   if (isValidElement(children) && children.props.children) {
-    return extractTextFromChildren(children.props.children);
+    return extractTextFromChildren(children.props.children as ReactNode);
   }
   return '';
 }

@@ -20,6 +20,11 @@ package design
 
 import "encoding/json"
 
+type I18nMessage struct {
+	Key          string `json:"key,omitempty"`
+	DefaultValue string `json:"defaultValue,omitempty"`
+}
+
 // CreateThemeRequest represents the request payload for creating a theme.
 type CreateThemeRequest struct {
 	Handle      string          `json:"handle"`
@@ -117,7 +122,7 @@ type Link struct {
 
 // ErrorResponse represents an error response.
 type ErrorResponse struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Description string `json:"description,omitempty"`
+	Code        string      `json:"code"`
+	Message     I18nMessage `json:"message"`
+	Description I18nMessage `json:"description,omitempty"`
 }

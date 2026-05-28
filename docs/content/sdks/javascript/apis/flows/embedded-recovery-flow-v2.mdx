@@ -1,0 +1,95 @@
+---
+title: Embedded Recovery Flow (V2)
+displayed_sidebar: javascriptSdkSidebar
+description: V2 function for app-native account and password recovery flows
+---
+
+# Embedded Recovery Flow (V2)
+
+`executeEmbeddedRecoveryFlowV2` drives a step-by-step account recovery flow (e.g., password reset) without a browser redirect.
+
+## `executeEmbeddedRecoveryFlowV2(config)`
+
+Initiate or advance a V2 embedded recovery flow.
+
+```ts
+import { executeEmbeddedRecoveryFlowV2, EmbeddedRecoveryFlowStatusV2 } from '@thunderid/javascript'
+
+// Step 1 — Initiate recovery
+const step1 = await executeEmbeddedRecoveryFlowV2({
+  baseUrl: 'https://localhost:8090',
+  payload: {
+    applicationId: '<your-app-id>',
+    flowType: 'PASSWORD_RECOVERY',
+  },
+})
+
+// Step 2 — Provide the username/email to recover
+const step2 = await executeEmbeddedRecoveryFlowV2({
+  baseUrl: 'https://localhost:8090',
+  payload: {
+    executionId: step1.executionId,
+    inputs: {
+      username: 'user@example.com',
+    },
+  },
+})
+
+// Step 3 — Submit the OTP/token received by email
+const step3 = await executeEmbeddedRecoveryFlowV2({
+  baseUrl: 'https://localhost:8090',
+  payload: {
+    executionId: step2.executionId,
+    inputs: {
+      otp: '123456',
+    },
+    challengeToken: step2.challengeToken,
+  },
+})
+
+if (step3.flowStatus === EmbeddedRecoveryFlowStatusV2.Complete) {
+  // Recovery complete — prompt user for new password
+}
+```
+
+## Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|:--------:|-------------|
+| `config.url` | `string` | ✅ | Full endpoint URL. Mutually exclusive with `baseUrl` |
+| `config.baseUrl` | `string` | ✅ | <ProductName /> base URL |
+| `config.payload` | `EmbeddedRecoveryFlowRequestV2` | ✅ | Flow request body |
+| `config.payload.applicationId` | `string` | — | Application ID. Required for the first step |
+| `config.payload.flowType` | `string` | — | Recovery flow type (e.g., `'PASSWORD_RECOVERY'`). Required for first step |
+| `config.payload.executionId` | `string` | — | Execution ID from a prior response |
+| `config.payload.action` | `string` | — | Action to take at the current step |
+| `config.payload.inputs` | `Record<string, string>` | — | Step input fields |
+| `config.payload.challengeToken` | `string` | — | Challenge token from a prior step |
+
+## Response: `EmbeddedRecoveryFlowResponseV2`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `executionId` | `string` | ID to pass in subsequent requests |
+| `flowStatus` | `EmbeddedRecoveryFlowStatusV2` | Current flow status |
+| `type` | `EmbeddedRecoveryFlowTypeV2` | `View` or `Redirection` |
+| `data` | `EmbeddedFlowResponseDataV2` | Component tree or redirect data |
+| `challengeToken` | `string` | Present when a verification step is required |
+| `failureReason` | `string` | Present when `flowStatus` is `Error` |
+
+## Enums
+
+### `EmbeddedRecoveryFlowStatusV2`
+
+| Value | Description |
+|-------|-------------|
+| `Incomplete` | More steps required |
+| `Complete` | Recovery completed successfully |
+| `Error` | Recovery failed — check `failureReason` |
+
+### `EmbeddedRecoveryFlowTypeV2`
+
+| Value | Description |
+|-------|-------------|
+| `View` | Render the component tree in `data` |
+| `Redirection` | Redirect to `redirectUrl` |

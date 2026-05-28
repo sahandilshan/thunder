@@ -28,7 +28,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -43,6 +43,7 @@ type TokenTestSuite struct {
 	suite.Suite
 	applicationIDBasic string
 	applicationIDPost  string
+	ouID               string
 	client             *http.Client
 }
 
@@ -53,6 +54,17 @@ func TestTokenTestSuite(t *testing.T) {
 func (ts *TokenTestSuite) SetupSuite() {
 	// Create a client that skips TLS verification
 	ts.client = testutils.GetHTTPClient()
+
+	ouID, err := testutils.CreateOrganizationUnit(testutils.OrganizationUnit{
+		Handle:      "token-test-ou",
+		Name:        "Token Test OU",
+		Description: "Organization unit for token integration tests",
+		Parent:      nil,
+	})
+	if err != nil {
+		ts.T().Fatalf("Failed to create test organization unit: %v", err)
+	}
+	ts.ouID = ouID
 
 	// Create applications for different authentication methods
 	ts.applicationIDBasic = ts.createTestApplication("client_secret_basic")
@@ -66,8 +78,9 @@ func (ts *TokenTestSuite) createTestApplication(authMethod string) string {
 
 	// Create a new application for testing
 	app := map[string]interface{}{
-		"name":                         appName,
-		"description":                  "Application for token integration tests",
+		"name":                      appName,
+		"description":               "Application for token integration tests",
+		"ouId":                      ts.ouID,
 		"isRegistrationFlowEnabled": false,
 		"inboundAuthConfig": []map[string]interface{}{
 			{
@@ -128,6 +141,11 @@ func (ts *TokenTestSuite) TearDownSuite() {
 	}
 	if ts.applicationIDPost != "" {
 		ts.deleteApplication(ts.applicationIDPost)
+	}
+	if ts.ouID != "" {
+		if err := testutils.DeleteOrganizationUnit(ts.ouID); err != nil {
+			ts.T().Logf("Failed to delete test organization unit: %v", err)
+		}
 	}
 }
 
@@ -229,10 +247,10 @@ func (ts *TokenTestSuite) TestClientCredentialsGrantWithHeaderCredentials() {
 		expectedScopes  []string
 	}{
 		{
-			testName:        "WithAuthorizedScopes",
+			testName:        "WithUnauthorizedScopes",
 			requestedScopes: "internal_user_mgt_view internal_user_mgt_edit internal_group_mgt_view",
 			expectedStatus:  http.StatusOK,
-			expectedScopes:  []string{"internal_user_mgt_view", "internal_user_mgt_edit", "internal_group_mgt_view"},
+			expectedScopes:  nil,
 		},
 		{
 			testName:        "WithoutScopes",
@@ -244,13 +262,13 @@ func (ts *TokenTestSuite) TestClientCredentialsGrantWithHeaderCredentials() {
 			testName:        "WithUnknownScopes",
 			requestedScopes: "unknown_scope",
 			expectedStatus:  http.StatusOK,
-			expectedScopes:  []string{"unknown_scope"},
+			expectedScopes:  nil,
 		},
 		{
-			testName:        "WithAuthorizedAndUnknownScopes",
+			testName:        "WithMixedUnknownScopes",
 			requestedScopes: "internal_user_mgt_view unknown_scope",
 			expectedStatus:  http.StatusOK,
-			expectedScopes:  []string{"internal_user_mgt_view", "unknown_scope"},
+			expectedScopes:  nil,
 		},
 	}
 
@@ -269,6 +287,36 @@ func (ts *TokenTestSuite) TestClientCredentialsGrantWithHeaderCredentials() {
 			ts.runClientCredentialsTestCase(request, tc.expectedStatus, tc.expectedScopes, "")
 		})
 	}
+
+	// Verify that client OU claims are included in the access token.
+	ts.Run("WithClientOUClaims", func() {
+		reqBody := strings.NewReader("grant_type=client_credentials")
+		request, err := http.NewRequest("POST", testServerURL+"/oauth2/token", reqBody)
+		ts.Require().NoError(err)
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.SetBasicAuth(clientId+"_client_secret_basic", clientSecret)
+
+		resp, err := ts.client.Do(request)
+		ts.Require().NoError(err)
+		defer resp.Body.Close()
+		ts.Require().Equal(http.StatusOK, resp.StatusCode)
+
+		var respBody map[string]interface{}
+		ts.Require().NoError(json.NewDecoder(resp.Body).Decode(&respBody))
+
+		accessToken, ok := respBody["access_token"].(string)
+		ts.Require().True(ok, "access_token not found in response")
+
+		claims, err := testutils.DecodeJWT(accessToken)
+		ts.Require().NoError(err)
+
+		ou, err := testutils.GetOrganizationUnit(ts.ouID)
+		ts.Require().NoError(err)
+
+		ts.Assert().Equal(ou.ID, claims.Additional["ouId"])
+		ts.Assert().Equal(ou.Name, claims.Additional["ouName"])
+		ts.Assert().Equal(ou.Handle, claims.Additional["ouHandle"])
+	})
 }
 
 func (ts *TokenTestSuite) TestClientCredentialsGrantWithBodyCredentials() {
@@ -280,10 +328,10 @@ func (ts *TokenTestSuite) TestClientCredentialsGrantWithBodyCredentials() {
 		expectedScopes  []string
 	}{
 		{
-			testName:        "WithAuthorizedScopes",
+			testName:        "WithUnauthorizedScopes",
 			requestedScopes: "internal_user_mgt_view internal_user_mgt_edit",
 			expectedStatus:  http.StatusOK,
-			expectedScopes:  []string{"internal_user_mgt_view", "internal_user_mgt_edit"},
+			expectedScopes:  nil,
 		},
 		{
 			testName:        "WithoutScopes",
@@ -385,6 +433,69 @@ func (ts *TokenTestSuite) TestClientCredentialsGrantNegativeCases() {
 			ts.runClientCredentialsTestCase(request, tc.expectedStatus, nil, tc.expectedError)
 		})
 	}
+}
+
+// TestClientCredentialsGrantEntityIdentificationByClientId exercises the end-to-end entity
+// identification path used during OAuth2 client authentication.
+func (ts *TokenTestSuite) TestClientCredentialsGrantEntityIdentificationByClientId() {
+	// Create a dedicated application whose clientId will be looked up via IdentifyEntity.
+	identClientID := "entity_id_test_client"
+	identApp := map[string]interface{}{
+		"name":                      "EntityIdTestApp",
+		"description":               "Application for entity identification test",
+		"ouId":                      ts.ouID,
+		"isRegistrationFlowEnabled": false,
+		"inboundAuthConfig": []map[string]interface{}{
+			{
+				"type": "oauth2",
+				"config": map[string]interface{}{
+					"clientId":                identClientID,
+					"clientSecret":            clientSecret,
+					"redirectUris":            []string{"https://localhost:3000"},
+					"grantTypes":              []string{"client_credentials"},
+					"tokenEndpointAuthMethod": "client_secret_basic",
+				},
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(identApp)
+	ts.Require().NoError(err)
+
+	req, err := http.NewRequest("POST", testServerURL+"/applications", bytes.NewBuffer(jsonData))
+	ts.Require().NoError(err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.client.Do(req)
+	ts.Require().NoError(err)
+	defer resp.Body.Close()
+	ts.Require().Equal(http.StatusCreated, resp.StatusCode)
+
+	var appResp map[string]interface{}
+	ts.Require().NoError(json.NewDecoder(resp.Body).Decode(&appResp))
+	appID := appResp["id"].(string)
+
+	defer func() {
+		ts.deleteApplication(appID)
+	}()
+
+	// Use the clientId to authenticate and obtain an access token.
+	// This triggers IdentifyEntity({"clientId": identClientID}) inside the token endpoint.
+	reqBody := strings.NewReader("grant_type=client_credentials")
+	tokenReq, err := http.NewRequest("POST", testServerURL+"/oauth2/token", reqBody)
+	ts.Require().NoError(err)
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tokenReq.SetBasicAuth(identClientID, clientSecret)
+
+	tokenResp, err := ts.client.Do(tokenReq)
+	ts.Require().NoError(err)
+	defer tokenResp.Body.Close()
+
+	ts.Assert().Equal(http.StatusOK, tokenResp.StatusCode, "token endpoint must resolve app by clientId")
+
+	var tokenBody map[string]interface{}
+	ts.Require().NoError(json.NewDecoder(tokenResp.Body).Decode(&tokenBody))
+	ts.Assert().NotEmpty(tokenBody["access_token"])
 }
 
 func basicAuth(username, password string) string {

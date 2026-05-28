@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -102,12 +102,12 @@ func (ts *SenderPropertyValidationTestSuite) TestVonageMissingRequiredProperties
 
 			// Verify error details
 			if len(tc.properties) == 0 {
-				ts.Assert().Contains(errorResp["description"].(string), "cannot be empty",
+				ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), "cannot be empty",
 					"Error should mention that properties cannot be empty")
 			} else {
-				ts.Assert().Contains(errorResp["description"].(string), "missing",
+				ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), "missing",
 					"Error should mention property is missing")
-				ts.Assert().Contains(errorResp["description"].(string), tc.missingPropName,
+				ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), tc.missingPropName,
 					"Error should mention which property is missing")
 			}
 		})
@@ -166,9 +166,9 @@ func (ts *SenderPropertyValidationTestSuite) TestTwilioMissingRequiredProperties
 			ts.Require().NoError(err, "Failed to unmarshal error response")
 
 			// Verify error details
-			ts.Assert().Contains(errorResp["description"].(string), "missing",
+			ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), "missing",
 				"Error should mention property is missing")
-			ts.Assert().Contains(errorResp["description"].(string), tc.missingPropName,
+			ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), tc.missingPropName,
 				"Error should mention which property is missing")
 		})
 	}
@@ -230,7 +230,7 @@ func (ts *SenderPropertyValidationTestSuite) TestCustomMissingRequiredProperties
 				ts.Require().NoError(err, "Failed to unmarshal error response")
 
 				// Verify error details contain "url"
-				ts.Assert().Contains(errorResp["description"].(string), "URL",
+				ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), "URL",
 					"Error should mention URL is required")
 			}
 		})
@@ -280,7 +280,7 @@ func (ts *SenderPropertyValidationTestSuite) TestInvalidTwilioAccountSID() {
 			ts.Require().NoError(err, "Failed to unmarshal error response")
 
 			// Verify error details related to account SID format
-			ts.Assert().Contains(errorResp["description"].(string), "invalid",
+			ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), "invalid",
 				"Error should mention format is invalid")
 		})
 	}
@@ -318,7 +318,7 @@ func (ts *SenderPropertyValidationTestSuite) TestEmptyPropertyName() {
 			ts.Require().NoError(err, "Failed to unmarshal error response")
 
 			// Verify error details related to empty property name
-			ts.Assert().Contains(errorResp["description"].(string), "name",
+			ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), "name",
 				"Error should mention issue with property name")
 		})
 	}
@@ -393,7 +393,7 @@ func (ts *SenderPropertyValidationTestSuite) TestContentTypeValidationForCustomP
 				err := json.Unmarshal(responseBody, &errorResp)
 				ts.Require().NoError(err, "Failed to unmarshal error response")
 
-				ts.Assert().Contains(errorResp["description"].(string), "content type",
+				ts.Assert().Contains(errorResp["description"].(map[string]interface{})["defaultValue"].(string), "content type",
 					"Error should mention content type issue")
 			}
 		})

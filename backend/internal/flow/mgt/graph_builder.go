@@ -23,11 +23,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/flow/executor"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/flow/executor"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // graphBuilderInterface defines the interface for building flow graphs.
@@ -62,8 +63,10 @@ func newGraphBuilder(
 func (b *graphBuilder) GetGraph(ctx context.Context, flow *CompleteFlowDefinition) (
 	core.GraphInterface, *serviceerror.ServiceError) {
 	if flow == nil || len(flow.Nodes) == 0 {
-		return nil, serviceerror.CustomServiceError(ErrorInvalidFlowData,
-			"Flow definition is nil or has no nodes")
+		return nil, serviceerror.CustomServiceError(ErrorInvalidFlowData, i18ncore.I18nMessage{
+			Key:          "error.flowmgtservice.flow_definition_nil_or_empty_description",
+			DefaultValue: "Flow definition is nil or has no nodes",
+		})
 	}
 
 	logger := b.logger.With(log.String("flowID", flow.ID))
@@ -76,7 +79,10 @@ func (b *graphBuilder) GetGraph(ctx context.Context, flow *CompleteFlowDefinitio
 	graph, err := b.buildGraph(flow)
 	if err != nil {
 		logger.Error("Failed to build graph", log.Error(err))
-		return nil, serviceerror.CustomServiceError(ErrorGraphBuildFailure, err.Error())
+		return nil, serviceerror.CustomServiceError(ErrorGraphBuildFailure, i18ncore.I18nMessage{
+			Key:          "error.flowmgtservice.graph_build_failure_description",
+			DefaultValue: err.Error(),
+		})
 	}
 
 	// Cache the built graph
@@ -111,8 +117,9 @@ func (b *graphBuilder) buildGraph(flow *CompleteFlowDefinition) (core.GraphInter
 
 	// Process all nodes and build the graph structure
 	edges := make(map[string][]string)
+	boundaries := make([]segmentBoundary, 0)
 	for i := range flow.Nodes {
-		if err := b.processNode(&flow.Nodes[i], flow.Nodes, graph, edges); err != nil {
+		if err := b.processNode(&flow.Nodes[i], flow.Nodes, graph, edges, &boundaries); err != nil {
 			return nil, fmt.Errorf("failed to process node %s: %w", flow.Nodes[i].ID, err)
 		}
 	}
@@ -125,13 +132,18 @@ func (b *graphBuilder) buildGraph(flow *CompleteFlowDefinition) (core.GraphInter
 		return nil, err
 	}
 
+	b.computeSegments(graph, boundaries)
+
 	return graph, nil
 }
 
 // processNode processes a single node definition and adds it to the graph.
 func (b *graphBuilder) processNode(nodeDef *NodeDefinition, allNodes []NodeDefinition,
-	graph core.GraphInterface, edges map[string][]string) error {
-	isFinalNode := nodeDef.OnSuccess == "" && nodeDef.OnFailure == "" && len(nodeDef.Prompts) == 0
+	graph core.GraphInterface, edges map[string][]string, boundaries *[]segmentBoundary) error {
+	isFinalNode := nodeDef.OnSuccess == "" &&
+		nodeDef.OnFailure == "" &&
+		len(nodeDef.Prompts) == 0 &&
+		nodeDef.Next == ""
 
 	// Construct a new node. Here we set isStartNode to false by default
 	node, err := b.flowFactory.CreateNode(nodeDef.ID, nodeDef.Type, nodeDef.Properties,
@@ -146,9 +158,13 @@ func (b *graphBuilder) processNode(nodeDef *NodeDefinition, allNodes []NodeDefin
 
 	b.configureNodeInputs(nodeDef, node)
 	b.configureNodeMeta(nodeDef, node)
+	b.configureNodeVariant(nodeDef, node)
 	b.configureNodeCondition(nodeDef, node)
 
 	if err := b.configureNodePrompts(nodeDef, node, edges); err != nil {
+		return err
+	}
+	if err := b.configureDisplayOnlyProperties(nodeDef, node, edges, boundaries); err != nil {
 		return err
 	}
 	if err := b.configureNodeExecutor(nodeDef, node); err != nil {
@@ -241,6 +257,9 @@ func (b *graphBuilder) validateOnIncompleteTarget(nodes []NodeDefinition, target
 }
 
 // configureNodeInputs configures the inputs for executor-backed nodes.
+// Validation rules on executor inputs are intentionally not propagated:
+// executor inputs are read from runtime context (already validated at the
+// preceding PROMPT node), so per-rule re-validation here would be redundant.
 func (b *graphBuilder) configureNodeInputs(nodeDef *NodeDefinition, node core.NodeInterface) {
 	logger := b.logger.With(log.String("nodeID", nodeDef.ID))
 
@@ -250,7 +269,6 @@ func (b *graphBuilder) configureNodeInputs(nodeDef *NodeDefinition, node core.No
 		return
 	}
 
-	// Get inputs from executor definition if available
 	if nodeDef.Executor == nil || len(nodeDef.Executor.Inputs) == 0 {
 		logger.Debug("No inputs defined for executor; setting empty input list")
 		executorNode.SetInputs([]common.Input{})
@@ -267,6 +285,36 @@ func (b *graphBuilder) configureNodeInputs(nodeDef *NodeDefinition, node core.No
 		}
 	}
 	executorNode.SetInputs(inputs)
+}
+
+// toValidationRules converts mgt rule definitions to runtime ValidationRule
+// values and pre-compiles their regex patterns. Returns nil for an empty input.
+func toValidationRules(defs []ValidationRuleDefinition) ([]common.ValidationRule, error) {
+	if len(defs) == 0 {
+		return nil, nil
+	}
+	rules := make([]common.ValidationRule, len(defs))
+	for i, d := range defs {
+		rules[i] = common.ValidationRule{
+			Type:    common.ValidationType(d.Type),
+			Value:   d.Value,
+			Message: d.Message,
+		}
+	}
+	if err := common.PrepareValidationRules(rules); err != nil {
+		return nil, err
+	}
+	return rules, nil
+}
+
+// configureNodeVariant sets the prompt node's variant from the node definition.
+func (b *graphBuilder) configureNodeVariant(nodeDef *NodeDefinition, node core.NodeInterface) {
+	if nodeDef.Variant == "" {
+		return
+	}
+	if promptNode, ok := node.(core.PromptNodeInterface); ok {
+		promptNode.SetVariant(nodeDef.Variant)
+	}
 }
 
 // configureNodeMeta configures the meta object for a prompt node.
@@ -313,11 +361,17 @@ func (b *graphBuilder) configureNodePrompts(nodeDef *NodeDefinition, node core.N
 		// Convert inputs
 		inputs := make([]common.Input, len(promptDef.Inputs))
 		for j, inputDef := range promptDef.Inputs {
+			validation, err := toValidationRules(inputDef.Validation)
+			if err != nil {
+				return fmt.Errorf("node %s, prompt %d, input %s: %w",
+					nodeDef.ID, i, inputDef.Identifier, err)
+			}
 			inputs[j] = common.Input{
 				Ref:        inputDef.Ref,
 				Identifier: inputDef.Identifier,
 				Type:       inputDef.Type,
 				Required:   inputDef.Required,
+				Validation: validation,
 			}
 		}
 		prompts[i].Inputs = inputs
@@ -326,6 +380,7 @@ func (b *graphBuilder) configureNodePrompts(nodeDef *NodeDefinition, node core.N
 		if promptDef.Action != nil {
 			prompts[i].Action = &common.Action{
 				Ref:      promptDef.Action.Ref,
+				Type:     promptDef.Action.Type,
 				NextNode: promptDef.Action.NextNode,
 			}
 
@@ -340,6 +395,76 @@ func (b *graphBuilder) configureNodePrompts(nodeDef *NodeDefinition, node core.N
 	promptNode.SetPrompts(prompts)
 
 	return nil
+}
+
+// configureDisplayOnlyProperties configures the 'next' and 'message' fields for display-only prompt nodes.
+// It also records segment boundaries for later segment computation.
+func (b *graphBuilder) configureDisplayOnlyProperties(nodeDef *NodeDefinition, node core.NodeInterface,
+	edges map[string][]string, boundaries *[]segmentBoundary) error {
+	logger := b.logger.With(log.String("nodeID", nodeDef.ID))
+
+	if nodeDef.Next == "" {
+		return nil
+	}
+
+	promptNode, ok := node.(core.PromptNodeInterface)
+	if !ok {
+		return fmt.Errorf("'next' field is only valid on PROMPT nodes, but node %s is of type %s",
+			nodeDef.ID, nodeDef.Type)
+	}
+
+	if len(nodeDef.Prompts) > 0 {
+		return fmt.Errorf("node %s has both 'prompts' and 'next'; these are mutually exclusive",
+			nodeDef.ID)
+	}
+
+	logger.Debug("Configuring display-only next for prompt node", log.String("next", nodeDef.Next))
+	promptNode.SetNextNode(nodeDef.Next)
+
+	if nodeDef.Message != "" {
+		promptNode.SetMessage(nodeDef.Message)
+	}
+
+	if _, exists := edges[nodeDef.ID]; !exists {
+		edges[nodeDef.ID] = []string{}
+	}
+	edges[nodeDef.ID] = append(edges[nodeDef.ID], nodeDef.Next)
+
+	if boundaries != nil {
+		*boundaries = append(*boundaries, segmentBoundary{
+			boundaryNodeID: nodeDef.ID,
+			nextNodeID:     nodeDef.Next,
+		})
+	}
+
+	return nil
+}
+
+// computeSegments builds the segments slice from detected display-only prompt boundaries.
+// Segment 0 starts at the graph start node; each boundary yields a subsequent segment
+// starting at the boundary's next node.
+func (b *graphBuilder) computeSegments(g core.GraphInterface, boundaries []segmentBoundary) {
+	if len(boundaries) == 0 {
+		return
+	}
+
+	startNode, err := g.GetStartNode()
+	if err != nil {
+		return
+	}
+
+	segments := make([]core.Segment, 0, len(boundaries)+1)
+	segments = append(segments, core.Segment{
+		ID:          "seg-0",
+		StartNodeID: startNode.GetID(),
+	})
+	for i, bnd := range boundaries {
+		segments = append(segments, core.Segment{
+			ID:          fmt.Sprintf("seg-%d", i+1),
+			StartNodeID: bnd.nextNodeID,
+		})
+	}
+	g.SetSegments(segments)
 }
 
 // configureNodeExecutor configures the executor for a node.

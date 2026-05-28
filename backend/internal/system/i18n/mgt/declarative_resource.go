@@ -24,9 +24,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/internal/system/log"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 const (
@@ -61,9 +62,12 @@ func (e *translationExporter) GetAllResourceIDs(ctx context.Context) ([]string, 
 	languages, err := e.store.GetDistinctLanguages()
 	if err != nil {
 		return nil, &serviceerror.ServiceError{
-			Code:  "I18N_EXPORT_ERROR",
-			Type:  serviceerror.ServerErrorType,
-			Error: "Failed to fetch translation languages for export",
+			Code: "I18N_EXPORT_ERROR",
+			Type: serviceerror.ServerErrorType,
+			Error: core.I18nMessage{
+				Key:          "error.i18nservice.export_error",
+				DefaultValue: "Failed to fetch translation languages for export",
+			},
 		}
 	}
 	return languages, nil
@@ -76,9 +80,12 @@ func (e *translationExporter) GetResourceByID(ctx context.Context, id string) (
 	translations, err := e.store.GetTranslations()
 	if err != nil {
 		return nil, "", &serviceerror.ServiceError{
-			Code:  "I18N_FETCH_ERROR",
-			Type:  serviceerror.ServerErrorType,
-			Error: "Failed to fetch translations for export",
+			Code: "I18N_FETCH_ERROR",
+			Type: serviceerror.ServerErrorType,
+			Error: core.I18nMessage{
+				Key:          "error.i18nservice.fetch_error",
+				DefaultValue: "Failed to fetch translations for export",
+			},
 		}
 	}
 
@@ -97,9 +104,12 @@ func (e *translationExporter) GetResourceByID(ctx context.Context, id string) (
 
 	if len(result) == 0 {
 		return nil, "", &serviceerror.ServiceError{
-			Code:  "TRANSLATION_NOT_FOUND",
-			Type:  serviceerror.ClientErrorType,
-			Error: fmt.Sprintf("Translation not found for %s", id),
+			Code: "TRANSLATION_NOT_FOUND",
+			Type: serviceerror.ClientErrorType,
+			Error: core.I18nMessage{
+				Key:          "error.i18nservice.translation_not_found",
+				DefaultValue: fmt.Sprintf("Translation not found for %s", id),
+			},
 		}
 	}
 

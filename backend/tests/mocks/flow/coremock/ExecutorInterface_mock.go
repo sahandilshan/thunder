@@ -5,9 +5,9 @@
 package coremock
 
 import (
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
 )
 
 // NewExecutorInterfaceMock creates a new instance of ExecutorInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -141,6 +141,59 @@ func (_c *ExecutorInterfaceMock_GetDefaultInputs_Call) Return(inputs []common.In
 }
 
 func (_c *ExecutorInterfaceMock_GetDefaultInputs_Call) RunAndReturn(run func() []common.Input) *ExecutorInterfaceMock_GetDefaultInputs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetExecutionPolicy provides a mock function for the type ExecutorInterfaceMock
+func (_mock *ExecutorInterfaceMock) GetExecutionPolicy(mode string) *core.ExecutionPolicy {
+	ret := _mock.Called(mode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetExecutionPolicy")
+	}
+
+	var r0 *core.ExecutionPolicy
+	if returnFunc, ok := ret.Get(0).(func(string) *core.ExecutionPolicy); ok {
+		r0 = returnFunc(mode)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*core.ExecutionPolicy)
+		}
+	}
+	return r0
+}
+
+// ExecutorInterfaceMock_GetExecutionPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetExecutionPolicy'
+type ExecutorInterfaceMock_GetExecutionPolicy_Call struct {
+	*mock.Call
+}
+
+// GetExecutionPolicy is a helper method to define mock.On call
+//   - mode string
+func (_e *ExecutorInterfaceMock_Expecter) GetExecutionPolicy(mode interface{}) *ExecutorInterfaceMock_GetExecutionPolicy_Call {
+	return &ExecutorInterfaceMock_GetExecutionPolicy_Call{Call: _e.mock.On("GetExecutionPolicy", mode)}
+}
+
+func (_c *ExecutorInterfaceMock_GetExecutionPolicy_Call) Run(run func(mode string)) *ExecutorInterfaceMock_GetExecutionPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *ExecutorInterfaceMock_GetExecutionPolicy_Call) Return(executionPolicy *core.ExecutionPolicy) *ExecutorInterfaceMock_GetExecutionPolicy_Call {
+	_c.Call.Return(executionPolicy)
+	return _c
+}
+
+func (_c *ExecutorInterfaceMock_GetExecutionPolicy_Call) RunAndReturn(run func(mode string) *core.ExecutionPolicy) *ExecutorInterfaceMock_GetExecutionPolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }

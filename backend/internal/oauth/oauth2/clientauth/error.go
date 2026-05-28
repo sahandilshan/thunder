@@ -21,7 +21,7 @@ package clientauth
 import (
 	"net/http"
 
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 )
 
 // authError represents an authentication error.
@@ -64,7 +64,7 @@ var (
 	)
 	errUnauthorizedAuthMethod = newAuthError(
 		constants.ErrorUnauthorizedClient,
-		"Client is not allowed to use the specified token endpoint authentication method",
+		"Client is not allowed to use the specified authentication method",
 		http.StatusBadRequest,
 	)
 	errClientIDMismatch = newAuthError(

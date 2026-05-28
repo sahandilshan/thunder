@@ -19,14 +19,16 @@
 package engine
 
 import (
+	"github.com/thunder-id/thunderid/internal/system/i18n/core"
+
 	"context"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/tests/mocks/rolemock"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	"github.com/thunder-id/thunderid/tests/mocks/rolemock"
 )
 
 const (
@@ -115,10 +117,14 @@ func (suite *RBACEngineTestSuite) TestGetAuthorizedPermissions_RoleServiceError(
 	requestedPermissions := []string{"perm1", "perm2"}
 
 	roleServiceError := &serviceerror.ServiceError{
-		Type:             serviceerror.ServerErrorType,
-		Code:             "ROL-5000",
-		Error:            "Internal server error",
-		ErrorDescription: "An unexpected error occurred",
+		Type: serviceerror.ServerErrorType,
+		Code: "ROL-5000",
+		Error: core.I18nMessage{
+			Key: "error.test.internal_server_error", DefaultValue: "Internal server error",
+		},
+		ErrorDescription: core.I18nMessage{
+			Key: "error.test.an_unexpected_error_occurred", DefaultValue: "An unexpected error occurred",
+		},
 	}
 
 	suite.mockRoleService.On("GetAuthorizedPermissions", mock.Anything, userID, groupIDs, requestedPermissions).

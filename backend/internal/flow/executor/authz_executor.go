@@ -22,13 +22,12 @@ import (
 	"encoding/json"
 	"errors"
 
-	authzsvc "github.com/asgardeo/thunder/internal/authz"
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	oauth2const "github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/utils"
-	"github.com/asgardeo/thunder/internal/userprovider"
+	authzsvc "github.com/thunder-id/thunderid/internal/authz"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/system/log"
+	"github.com/thunder-id/thunderid/internal/system/utils"
 )
 
 const (
@@ -41,9 +40,9 @@ const (
 // during flow execution. It enriches the flow context with authorized permissions.
 type authorizationExecutor struct {
 	core.ExecutorInterface
-	authzService authzsvc.AuthorizationServiceInterface
-	userProvider userprovider.UserProviderInterface
-	logger       *log.Logger
+	authzService   authzsvc.AuthorizationServiceInterface
+	entityProvider entityprovider.EntityProviderInterface
+	logger         *log.Logger
 }
 
 var _ core.ExecutorInterface = (*authorizationExecutor)(nil)
@@ -52,7 +51,7 @@ var _ core.ExecutorInterface = (*authorizationExecutor)(nil)
 func newAuthorizationExecutor(
 	flowFactory core.FlowFactoryInterface,
 	authZService authzsvc.AuthorizationServiceInterface,
-	userProvider userprovider.UserProviderInterface,
+	entityProvider entityprovider.EntityProviderInterface,
 ) *authorizationExecutor {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, authzLoggerComponentName),
 		log.String(log.LoggerKeyExecutorName, ExecutorNameAuthorization))
@@ -63,7 +62,7 @@ func newAuthorizationExecutor(
 	return &authorizationExecutor{
 		ExecutorInterface: base,
 		authzService:      authZService,
-		userProvider:      userProvider,
+		entityProvider:    entityProvider,
 		logger:            logger,
 	}
 }
@@ -71,7 +70,7 @@ func newAuthorizationExecutor(
 // Execute executes the authorization logic by determining required permissions based on context,
 // calling the authorization service, and storing authorized permissions in runtime data.
 func (a *authorizationExecutor) Execute(ctx *core.NodeContext) (*common.ExecutorResponse, error) {
-	logger := a.logger.With(log.String(log.LoggerKeyFlowID, ctx.FlowID))
+	logger := a.logger.With(log.String(log.LoggerKeyExecutionID, ctx.ExecutionID))
 	logger.Debug("Executing authorization executor")
 
 	execResp := &common.ExecutorResponse{
@@ -109,20 +108,20 @@ func (a *authorizationExecutor) Execute(ctx *core.NodeContext) (*common.Executor
 	}
 
 	logger.Debug("Calling authorization service",
-		log.String("userID", userID),
+		log.MaskedString(log.LoggerKeyUserID, userID),
 		log.Int("groupCount", len(groupIDs)),
 		log.Int("permissionCount", len(requestedPerms)))
 
 	// Call authorization service
 	authzReq := authzsvc.GetAuthorizedPermissionsRequest{
-		UserID:               userID,
+		EntityID:             userID,
 		GroupIDs:             groupIDs,
 		RequestedPermissions: requestedPerms,
 	}
 
 	authzResp, svcErr := a.authzService.GetAuthorizedPermissions(ctx.Context, authzReq)
 	if svcErr != nil {
-		logger.Error("Authorization service call failed", log.String("error", svcErr.Error))
+		logger.Error("Authorization service call failed", log.String("error", svcErr.Error.DefaultValue))
 		execResp.Status = common.ExecFailure
 		execResp.FailureReason = "Authorization validation failure"
 		return execResp, nil
@@ -182,23 +181,20 @@ func (a *authorizationExecutor) extractGroupIDs(ctx *core.NodeContext) ([]string
 		}
 	}
 
-	// If no groups found in context, fetch from user service
-	if a.userProvider != nil && ctx.AuthenticatedUser.UserID != "" {
-		a.logger.Debug("Groups not found in context, fetching from user service",
-			log.String("userID", ctx.AuthenticatedUser.UserID))
+	// If no groups found in context, fetch transitive groups from entity provider
+	if a.entityProvider != nil && ctx.AuthenticatedUser.UserID != "" {
+		a.logger.Debug("Groups not found in context, fetching transitive groups from entity provider",
+			log.MaskedString(log.LoggerKeyUserID, ctx.AuthenticatedUser.UserID))
 
-		groupsResp, err := a.userProvider.GetUserGroups(ctx.AuthenticatedUser.UserID,
-			oauth2const.DefaultGroupListLimit, 0)
+		groups, err := a.entityProvider.GetTransitiveEntityGroups(ctx.AuthenticatedUser.UserID)
 		if err != nil {
 			return nil, err
 		}
-		if groupsResp != nil {
-			groups := make([]string, 0, len(groupsResp.Groups))
-			for _, g := range groupsResp.Groups {
-				groups = append(groups, g.ID)
-			}
-			return groups, nil
+		groupIDs := make([]string, 0, len(groups))
+		for _, g := range groups {
+			groupIDs = append(groupIDs, g.ID)
 		}
+		return groupIDs, nil
 	}
 
 	// No groups found

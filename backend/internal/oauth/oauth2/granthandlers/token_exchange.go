@@ -20,36 +20,40 @@ package granthandlers
 
 import (
 	"context"
-	"net/url"
 
-	appmodel "github.com/asgardeo/thunder/internal/application/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/constants"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/model"
-	"github.com/asgardeo/thunder/internal/oauth/oauth2/tokenservice"
-	"github.com/asgardeo/thunder/internal/system/log"
-	"github.com/asgardeo/thunder/internal/system/utils"
+	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/dpop"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/resourceindicators"
+	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
+	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // tokenExchangeGrantHandler handles the token exchange grant type.
 type tokenExchangeGrantHandler struct {
-	tokenBuilder   tokenservice.TokenBuilderInterface
-	tokenValidator tokenservice.TokenValidatorInterface
+	tokenBuilder    tokenservice.TokenBuilderInterface
+	tokenValidator  tokenservice.TokenValidatorInterface
+	resourceService resource.ResourceServiceInterface
 }
 
 // newTokenExchangeGrantHandler creates a new instance of tokenExchangeGrantHandler.
 func newTokenExchangeGrantHandler(
 	tokenBuilder tokenservice.TokenBuilderInterface,
 	tokenValidator tokenservice.TokenValidatorInterface,
+	resourceService resource.ResourceServiceInterface,
 ) GrantHandlerInterface {
 	return &tokenExchangeGrantHandler{
-		tokenBuilder:   tokenBuilder,
-		tokenValidator: tokenValidator,
+		tokenBuilder:    tokenBuilder,
+		tokenValidator:  tokenValidator,
+		resourceService: resourceService,
 	}
 }
 
 // ValidateGrant validates the token exchange grant type request.
 func (h *tokenExchangeGrantHandler) ValidateGrant(ctx context.Context, tokenRequest *model.TokenRequest,
-	oauthApp *appmodel.OAuthAppConfigProcessedDTO) *model.ErrorResponse {
+	oauthApp *inboundmodel.OAuthClient) *model.ErrorResponse {
 	if constants.GrantType(tokenRequest.GrantType) != constants.GrantTypeTokenExchange {
 		return &model.ErrorResponse{
 			Error:            constants.ErrorUnsupportedGrantType,
@@ -78,20 +82,8 @@ func (h *tokenExchangeGrantHandler) ValidateGrant(ctx context.Context, tokenRequ
 		}
 	}
 
-	if tokenRequest.Resource != "" {
-		if !utils.IsValidURI(tokenRequest.Resource) {
-			return &model.ErrorResponse{
-				Error:            constants.ErrorInvalidRequest,
-				ErrorDescription: "Invalid resource parameter: must be an absolute URI",
-			}
-		}
-		parsedURI, err := url.Parse(tokenRequest.Resource)
-		if err != nil || parsedURI.Fragment != "" {
-			return &model.ErrorResponse{
-				Error:            constants.ErrorInvalidRequest,
-				ErrorDescription: "Invalid resource parameter: must not contain a fragment component",
-			}
-		}
+	if errResp := resourceindicators.ValidateResourceURIs(tokenRequest.Resources); errResp != nil {
+		return errResp
 	}
 
 	if tokenRequest.ActorToken != "" && tokenRequest.ActorTokenType == "" {
@@ -140,12 +132,12 @@ func (h *tokenExchangeGrantHandler) ValidateGrant(ctx context.Context, tokenRequ
 
 // HandleGrant handles the token exchange grant type.
 func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenRequest *model.TokenRequest,
-	oauthApp *appmodel.OAuthAppConfigProcessedDTO) (
+	oauthApp *inboundmodel.OAuthClient) (
 	*model.TokenResponseDTO, *model.ErrorResponse) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "TokenExchangeGrantHandler"))
 
 	// Validate and extract subject token claims
-	subjectClaims, err := h.tokenValidator.ValidateSubjectToken(tokenRequest.SubjectToken, oauthApp)
+	subjectClaims, err := h.tokenValidator.ValidateSubjectToken(ctx, tokenRequest.SubjectToken, oauthApp)
 	if err != nil {
 		logger.Debug("Failed to validate subject token", log.Error(err))
 		return nil, &model.ErrorResponse{
@@ -154,10 +146,16 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 		}
 	}
 
+	// Enforce subject_token DPoP binding. The proof's jkt is verified earlier in the
+	// token service and propagated via context.
+	if errResp := dpop.VerifyProofBinding(ctx, subjectClaims.CnfJkt, "subject_token"); errResp != nil {
+		return nil, errResp
+	}
+
 	// Validate and extract actor token claims if present
 	var actorClaims *tokenservice.SubjectTokenClaims
 	if tokenRequest.ActorToken != "" {
-		actorClaims, err = h.tokenValidator.ValidateSubjectToken(tokenRequest.ActorToken, oauthApp)
+		actorClaims, err = h.tokenValidator.ValidateSubjectToken(ctx, tokenRequest.ActorToken, oauthApp)
 		if err != nil {
 			logger.Debug("Failed to validate actor token", log.Error(err))
 			return nil, &model.ErrorResponse{
@@ -173,24 +171,42 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 		return nil, errResp
 	}
 
-	// Determine final audience
-	finalAudience := tokenservice.DetermineAudience(
-		tokenRequest.Audience,
-		tokenRequest.Resource,
-		subjectClaims.Aud,
-		tokenRequest.ClientID,
-	)
+	// Determine final audiences per RFC 8693 §2.1: audience and resource parameters may be
+	// combined. audience values are opaque logical names passed verbatim; resource values are
+	// RFC 8707 URIs that resolve to registered Resource Servers and participate in scope
+	// downscoping.
+	resolvedRSes, resErr := resourceindicators.ResolveResourceServers(ctx, h.resourceService, tokenRequest.Resources)
+	if resErr != nil {
+		return nil, resErr
+	}
+	// Narrow to RS-defined permissions when resource params present (RFC 8707 §2.2), matching client_credentials.
+	if len(resolvedRSes) > 0 {
+		rsValidScopes, rsErr := resourceindicators.ComputeRSValidScopes(
+			ctx, h.resourceService, resolvedRSes, finalScopes)
+		if rsErr != nil {
+			return nil, rsErr
+		}
+		finalScopes = resourceindicators.UnionScopes(rsValidScopes)
+	}
+	rsAudiences, audErr := resourceindicators.ComposeAudiences(ctx, h.resourceService, tokenRequest.ClientID,
+		resolvedRSes, finalScopes)
+	if audErr != nil {
+		return nil, audErr
+	}
+	finalAudiences := mergeAudiences(tokenRequest.Audiences, rsAudiences, tokenRequest.ClientID)
 
 	// Build access token using token builder
 	accessToken, err := h.tokenBuilder.BuildAccessToken(&tokenservice.AccessTokenBuildContext{
+		Context:        ctx,
 		Subject:        subjectClaims.Sub,
-		Audience:       finalAudience,
+		Audiences:      finalAudiences,
 		ClientID:       tokenRequest.ClientID,
 		Scopes:         finalScopes,
 		UserAttributes: subjectClaims.UserAttributes,
 		GrantType:      string(constants.GrantTypeTokenExchange),
 		OAuthApp:       oauthApp,
 		ActorClaims:    actorClaims,
+		DPoPJkt:        dpop.GetJkt(ctx),
 	})
 	if err != nil {
 		logger.Error("Failed to generate token", log.Error(err))
@@ -244,4 +260,47 @@ func (h *tokenExchangeGrantHandler) getScopes(
 	}
 
 	return validRequestedScopes, nil
+}
+
+// mergeAudiences combines opaque audience values with RS-resolved audiences per RFC 8693 §2.1.
+// Rules:
+//   - Start with explicitAudiences verbatim (preserving order, deduped within itself).
+//   - Append rsAudiences items not already present.
+//   - If rsAudiences is the clientID-only fallback (len==1 and value==clientID) and
+//     explicitAudiences is non-empty, the clientID fallback is dropped — the explicit audience
+//     request is sufficient.
+//   - If the merged set is empty, fall back to []string{clientID} (or empty if clientID is empty).
+func mergeAudiences(explicitAudiences []string, rsAudiences []string, clientID string) []string {
+	seen := make(map[string]struct{}, len(explicitAudiences)+len(rsAudiences))
+	merged := make([]string, 0, len(explicitAudiences)+len(rsAudiences))
+
+	for _, a := range explicitAudiences {
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		seen[a] = struct{}{}
+		merged = append(merged, a)
+	}
+
+	// Drop the clientID-only fallback from rsAudiences when explicit audiences were provided.
+	isFallback := len(rsAudiences) == 1 && rsAudiences[0] == clientID
+	if isFallback && len(explicitAudiences) > 0 {
+		rsAudiences = nil
+	}
+
+	for _, a := range rsAudiences {
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		seen[a] = struct{}{}
+		merged = append(merged, a)
+	}
+
+	if len(merged) == 0 {
+		if clientID != "" {
+			return []string{clientID}
+		}
+		return []string{}
+	}
+	return merged
 }

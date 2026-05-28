@@ -25,24 +25,24 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/flow/core"
-	"github.com/asgardeo/thunder/internal/userprovider"
-	"github.com/asgardeo/thunder/tests/mocks/flow/coremock"
-	"github.com/asgardeo/thunder/tests/mocks/userprovidermock"
+	"github.com/thunder-id/thunderid/internal/entityprovider"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/tests/mocks/entityprovidermock"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
 )
 
 type CredentialSetterTestSuite struct {
 	suite.Suite
-	mockFlowFactory  *coremock.FlowFactoryInterfaceMock
-	mockUserProvider *userprovidermock.UserProviderInterfaceMock
-	mockBaseExecutor *coremock.ExecutorInterfaceMock
-	executor         *credentialSetter
+	mockFlowFactory    *coremock.FlowFactoryInterfaceMock
+	mockEntityProvider *entityprovidermock.EntityProviderInterfaceMock
+	mockBaseExecutor   *coremock.ExecutorInterfaceMock
+	executor           *credentialSetter
 }
 
 func (suite *CredentialSetterTestSuite) SetupTest() {
 	suite.mockFlowFactory = coremock.NewFlowFactoryInterfaceMock(suite.T())
-	suite.mockUserProvider = userprovidermock.NewUserProviderInterfaceMock(suite.T())
+	suite.mockEntityProvider = entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
 	suite.mockBaseExecutor = coremock.NewExecutorInterfaceMock(suite.T())
 
 	suite.mockFlowFactory.On("CreateExecutor",
@@ -57,14 +57,14 @@ func (suite *CredentialSetterTestSuite) SetupTest() {
 			},
 		}).Return(suite.mockBaseExecutor)
 
-	suite.executor = newCredentialSetter(suite.mockFlowFactory, suite.mockUserProvider)
+	suite.executor = newCredentialSetter(suite.mockFlowFactory, suite.mockEntityProvider)
 }
 
 func (suite *CredentialSetterTestSuite) TestExecute_Success() {
 	userID := testUserID
 	password := "securePass123!"
 	ctx := &core.NodeContext{
-		FlowID: "test-flow",
+		ExecutionID: "test-flow",
 		UserInputs: map[string]string{
 			userAttributePassword: password,
 		},
@@ -85,7 +85,7 @@ func (suite *CredentialSetterTestSuite) TestExecute_Success() {
 	})
 
 	// Use mock.Anything for credentials JSON bytes to avoid strict byte checking
-	suite.mockUserProvider.On("UpdateUserCredentials", userID, mock.Anything).Return(nil)
+	suite.mockEntityProvider.On("UpdateCredentials", userID, mock.Anything).Return(nil)
 
 	resp, err := suite.executor.Execute(ctx)
 
@@ -95,8 +95,8 @@ func (suite *CredentialSetterTestSuite) TestExecute_Success() {
 
 func (suite *CredentialSetterTestSuite) TestExecute_MissingInput() {
 	ctx := &core.NodeContext{
-		FlowID:     "test-flow",
-		UserInputs: make(map[string]string),
+		ExecutionID: "test-flow",
+		UserInputs:  make(map[string]string),
 	}
 
 	suite.mockBaseExecutor.On("HasRequiredInputs", ctx, mock.Anything).Return(false)
@@ -109,7 +109,7 @@ func (suite *CredentialSetterTestSuite) TestExecute_MissingInput() {
 
 func (suite *CredentialSetterTestSuite) TestExecute_MissingUserID() {
 	ctx := &core.NodeContext{
-		FlowID: "test-flow",
+		ExecutionID: "test-flow",
 		UserInputs: map[string]string{
 			userAttributePassword: "password",
 		},
@@ -129,7 +129,7 @@ func (suite *CredentialSetterTestSuite) TestExecute_MissingUserID() {
 func (suite *CredentialSetterTestSuite) TestExecute_EmptyPassword() {
 	userID := testUserID
 	ctx := &core.NodeContext{
-		FlowID: "test-flow",
+		ExecutionID: "test-flow",
 		UserInputs: map[string]string{
 			userAttributePassword: "",
 		},
@@ -157,7 +157,7 @@ func (suite *CredentialSetterTestSuite) TestExecute_ServiceError() {
 	userID := testUserID
 	password := "password"
 	ctx := &core.NodeContext{
-		FlowID: "test-flow",
+		ExecutionID: "test-flow",
 		UserInputs: map[string]string{
 			userAttributePassword: password,
 		},
@@ -174,8 +174,8 @@ func (suite *CredentialSetterTestSuite) TestExecute_ServiceError() {
 		},
 	})
 
-	suite.mockUserProvider.On("UpdateUserCredentials", userID, mock.Anything).
-		Return(userprovider.NewUserProviderError(userprovider.ErrorCodeSystemError, "db error", ""))
+	suite.mockEntityProvider.On("UpdateCredentials", userID, mock.Anything).
+		Return(entityprovider.NewEntityProviderError(entityprovider.ErrorCodeSystemError, "db error", ""))
 
 	resp, err := suite.executor.Execute(ctx)
 
@@ -186,11 +186,11 @@ func (suite *CredentialSetterTestSuite) TestExecute_ServiceError() {
 
 func (suite *CredentialSetterTestSuite) TestExecute_CustomAttribute() {
 	userID := testUserID
-	customAttr := "pin"
+	const customAttr = "pin"
 	pinValue := "1234"
 
 	ctx := &core.NodeContext{
-		FlowID: "test-flow",
+		ExecutionID: "test-flow",
 		UserInputs: map[string]string{
 			customAttr: pinValue,
 		},
@@ -213,7 +213,7 @@ func (suite *CredentialSetterTestSuite) TestExecute_CustomAttribute() {
 
 	// Expect UpdateUserCredentials with custom attribute
 	expectedCredentialsJSON := `{"pin":"1234"}` //nolint:gosec // G101: This is test data, not a real credential
-	suite.mockUserProvider.On("UpdateUserCredentials", userID, mock.MatchedBy(func(data []byte) bool {
+	suite.mockEntityProvider.On("UpdateCredentials", userID, mock.MatchedBy(func(data []byte) bool {
 		return string(data) == expectedCredentialsJSON
 	})).Return(nil)
 
@@ -226,7 +226,7 @@ func (suite *CredentialSetterTestSuite) TestExecute_CustomAttribute() {
 func (suite *CredentialSetterTestSuite) TestExecute_NoRequiredInputs() {
 	userID := testUserID
 	ctx := &core.NodeContext{
-		FlowID: "test-flow",
+		ExecutionID: "test-flow",
 		UserInputs: map[string]string{
 			userAttributePassword: "password",
 		},
@@ -250,7 +250,7 @@ func (suite *CredentialSetterTestSuite) TestExecute_NoRequiredInputs() {
 func (suite *CredentialSetterTestSuite) TestExecute_EmptyInputIdentifier() {
 	userID := testUserID
 	ctx := &core.NodeContext{
-		FlowID: "test-flow",
+		ExecutionID: "test-flow",
 		UserInputs: map[string]string{
 			userAttributePassword: "password",
 		},

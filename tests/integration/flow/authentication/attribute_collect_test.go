@@ -22,8 +22,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -115,14 +115,14 @@ var (
 		Parent:      nil,
 	}
 
-	attrCollectUserSchema = testutils.UserSchema{
+	attrCollectEntityType = testutils.UserType{
 		Name: "attr_collect_flow_user",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 			"given_name": map[string]interface{}{
@@ -142,7 +142,7 @@ var (
 
 	// User templates with different attribute configurations
 	testUserNoAttributes = testutils.User{
-		Type: attrCollectUserSchema.Name,
+		Type: attrCollectEntityType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "noattrsuser",
 			"password": "testpassword"
@@ -150,7 +150,7 @@ var (
 	}
 
 	testUserPartialAttributes = testutils.User{
-		Type: attrCollectUserSchema.Name,
+		Type: attrCollectEntityType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "partialuser",
 			"password": "testpassword",
@@ -160,7 +160,7 @@ var (
 	}
 
 	testUserFullAttributes = testutils.User{
-		Type: attrCollectUserSchema.Name,
+		Type: attrCollectEntityType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "fulluser",
 			"password": "testpassword",
@@ -172,7 +172,7 @@ var (
 	}
 
 	testUserNoAttributes2 = testutils.User{
-		Type: attrCollectUserSchema.Name,
+		Type: attrCollectEntityType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "noattrsuser2",
 			"password": "testpassword"
@@ -183,7 +183,7 @@ var (
 var (
 	attrCollectTestAppID    string
 	attrCollectTestOUID     string
-	attrCollectUserSchemaID string
+	attrCollectEntityTypeID string
 )
 
 type AttributeCollectTestData struct {
@@ -215,13 +215,13 @@ func (ts *AttributeCollectFlowTestSuite) SetupSuite() {
 	}
 	attrCollectTestOUID = ouID
 
-	// Create test user schema within the OU
-	attrCollectUserSchema.OUID = attrCollectTestOUID
-	schemaID, err := testutils.CreateUserType(attrCollectUserSchema)
+	// Create test user type within the OU
+	attrCollectEntityType.OUID = attrCollectTestOUID
+	schemaID, err := testutils.CreateUserType(attrCollectEntityType)
 	if err != nil {
-		ts.T().Fatalf("Failed to create test user schema during setup: %v", err)
+		ts.T().Fatalf("Failed to create test user type during setup: %v", err)
 	}
-	attrCollectUserSchemaID = schemaID
+	attrCollectEntityTypeID = schemaID
 
 	// Create attribute collect flow
 	attrFlowID, err := testutils.CreateFlow(attrCollectFlow)
@@ -230,6 +230,7 @@ func (ts *AttributeCollectFlowTestSuite) SetupSuite() {
 	attrCollectTestApp.AuthFlowID = attrFlowID
 
 	// Create test application for attribute collect tests
+	attrCollectTestApp.OUID = attrCollectTestOUID
 	appID, err := testutils.CreateApplication(attrCollectTestApp)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test application during setup: %v", err)
@@ -257,8 +258,8 @@ func (ts *AttributeCollectFlowTestSuite) SetupSuite() {
 				"password": "testpassword",
 			},
 			providedAttrs: map[string]string{
-				"given_name":    "John",
-				"family_name":     "Doe",
+				"given_name":   "John",
+				"family_name":  "Doe",
 				"email":        "john.doe@example.com",
 				"mobileNumber": "+1987654321",
 			},
@@ -322,9 +323,9 @@ func (ts *AttributeCollectFlowTestSuite) TearDownSuite() {
 		}
 	}
 
-	if attrCollectUserSchemaID != "" {
-		if err := testutils.DeleteUserType(attrCollectUserSchemaID); err != nil {
-			ts.T().Logf("Failed to delete test user schema during teardown: %v", err)
+	if attrCollectEntityTypeID != "" {
+		if err := testutils.DeleteUserType(attrCollectEntityTypeID); err != nil {
+			ts.T().Logf("Failed to delete test user type during teardown: %v", err)
 		}
 	}
 
@@ -351,7 +352,8 @@ func (ts *AttributeCollectFlowTestSuite) TestAttributeCollectionFlow() {
 				ts.validateRequiredInputs(flowStep.Data.Inputs, []string{"username", "password"})
 
 				// Step 2: Provide credentials - should authenticate and proceed to attribute collection
-				credentialStep, err := common.CompleteFlow(flowStep.FlowID, testCase.credentials, "")
+				credentialStep, err := common.CompleteFlow(flowStep.ExecutionID, testCase.credentials, "",
+					flowStep.ChallengeToken)
 				ts.Require().NoError(err, "Failed to complete basic authentication")
 
 				if len(testCase.expectedMissingAttrs) == 0 {
@@ -370,7 +372,8 @@ func (ts *AttributeCollectFlowTestSuite) TestAttributeCollectionFlow() {
 
 					// Step 3: Provide missing attributes
 					if len(testCase.providedAttrs) > 0 {
-						finalStep, err := common.CompleteFlow(credentialStep.FlowID, testCase.providedAttrs, "")
+						finalStep, err := common.CompleteFlow(credentialStep.ExecutionID, testCase.providedAttrs, "",
+							credentialStep.ChallengeToken)
 						ts.Require().NoError(err, "Failed to complete attribute collection")
 						ts.Require().Equal("COMPLETE", finalStep.FlowStatus, "Expected flow status to be COMPLETE")
 						ts.Require().NotEmpty(finalStep.Assertion, "Expected assertion after attribute collection")
@@ -388,7 +391,8 @@ func (ts *AttributeCollectFlowTestSuite) TestAttributeCollectionFlow() {
 					ts.Require().Equal("VIEW", flowStep.Type, "Expected flow type to be VIEW")
 
 					// Provide credentials
-					credentialStep, err := common.CompleteFlow(flowStep.FlowID, testCase.credentials, "")
+					credentialStep, err := common.CompleteFlow(flowStep.ExecutionID, testCase.credentials, "",
+						flowStep.ChallengeToken)
 					ts.Require().NoError(err, "Failed to complete second authentication")
 					ts.Require().Equal("COMPLETE", credentialStep.FlowStatus,
 						"Expected flow to complete on second login")
@@ -410,12 +414,12 @@ func (ts *AttributeCollectFlowTestSuite) TestSingleRequestLogin_WithAllInputs() 
 	allInputs := map[string]string{
 		"username":     "fulluser",
 		"password":     "testpassword",
-		"given_name":    "Full",
-		"family_name":     "User",
+		"given_name":   "Full",
+		"family_name":  "User",
 		"email":        "john.doe2@example.com",
 		"mobileNumber": "+1987654345",
 	}
-	finalStep, err := common.CompleteFlow(flowStep.FlowID, allInputs, "")
+	finalStep, err := common.CompleteFlow(flowStep.ExecutionID, allInputs, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to complete authentication with all inputs")
 	ts.Require().Equal("COMPLETE", finalStep.FlowStatus, "Expected flow status to be COMPLETE")
 	ts.Require().NotEmpty(finalStep.Assertion, "Expected assertion after completing flow with all inputs")
@@ -430,7 +434,7 @@ func (ts *AttributeCollectFlowTestSuite) TestInvalidCredentials() {
 	flowStep, err := common.InitiateAuthenticationFlow(attrCollectTestAppID, false, nil, "")
 	ts.Require().NoError(err, "Failed to initiate authentication flow")
 
-	errorResp, err := common.CompleteFlow(flowStep.FlowID, invalidCredentials, "")
+	errorResp, err := common.CompleteFlow(flowStep.ExecutionID, invalidCredentials, "", flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Expected error response for invalid credentials")
 	ts.Require().NotEmpty(errorResp.FailureReason, "Expected failure reason for invalid credentials")
 	ts.Require().Contains(errorResp.FailureReason, "User not found",

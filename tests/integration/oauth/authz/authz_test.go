@@ -20,16 +20,19 @@ package authz
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -56,7 +59,7 @@ type TestCase struct {
 
 var (
 	testOUID       string
-	testUserSchema = testutils.UserSchema{
+	testUserType = testutils.UserType{
 		Name: "authz-test-person",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
@@ -170,7 +173,7 @@ var (
 type AuthzTestSuite struct {
 	suite.Suite
 	applicationID string
-	userSchemaID  string
+	entityTypeID  string
 	authFlowID    string
 	client        *http.Client
 }
@@ -190,12 +193,12 @@ func (ts *AuthzTestSuite) SetupSuite() {
 	}
 	testOUID = ouID
 
-	testUserSchema.OUID = ouID
-	schemaID, err := testutils.CreateUserType(testUserSchema)
+	testUserType.OUID = ouID
+	schemaID, err := testutils.CreateUserType(testUserType)
 	if err != nil {
 		ts.T().Fatalf("Failed to create test user type: %v", err)
 	}
-	ts.userSchemaID = schemaID
+	ts.entityTypeID = schemaID
 
 	// Create authentication flow
 	flowID, err := testutils.CreateFlow(testAuthFlow)
@@ -203,11 +206,12 @@ func (ts *AuthzTestSuite) SetupSuite() {
 	ts.authFlowID = flowID
 
 	app := map[string]interface{}{
-		"name":                         appName,
-		"description":                  "Application for authorization integration tests",
-		"authFlowId":                 ts.authFlowID,
+		"name":                      appName,
+		"description":               "Application for authorization integration tests",
+		"ouId":                      testOUID,
+		"authFlowId":                ts.authFlowID,
 		"isRegistrationFlowEnabled": false,
-		"allowedUserTypes":           []string{"authz-test-person"},
+		"allowedUserTypes":          []string{"authz-test-person"},
 		"inboundAuthConfig": []map[string]interface{}{
 			{
 				"type": "oauth2",
@@ -299,8 +303,8 @@ func (ts *AuthzTestSuite) TearDownSuite() {
 		}
 	}
 
-	if ts.userSchemaID != "" {
-		err := testutils.DeleteUserType(ts.userSchemaID)
+	if ts.entityTypeID != "" {
+		err := testutils.DeleteUserType(ts.entityTypeID)
 		if err != nil {
 			ts.T().Errorf("Failed to delete test user type: %v", err)
 		}
@@ -396,10 +400,10 @@ func (ts *AuthzTestSuite) TestBasicAuthorizationRequest() {
 					err := testutils.ValidateOAuth2ErrorRedirect(location, tc.ExpectedError, "")
 					ts.NoError(err, "OAuth2 error redirect validation failed")
 				} else {
-					authId, flowId, err := testutils.ExtractAuthData(location)
+					authId, executionId, err := testutils.ExtractAuthData(location)
 					ts.NoError(err, "Failed to extract auth ID")
 					ts.NotEmpty(authId, "authId should be present")
-					ts.NotEmpty(flowId, "flowId should be present")
+					ts.NotEmpty(executionId, "executionId should be present")
 				}
 			} else {
 				bodyBytes, _ := io.ReadAll(resp.Body)
@@ -416,8 +420,8 @@ func (ts *AuthzTestSuite) TestTokenRequestValidation() {
 	password := "testpass123"
 
 	user := testutils.User{
-		OUID:             testOUID,
-		Type:             "authz-test-person",
+		OUID: testOUID,
+		Type: "authz-test-person",
 		Attributes: json.RawMessage(fmt.Sprintf(`{
 			"username": "%s",
 			"password": "%s",
@@ -625,18 +629,18 @@ func initiateAuthorizeFlowAndRetrieveAuthzCode(ts *AuthzTestSuite, username stri
 
 	ts.Equal(http.StatusFound, resp.StatusCode, "Expected redirect status")
 	location := resp.Header.Get("Location")
-	authId, flowId, err := testutils.ExtractAuthData(location)
+	authId, executionId, err := testutils.ExtractAuthData(location)
 	ts.NoError(err, "Failed to extract auth ID")
 
 	// Initiate authentication flow
-	_, err = testutils.ExecuteAuthenticationFlow(flowId, nil, "")
+	initialStep, err := testutils.ExecuteAuthenticationFlow(executionId, nil, "")
 	ts.NoError(err, "Failed to initiate authentication flow")
 
 	// Execute authentication flow
-	flowStep, err := testutils.ExecuteAuthenticationFlow(flowId, map[string]string{
+	flowStep, err := testutils.ExecuteAuthenticationFlow(executionId, map[string]string{
 		"username": username,
 		"password": password,
-	}, "action_001")
+	}, "action_001", initialStep.ChallengeToken)
 	ts.NoError(err, "Failed to execute authentication flow")
 	ts.Equal("COMPLETE", flowStep.FlowStatus, "Flow should complete successfully")
 
@@ -747,10 +751,10 @@ func (ts *AuthzTestSuite) TestRedirectURIValidation() {
 					ts.NoError(err, "OAuth2 error redirect validation failed")
 
 				} else {
-					authId, flowId, err := testutils.ExtractAuthData(location)
+					authId, executionId, err := testutils.ExtractAuthData(location)
 					ts.NoError(err, "Failed to extract auth ID")
 					ts.NotEmpty(authId, "authId should be present")
-					ts.NotEmpty(flowId, "flowId should be present")
+					ts.NotEmpty(executionId, "executionId should be present")
 				}
 			}
 		})
@@ -775,8 +779,8 @@ func (ts *AuthzTestSuite) TestCompleteAuthorizationCodeFlow() {
 		ts.Run(tc.Name, func() {
 			// Create test user with credentials
 			user := testutils.User{
-				OUID:             testOUID,
-				Type:             "authz-test-person",
+				OUID: testOUID,
+				Type: "authz-test-person",
 				Attributes: json.RawMessage(fmt.Sprintf(`{
 					"username": "%s",
 					"password": "%s",
@@ -810,8 +814,8 @@ func (ts *AuthzTestSuite) TestCompleteAuthorizationCodeFlow() {
 			location := resp.Header.Get("Location")
 			ts.NotEmpty(location, "Expected redirect location header")
 
-			// Extract auth ID and flow ID
-			authId, flowId, err := testutils.ExtractAuthData(location)
+			// Extract auth ID and execution ID
+			authId, executionId, err := testutils.ExtractAuthData(location)
 			if err != nil {
 				ts.T().Fatalf("Failed to extract auth ID: %v", err)
 			}
@@ -820,16 +824,16 @@ func (ts *AuthzTestSuite) TestCompleteAuthorizationCodeFlow() {
 			}
 
 			// Initiate authentication flow
-			_, err = testutils.ExecuteAuthenticationFlow(flowId, nil, "")
+			initialStep, err := testutils.ExecuteAuthenticationFlow(executionId, nil, "")
 			if err != nil {
 				ts.T().Fatalf("Failed to initiate authentication flow: %v", err)
 			}
 
 			// Execute authentication flow
-			flowStep, err := testutils.ExecuteAuthenticationFlow(flowId, map[string]string{
+			flowStep, err := testutils.ExecuteAuthenticationFlow(executionId, map[string]string{
 				"username": tc.Username,
 				"password": tc.Password,
-			}, "action_001")
+			}, "action_001", initialStep.ChallengeToken)
 			if err != nil {
 				ts.T().Fatalf("Failed to execute authentication flow: %v", err)
 			}
@@ -837,8 +841,8 @@ func (ts *AuthzTestSuite) TestCompleteAuthorizationCodeFlow() {
 				ts.T().Fatalf("Expected flow step, got nil")
 			}
 
-			if flowStep.FlowID == "" {
-				ts.T().Fatalf("Expected flow ID, got empty string")
+			if flowStep.ExecutionID == "" {
+				ts.T().Fatalf("Expected execution ID, got empty string")
 			}
 			if flowStep.FlowStatus != "COMPLETE" {
 				ts.T().Fatalf("Expected flow status COMPLETE, got %s", flowStep.FlowStatus)
@@ -905,8 +909,8 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeErrorScenarios() {
 		ts.Run(tc.Name, func() {
 			// Create test user
 			user := testutils.User{
-				OUID:             testOUID,
-				Type:             "authz-test-person",
+				OUID: testOUID,
+				Type: "authz-test-person",
 				Attributes: json.RawMessage(fmt.Sprintf(`{
 					"username": "%s",
 					"password": "%s",
@@ -933,20 +937,20 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeErrorScenarios() {
 			location := resp.Header.Get("Location")
 			ts.NotEmpty(location, "Expected redirect location header")
 
-			authId, flowId, err := testutils.ExtractAuthData(location)
+			authId, executionId, err := testutils.ExtractAuthData(location)
 			ts.NoError(err, "Failed to extract auth ID")
 
 			// Initiate authentication flow
-			_, err = testutils.ExecuteAuthenticationFlow(flowId, nil, "")
+			initialStep, err := testutils.ExecuteAuthenticationFlow(executionId, nil, "")
 			if err != nil {
 				ts.T().Fatalf("Failed to initiate authentication flow: %v", err)
 			}
 
 			// Execute authentication flow
-			flowStep, err := testutils.ExecuteAuthenticationFlow(flowId, map[string]string{
+			flowStep, err := testutils.ExecuteAuthenticationFlow(executionId, map[string]string{
 				"username": tc.Username,
 				"password": tc.Password,
-			}, "action_001")
+			}, "action_001", initialStep.ChallengeToken)
 			if err != nil {
 				ts.T().Fatalf("Failed to execute authentication flow: %v", err)
 			}
@@ -988,10 +992,25 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeFlowWithResourceParameter() {
 	// Test that resource parameter is properly stored and used as audience in access token
 	resourceURL := "https://mcp.example.com/mcp"
 
+	// Create a Resource Server with the matching identifier so the resource parameter is valid
+	rs := testutils.ResourceServer{
+		Name:       "MCP Resource Server",
+		Handle:     "mcp-server",
+		Identifier: resourceURL,
+		OUID:       testOUID,
+	}
+	rsID, err := testutils.CreateResourceServerWithActions(rs, nil)
+	ts.NoError(err, "Failed to create resource server")
+	defer func() {
+		if err := testutils.DeleteResourceServer(rsID); err != nil {
+			ts.T().Logf("Warning: Failed to delete resource server: %v", err)
+		}
+	}()
+
 	// Create test user
 	user := testutils.User{
-		OUID:             testOUID,
-		Type:             "authz-test-person",
+		OUID: testOUID,
+		Type: "authz-test-person",
 		Attributes: json.RawMessage(`{
 			"username": "resourcetest",
 			"password": "testpass123",
@@ -1024,18 +1043,18 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeFlowWithResourceParameter() {
 	location := resp.Header.Get("Location")
 	ts.NotEmpty(location, "Expected redirect location header")
 
-	authId, flowId, err := testutils.ExtractAuthData(location)
+	authId, executionId, err := testutils.ExtractAuthData(location)
 	ts.NoError(err, "Failed to extract auth ID")
 
 	// Initiate authentication flow
-	_, err = testutils.ExecuteAuthenticationFlow(flowId, nil, "")
+	initialStep, err := testutils.ExecuteAuthenticationFlow(executionId, nil, "")
 	ts.NoError(err, "Failed to initiate authentication flow")
 
 	// Execute authentication flow
-	flowStep, err := testutils.ExecuteAuthenticationFlow(flowId, map[string]string{
+	flowStep, err := testutils.ExecuteAuthenticationFlow(executionId, map[string]string{
 		"username": "resourcetest",
 		"password": "testpass123",
-	}, "action_001")
+	}, "action_001", initialStep.ChallengeToken)
 	ts.NoError(err, "Failed to execute authentication flow")
 	ts.Equal("COMPLETE", flowStep.FlowStatus, "Expected flow status COMPLETE")
 
@@ -1090,7 +1109,21 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeFlowWithResourceParameter() {
 	// Verify the audience claim matches the resource parameter
 	aud, ok := claims["aud"]
 	ts.True(ok, "Audience claim should be present in access token")
-	ts.Equal(resourceURL, aud, "Audience should match the resource parameter")
+	switch audVal := aud.(type) {
+	case string:
+		ts.Equal(resourceURL, audVal, "Audience should match the resource parameter")
+	case []interface{}:
+		found := false
+		for _, a := range audVal {
+			if a == resourceURL {
+				found = true
+				break
+			}
+		}
+		ts.True(found, "Audience array should contain the resource URL")
+	default:
+		ts.Fail("Unexpected audience type")
+	}
 }
 
 // TestAuthorizationCodeFlowWithClaimsLocales tests that claims_locales parameter is accepted and stored
@@ -1100,8 +1133,8 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeFlowWithClaimsLocales() {
 
 	// Create test user
 	user := testutils.User{
-		OUID:             testOUID,
-		Type:             "authz-test-person",
+		OUID: testOUID,
+		Type: "authz-test-person",
 		Attributes: json.RawMessage(`{
 			"username": "localestest",
 			"password": "testpass123",
@@ -1132,18 +1165,18 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeFlowWithClaimsLocales() {
 	location := resp.Header.Get("Location")
 	ts.NotEmpty(location, "Expected redirect location header")
 
-	authId, flowId, err := testutils.ExtractAuthData(location)
+	authId, executionId, err := testutils.ExtractAuthData(location)
 	ts.NoError(err, "Failed to extract auth ID")
 
 	// Initiate authentication flow
-	_, err = testutils.ExecuteAuthenticationFlow(flowId, nil, "")
+	initialStep, err := testutils.ExecuteAuthenticationFlow(executionId, nil, "")
 	ts.NoError(err, "Failed to initiate authentication flow")
 
 	// Execute authentication flow
-	flowStep, err := testutils.ExecuteAuthenticationFlow(flowId, map[string]string{
+	flowStep, err := testutils.ExecuteAuthenticationFlow(executionId, map[string]string{
 		"username": "localestest",
 		"password": "testpass123",
-	}, "action_001")
+	}, "action_001", initialStep.ChallengeToken)
 	ts.NoError(err, "Failed to execute authentication flow")
 	ts.Equal("COMPLETE", flowStep.FlowStatus, "Expected flow status COMPLETE")
 
@@ -1192,8 +1225,8 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeFlowWithNonce() {
 
 	// Create test user
 	user := testutils.User{
-		OUID:             testOUID,
-		Type:             "authz-test-person",
+		OUID: testOUID,
+		Type: "authz-test-person",
 		Attributes: json.RawMessage(`{
 			"username": "noncetest",
 			"password": "testpass123",
@@ -1224,18 +1257,18 @@ func (ts *AuthzTestSuite) TestAuthorizationCodeFlowWithNonce() {
 	ts.Equal(http.StatusFound, resp.StatusCode)
 
 	location := resp.Header.Get("Location")
-	authId, flowId, err := testutils.ExtractAuthData(location)
+	authId, executionId, err := testutils.ExtractAuthData(location)
 	ts.NoError(err)
 
 	// Initiate auth flow
-	_, err = testutils.ExecuteAuthenticationFlow(flowId, nil, "")
+	initialStep, err := testutils.ExecuteAuthenticationFlow(executionId, nil, "")
 	ts.NoError(err)
 
 	// Execute credentials
-	flowStep, err := testutils.ExecuteAuthenticationFlow(flowId, map[string]string{
+	flowStep, err := testutils.ExecuteAuthenticationFlow(executionId, map[string]string{
 		"username": "noncetest",
 		"password": "testpass123",
-	}, "action_001")
+	}, "action_001", initialStep.ChallengeToken)
 	ts.NoError(err)
 	ts.Equal("COMPLETE", flowStep.FlowStatus)
 
@@ -1283,8 +1316,8 @@ func (ts *AuthzTestSuite) TestNonceIgnoredWithoutOpenIDScope() {
 
 	// Create test user
 	user := testutils.User{
-		OUID:             testOUID,
-		Type:             "authz-test-person",
+		OUID: testOUID,
+		Type: "authz-test-person",
 		Attributes: json.RawMessage(`{
 			"username": "nonopeniduser",
 			"password": "testpass123",
@@ -1315,17 +1348,17 @@ func (ts *AuthzTestSuite) TestNonceIgnoredWithoutOpenIDScope() {
 	ts.Equal(http.StatusFound, resp.StatusCode)
 
 	location := resp.Header.Get("Location")
-	authId, flowId, err := testutils.ExtractAuthData(location)
+	authId, executionId, err := testutils.ExtractAuthData(location)
 	ts.NoError(err)
 
 	// Execute authentication flow
-	_, err = testutils.ExecuteAuthenticationFlow(flowId, nil, "")
+	initialStep, err := testutils.ExecuteAuthenticationFlow(executionId, nil, "")
 	ts.NoError(err)
 
-	flowStep, err := testutils.ExecuteAuthenticationFlow(flowId, map[string]string{
+	flowStep, err := testutils.ExecuteAuthenticationFlow(executionId, map[string]string{
 		"username": "nonopeniduser",
 		"password": "testpass123",
-	}, "action_001")
+	}, "action_001", initialStep.ChallengeToken)
 	ts.NoError(err)
 	ts.Equal("COMPLETE", flowStep.FlowStatus)
 
@@ -1364,4 +1397,142 @@ func (ts *AuthzTestSuite) TestNonceIgnoredWithoutOpenIDScope() {
 		_, exists := claims["nonce"]
 		ts.False(exists, "Nonce must not be included when openid scope is absent")
 	}
+}
+
+// TestAuthorizationCodeFlow_IDToken_JWE verifies that when an application is configured with
+// ID token encryption (RSA-OAEP-256 / A256GCM), the id_token returned from the token endpoint
+// is a JWE compact serialisation (five dot-separated parts) rather than a plain JWT.
+func (ts *AuthzTestSuite) TestAuthorizationCodeFlow_IDToken_JWE() {
+	// Generate RSA key pair and build inline JWKS with use=enc.
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	ts.Require().NoError(err)
+
+	eBytes := big.NewInt(int64(privKey.PublicKey.E)).Bytes()
+	jwksKey := map[string]interface{}{
+		"kty": "RSA",
+		"use": "enc",
+		"alg": "RSA-OAEP-256",
+		"n":   base64.RawURLEncoding.EncodeToString(privKey.PublicKey.N.Bytes()),
+		"e":   base64.RawURLEncoding.EncodeToString(eBytes),
+	}
+	jwksBytes, err := json.Marshal(map[string]interface{}{"keys": []interface{}{jwksKey}})
+	ts.Require().NoError(err)
+	jwksJSON := string(jwksBytes)
+
+	const (
+		jweClientID     = "authz_idtoken_jwe_client"
+		jweClientSecret = "authz_idtoken_jwe_secret" //nolint:gosec // test credential
+	)
+
+	// Create an application with ID token encryption configured.
+	app := map[string]interface{}{
+		"name":                      "AuthzIDTokenJWETestApp",
+		"description":               "Test app for ID token JWE integration",
+		"ouId":                      testOUID,
+		"authFlowId":                ts.authFlowID,
+		"isRegistrationFlowEnabled": false,
+		"allowedUserTypes":          []string{"authz-test-person"},
+		"inboundAuthConfig": []map[string]interface{}{
+			{
+				"type": "oauth2",
+				"config": map[string]interface{}{
+					"clientId":                jweClientID,
+					"clientSecret":            jweClientSecret,
+					"redirectUris":            []string{redirectURI},
+					"grantTypes":              []string{"authorization_code"},
+					"responseTypes":           []string{"code"},
+					"tokenEndpointAuthMethod": "client_secret_basic",
+					"scopes":                  []string{"openid"},
+					"token": map[string]interface{}{
+						"idToken": map[string]interface{}{
+							"responseType":  "JWE",
+							"encryptionAlg": "RSA-OAEP-256",
+							"encryptionEnc": "A256GCM",
+						},
+					},
+					"certificate": map[string]interface{}{
+						"type":  "JWKS",
+						"value": jwksJSON,
+					},
+				},
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(app)
+	ts.Require().NoError(err)
+
+	req, err := http.NewRequest("POST", testutils.TestServerURL+"/applications", bytes.NewBuffer(jsonData))
+	ts.Require().NoError(err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ts.client.Do(req)
+	ts.Require().NoError(err)
+	defer resp.Body.Close()
+	ts.Require().Equal(http.StatusCreated, resp.StatusCode, "Failed to create JWE test application")
+
+	var appRespData map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&appRespData)
+	ts.Require().NoError(err)
+	jweAppID := appRespData["id"].(string)
+	defer func() {
+		delReq, _ := http.NewRequest("DELETE",
+			fmt.Sprintf("%s/applications/%s", testutils.TestServerURL, jweAppID), nil)
+		delResp, _ := ts.client.Do(delReq)
+		if delResp != nil {
+			_ = delResp.Body.Close()
+		}
+	}()
+
+	// Create a test user.
+	user := testutils.User{
+		OUID: testOUID,
+		Type: "authz-test-person",
+		Attributes: json.RawMessage(`{
+			"username": "idtoken_jwe_user",
+			"password": "testpass123",
+			"email": "idtoken_jwe_user@example.com",
+			"given_name": "JWE",
+			"family_name": "User"
+		}`),
+	}
+	userID, err := testutils.CreateUser(user)
+	ts.Require().NoError(err)
+	defer func() { _ = testutils.DeleteUser(userID) }()
+
+	// Run the full authorization code flow.
+	authzResp, err := testutils.InitiateAuthorizationFlow(jweClientID, redirectURI, "code", "openid", "jwe_state")
+	ts.Require().NoError(err)
+	defer authzResp.Body.Close()
+	ts.Require().Equal(http.StatusFound, authzResp.StatusCode)
+
+	authID, executionID, err := testutils.ExtractAuthData(authzResp.Header.Get("Location"))
+	ts.Require().NoError(err)
+
+	initialStep, err := testutils.ExecuteAuthenticationFlow(executionID, nil, "")
+	ts.Require().NoError(err)
+
+	flowStep, err := testutils.ExecuteAuthenticationFlow(executionID, map[string]string{
+		"username": "idtoken_jwe_user",
+		"password": "testpass123",
+	}, "action_001", initialStep.ChallengeToken)
+	ts.Require().NoError(err)
+	ts.Require().Equal("COMPLETE", flowStep.FlowStatus)
+
+	authzResponse, err := testutils.CompleteAuthorization(authID, flowStep.Assertion)
+	ts.Require().NoError(err)
+
+	authzCode, err := testutils.ExtractAuthorizationCode(authzResponse.RedirectURI)
+	ts.Require().NoError(err)
+
+	result, err := testutils.RequestToken(jweClientID, jweClientSecret, authzCode, redirectURI, "authorization_code")
+	ts.Require().NoError(err)
+	ts.Require().Equal(http.StatusOK, result.StatusCode)
+
+	idToken := result.Token.IDToken
+	ts.Require().NotEmpty(idToken, "ID token must be present")
+
+	// A JWE compact serialisation has exactly 5 dot-separated parts.
+	parts := strings.Split(idToken, ".")
+	ts.Len(parts, 5, "Encrypted ID token must be a JWE compact serialisation (5 parts)")
 }

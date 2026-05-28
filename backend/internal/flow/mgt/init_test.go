@@ -25,11 +25,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
+	yaml "gopkg.in/yaml.v3"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	serverconst "github.com/asgardeo/thunder/internal/system/constants"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/tests/mocks/database/providermock"
+	"github.com/thunder-id/thunderid/internal/system/cache"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
+	"github.com/thunder-id/thunderid/internal/system/cors"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/tests/mocks/database/providermock"
 )
 
 // mockTransactioner is a simple no-op transactioner for tests.
@@ -60,29 +63,33 @@ type InitTestSuite struct {
 func (s *InitTestSuite) SetupTest() {
 	s.mockService = NewFlowMgtServiceInterfaceMock(s.T())
 
+	var allowedOrigins cors.OriginEntries
+	s.Require().NoError(yaml.Unmarshal([]byte(`
+- https://example.com
+- https://localhost:3000
+`), &allowedOrigins))
 	testConfig := &config.Config{
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
 			Identifier: "test-deployment",
 		},
-		CORS: config.CORSConfig{
-			AllowedOrigins: []string{"https://example.com", "https://localhost:3000"},
-		},
+		CORS: config.CORSConfig{AllowedOrigins: allowedOrigins},
 	}
-	_ = config.InitializeThunderRuntime("test", testConfig)
+	s.Require().NoError(cors.InitializeMatcher(testConfig.CORS.AllowedOrigins))
+	_ = config.InitializeServerRuntime("test", testConfig)
 }
 
 func (s *InitTestSuite) TearDownTest() {
-	config.ResetThunderRuntime()
+	config.ResetServerRuntime()
 }
 
 func TestInitTestSuite(t *testing.T) {
@@ -162,8 +169,12 @@ func (s *InitTestSuite) TestRegisterRoutes_CORSHeadersConfigured() {
 
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
+			// Allow-Methods/Allow-Headers are preflight-only response headers
+			// per the Fetch spec; the request must carry
+			// Access-Control-Request-Method to elicit them.
 			req := httptest.NewRequest(tc.method, tc.path, nil)
 			req.Header.Set("Origin", "https://example.com")
+			req.Header.Set("Access-Control-Request-Method", "GET")
 			w := httptest.NewRecorder()
 
 			mux.ServeHTTP(w, req)
@@ -274,9 +285,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_Mutable() {
 			Store: string(serverconst.StoreModeMutable),
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -289,9 +300,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_Declarative() {
 			Store: string(serverconst.StoreModeDeclarative),
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -307,9 +318,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_Composite() {
 			Enabled: true,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -322,9 +333,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_DefaultMutable() {
 			Store: "",
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -340,9 +351,9 @@ func (s *InitTestSuite) TestIsCompositeModeEnabled_Enabled() {
 			Enabled: true,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	enabled := isCompositeModeEnabled()
 
@@ -355,9 +366,9 @@ func (s *InitTestSuite) TestIsCompositeModeEnabled_Disabled() {
 			Store: string(serverconst.StoreModeMutable),
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	enabled := isCompositeModeEnabled()
 
@@ -373,9 +384,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_InvalidMode() {
 			Store: "invalid-mode",
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -390,9 +401,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_WithWhitespace() {
 			Store: "  composite  ",
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -407,9 +418,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_MixedCase() {
 			Store: "Declarative",
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -427,9 +438,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_FallbackToGlobalDeclarative() {
 			Enabled: true,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -447,9 +458,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_FallbackToGlobalMutable() {
 			Enabled: false,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -467,9 +478,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_ExplicitOverridesGlobal() {
 			Enabled: true, // Global says declarative
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -484,9 +495,9 @@ func (s *InitTestSuite) TestIsCompositeModeEnabled_True() {
 			Store: string(serverconst.StoreModeComposite),
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	enabled := isCompositeModeEnabled()
 
@@ -500,9 +511,9 @@ func (s *InitTestSuite) TestIsCompositeModeEnabled_FalseForMutable() {
 			Store: string(serverconst.StoreModeMutable),
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	enabled := isCompositeModeEnabled()
 
@@ -516,9 +527,9 @@ func (s *InitTestSuite) TestIsCompositeModeEnabled_FalseForDeclarative() {
 			Store: string(serverconst.StoreModeDeclarative),
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	enabled := isCompositeModeEnabled()
 
@@ -532,9 +543,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_Uppercase() {
 			Store: "COMPOSITE",
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -549,9 +560,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_SpecialCharacters() {
 			Store: "mutable@#$",
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -566,9 +577,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_NilFlowConfig() {
 			Enabled: false,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	mode := getFlowStoreMode()
 
@@ -626,9 +637,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_PriorityOrder() {
 					Enabled: tc.declarativeEnabled,
 				},
 			}
-			config.ResetThunderRuntime()
-			_ = config.InitializeThunderRuntime("test", testConfig)
-			defer config.ResetThunderRuntime()
+			config.ResetServerRuntime()
+			_ = config.InitializeServerRuntime("test", testConfig)
+			defer config.ResetServerRuntime()
 
 			mode := getFlowStoreMode()
 
@@ -652,9 +663,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_AllValidModes() {
 					Store: string(validMode),
 				},
 			}
-			config.ResetThunderRuntime()
-			_ = config.InitializeThunderRuntime("test", testConfig)
-			defer config.ResetThunderRuntime()
+			config.ResetServerRuntime()
+			_ = config.InitializeServerRuntime("test", testConfig)
+			defer config.ResetServerRuntime()
 
 			mode := getFlowStoreMode()
 
@@ -674,9 +685,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_EmptyStringVsNil() {
 				Enabled: true,
 			},
 		}
-		config.ResetThunderRuntime()
-		_ = config.InitializeThunderRuntime("test", testConfig)
-		defer config.ResetThunderRuntime()
+		config.ResetServerRuntime()
+		_ = config.InitializeServerRuntime("test", testConfig)
+		defer config.ResetServerRuntime()
 
 		mode := getFlowStoreMode()
 
@@ -707,9 +718,9 @@ func (s *InitTestSuite) TestGetFlowStoreMode_NormalizationCases() {
 					Store: tc.input,
 				},
 			}
-			config.ResetThunderRuntime()
-			_ = config.InitializeThunderRuntime("test", testConfig)
-			defer config.ResetThunderRuntime()
+			config.ResetServerRuntime()
+			_ = config.InitializeServerRuntime("test", testConfig)
+			defer config.ResetServerRuntime()
 
 			mode := getFlowStoreMode()
 
@@ -726,26 +737,26 @@ func (s *InitTestSuite) TestInitializeStore_MutableMode() {
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
 			Identifier: "test-deployment",
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	cleanup := setupMockDBProvider()
 	defer cleanup()
 
-	store, compositeStore, _, err := initializeStore()
+	store, compositeStore, _, err := initializeStore(cache.Initialize())
 
 	s.NoError(err)
 	s.NotNil(store)
@@ -763,12 +774,12 @@ func (s *InitTestSuite) TestInitializeStore_DeclarativeMode() {
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
@@ -778,11 +789,11 @@ func (s *InitTestSuite) TestInitializeStore_DeclarativeMode() {
 			Enabled: true,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
-	store, compositeStore, _, err := initializeStore()
+	store, compositeStore, _, err := initializeStore(cache.Initialize())
 
 	// Note: err might occur if declarative resources path doesn't exist, but that's expected
 	// We're testing store type initialization, not resource loading
@@ -802,12 +813,12 @@ func (s *InitTestSuite) TestInitializeStore_CompositeMode() {
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
@@ -817,14 +828,14 @@ func (s *InitTestSuite) TestInitializeStore_CompositeMode() {
 			Enabled: true,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	cleanup := setupMockDBProvider()
 	defer cleanup()
 
-	store, compositeStore, _, err := initializeStore()
+	store, compositeStore, _, err := initializeStore(cache.Initialize())
 
 	// Note: err might occur if declarative resources path doesn't exist, but that's expected
 	// We're testing store type initialization, not resource loading
@@ -846,12 +857,12 @@ func (s *InitTestSuite) TestInitializeStore_DeclarativeMode_ResourceLoadingError
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
@@ -861,11 +872,11 @@ func (s *InitTestSuite) TestInitializeStore_DeclarativeMode_ResourceLoadingError
 			Enabled: true,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
-	store, compositeStore, _, err := initializeStore()
+	store, compositeStore, _, err := initializeStore(cache.Initialize())
 
 	// When declarative resources path doesn't exist or has issues, error is returned
 	// The store and compositeStore should be nil when error occurs
@@ -887,12 +898,12 @@ func (s *InitTestSuite) TestInitializeStore_CompositeMode_ResourceLoadingError()
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
@@ -902,14 +913,14 @@ func (s *InitTestSuite) TestInitializeStore_CompositeMode_ResourceLoadingError()
 			Enabled: true,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	cleanup := setupMockDBProvider()
 	defer cleanup()
 
-	store, compositeStore, _, err := initializeStore()
+	store, compositeStore, _, err := initializeStore(cache.Initialize())
 
 	// When declarative resources path doesn't exist or has issues, error is returned
 	// The store and compositeStore should be nil when error occurs
@@ -931,12 +942,12 @@ func (s *InitTestSuite) TestInitializeStore_DefaultMode() {
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
@@ -946,14 +957,14 @@ func (s *InitTestSuite) TestInitializeStore_DefaultMode() {
 			Enabled: false,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	cleanup := setupMockDBProvider()
 	defer cleanup()
 
-	store, compositeStore, _, err := initializeStore()
+	store, compositeStore, _, err := initializeStore(cache.Initialize())
 
 	s.NoError(err)
 	s.NotNil(store)
@@ -971,12 +982,12 @@ func (s *InitTestSuite) TestInitializeStore_ModeNormalization() {
 		},
 		Database: config.DatabaseConfig{
 			Config: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 			Runtime: config.DataSource{
-				Type: "sqlite",
-				Path: ":memory:",
+				Type:   "sqlite",
+				SQLite: config.SQLiteDataSource{Path: ":memory:"},
 			},
 		},
 		Server: config.ServerConfig{
@@ -986,14 +997,14 @@ func (s *InitTestSuite) TestInitializeStore_ModeNormalization() {
 			Enabled: true,
 		},
 	}
-	config.ResetThunderRuntime()
-	_ = config.InitializeThunderRuntime("test", testConfig)
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	_ = config.InitializeServerRuntime("test", testConfig)
+	defer config.ResetServerRuntime()
 
 	cleanup := setupMockDBProvider()
 	defer cleanup()
 
-	store, compositeStore, _, err := initializeStore()
+	store, compositeStore, _, err := initializeStore(cache.Initialize())
 
 	// Note: err might occur if declarative resources path doesn't exist, but that's expected
 	// We're testing store type initialization and mode normalization

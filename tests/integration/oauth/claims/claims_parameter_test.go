@@ -29,7 +29,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
@@ -43,7 +43,7 @@ const (
 )
 
 var (
-	testUserSchema = testutils.UserSchema{
+	testUserType = testutils.UserType{
 		Name: "claims-test-person",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
@@ -76,7 +76,7 @@ type ClaimsParameterTestSuite struct {
 	suite.Suite
 	flowID        string
 	applicationID string
-	userSchemaID  string
+	entityTypeID  string
 	userID        string
 	client        *http.Client
 	ouID          string
@@ -100,11 +100,11 @@ func (ts *ClaimsParameterTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "Failed to create test organization unit")
 	ts.ouID = ouID
 
-	// Create user schema
-	testUserSchema.OUID = ts.ouID
-	schemaID, err := testutils.CreateUserType(testUserSchema)
-	ts.Require().NoError(err, "Failed to create test user schema")
-	ts.userSchemaID = schemaID
+	// Create user type
+	testUserType.OUID = ts.ouID
+	schemaID, err := testutils.CreateUserType(testUserType)
+	ts.Require().NoError(err, "Failed to create test user type")
+	ts.entityTypeID = schemaID
 
 	// Create test user
 	ts.userID = ts.createTestUser()
@@ -139,10 +139,10 @@ func (ts *ClaimsParameterTestSuite) TearDownSuite() {
 		testutils.DeleteOrganizationUnit(ts.ouID)
 	}
 
-	// Clean up user schema
-	if ts.userSchemaID != "" {
-		if err := testutils.DeleteUserType(ts.userSchemaID); err != nil {
-			ts.T().Logf("Failed to delete user schema during teardown: %v", err)
+	// Clean up user type
+	if ts.entityTypeID != "" {
+		if err := testutils.DeleteUserType(ts.entityTypeID); err != nil {
+			ts.T().Logf("Failed to delete user type during teardown: %v", err)
 		}
 	}
 }
@@ -259,6 +259,7 @@ func (ts *ClaimsParameterTestSuite) createTestApplication(authFlowID string) str
 	app := map[string]interface{}{
 		"name":                      appName,
 		"description":               "Application for Claims Parameter integration tests",
+		"ouId":                      ts.ouID,
 		"authFlowId":                authFlowID,
 		"isRegistrationFlowEnabled": false,
 		"allowedUserTypes":          []string{"claims-test-person"},
@@ -375,7 +376,7 @@ func (ts *ClaimsParameterTestSuite) getTokenWithClaims(
 	}
 
 	// Step 3: Initiate authentication flow
-	_, err = testutils.ExecuteAuthenticationFlow(flowID, nil, "")
+	initialStep, err := testutils.ExecuteAuthenticationFlow(flowID, nil, "")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to initiate authentication flow: %w", err)
 	}
@@ -385,7 +386,7 @@ func (ts *ClaimsParameterTestSuite) getTokenWithClaims(
 		"username": "claims_test_user",
 		"password": "SecurePass123!",
 	}
-	flowStep, err := testutils.ExecuteAuthenticationFlow(flowID, authInputs, "action_001")
+	flowStep, err := testutils.ExecuteAuthenticationFlow(flowID, authInputs, "action_001", initialStep.ChallengeToken)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to execute authentication flow: %w", err)
 	}
@@ -505,7 +506,7 @@ func (ts *ClaimsParameterTestSuite) getTokensWithClaims(
 	}
 
 	// Step 3: Initiate authentication flow
-	_, err = testutils.ExecuteAuthenticationFlow(flowID, nil, "")
+	initialStep, err := testutils.ExecuteAuthenticationFlow(flowID, nil, "")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to initiate authentication flow: %w", err)
 	}
@@ -515,7 +516,7 @@ func (ts *ClaimsParameterTestSuite) getTokensWithClaims(
 		"username": "claims_test_user",
 		"password": "SecurePass123!",
 	}
-	flowStep, err := testutils.ExecuteAuthenticationFlow(flowID, authInputs, "action_001")
+	flowStep, err := testutils.ExecuteAuthenticationFlow(flowID, authInputs, "action_001", initialStep.ChallengeToken)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to execute authentication flow: %w", err)
 	}

@@ -17,6 +17,10 @@
 # under the License.
 # ----------------------------------------------------------------------------
 
+$PRODUCT_NAME = "ThunderID"
+$PRODUCT_NAME_LOWERCASE = $PRODUCT_NAME.ToLower()
+$BINARY_NAME = $PRODUCT_NAME_LOWERCASE
+
 # Check for PowerShell Version Compatibility
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Host ""
@@ -25,7 +29,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Host "================================================================" -ForegroundColor Red
     Write-Host ""
     Write-Host " You are currently running PowerShell $($PSVersionTable.PSVersion.ToString())" -ForegroundColor Yellow
-    Write-Host " Thunder requires PowerShell 7 (Core) or later." -ForegroundColor Yellow
+    Write-Host " $PRODUCT_NAME requires PowerShell 7 (Core) or later." -ForegroundColor Yellow
     Write-Host ""
     Write-Host " Please install the latest version from:"
     Write-Host " https://github.com/PowerShell/PowerShell" -ForegroundColor Cyan
@@ -33,11 +37,11 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     exit 1
 }
 
-# Thunder Setup Script
+# Product Setup Script
 # Orchestrates the complete setup lifecycle:
-# 1. Starts Thunder server with security disabled
+# 1. Starts the server with security disabled
 # 2. Executes bootstrap scripts (built-in + custom)
-# 3. Stops Thunder server
+# 3. Stops the server
 # 4. Exits cleanly
 
 # Exit on any error
@@ -46,6 +50,8 @@ $ErrorActionPreference = 'Stop'
 # Default settings
 $DEBUG_PORT = if ($env:DEBUG_PORT) { [int]$env:DEBUG_PORT } else { 2345 }
 $DEBUG_MODE = if ($env:DEBUG_MODE -eq "true") { $true } else { $false }
+$VERBOSE_MODE = $false
+$SILENT_MODE = $true
 $BOOTSTRAP_FAIL_FAST = if ($env:BOOTSTRAP_FAIL_FAST -eq "false") { $false } else { $true }
 $BOOTSTRAP_SKIP_PATTERN = if ($env:BOOTSTRAP_SKIP_PATTERN) { $env:BOOTSTRAP_SKIP_PATTERN } else { "" }
 $BOOTSTRAP_ONLY_PATTERN = if ($env:BOOTSTRAP_ONLY_PATTERN) { $env:BOOTSTRAP_ONLY_PATTERN } else { "" }
@@ -58,16 +64,25 @@ $WITH_CONSENT = if ($env:WITH_CONSENT -eq 'false') { $false } else { $true }
 
 function Log-Info {
     param([string]$Message)
+    if (-not $VERBOSE_MODE) {
+        return
+    }
     Write-Host "[INFO] $Message" -ForegroundColor Blue
 }
 
 function Log-Success {
     param([string]$Message)
+    if (-not $VERBOSE_MODE) {
+        return
+    }
     Write-Host "[SUCCESS] [OK] $Message" -ForegroundColor Green
 }
 
 function Log-Warning {
     param([string]$Message)
+    if (-not $VERBOSE_MODE) {
+        return
+    }
     Write-Host "[WARNING] ! $Message" -ForegroundColor Yellow
 }
 
@@ -78,7 +93,7 @@ function Log-Error {
 
 function Log-Debug {
     param([string]$Message)
-    if ($env:DEBUG -eq "true") {
+    if ($env:DEBUG -eq "true" -and $VERBOSE_MODE) {
         Write-Host "[DEBUG] $Message" -ForegroundColor Cyan
     }
 }
@@ -87,7 +102,7 @@ function Log-Debug {
 # API Call Helper Function
 # ============================================================================
 
-function Invoke-ThunderApi {
+function Invoke-Api {
     param(
         [string]$Method,
         [string]$Endpoint,
@@ -95,14 +110,14 @@ function Invoke-ThunderApi {
     )
 
     # Get base URL from environment variable
-    $baseUrl = if ($env:THUNDER_API_BASE) {
-        $env:THUNDER_API_BASE
+    $baseUrl = if ($env:API_BASE) {
+        $env:API_BASE
     } else {
-        Log-Error "THUNDER_API_BASE is not set!"
+        Log-Error "API_BASE is not set!"
         return @{
             StatusCode = 0
             Body = ""
-            Error = "THUNDER_API_BASE not set"
+            Error = "API_BASE not set"
         }
     }
 
@@ -204,11 +219,12 @@ function Invoke-ThunderApi {
 
 function Show-Help {
     Write-Host ""
-    Write-Host "Thunder Setup Script"
+    Write-Host "$PRODUCT_NAME Setup Script"
     Write-Host ""
     Write-Host "Usage: .\setup.ps1 [options]"
     Write-Host ""
     Write-Host "Options:"
+    Write-Host "  --verbose                Enable detailed setup output"
     Write-Host "  --debug                  Enable debug mode with remote debugging"
     Write-Host "  --debug-port PORT        Set debug port (default: 2345)"
     Write-Host "  --without-consent        Disable the bundled consent server"
@@ -216,11 +232,11 @@ function Show-Help {
     Write-Host ""
     Write-Host "Description:"
     Write-Host "  This script performs initial setup by:"
-    Write-Host "  1. Starting Thunder server temporarily with security disabled"
+    Write-Host "  1. Starting $PRODUCT_NAME server temporarily with security disabled"
     Write-Host "  2. Running bootstrap scripts to create default resources"
     Write-Host "  3. Stopping the server cleanly"
     Write-Host ""
-    Write-Host "  After setup completes, use '.\start.ps1' to start Thunder normally."
+    Write-Host "  After setup completes, use '.\start.ps1' to start $PRODUCT_NAME normally."
     Write-Host ""
 }
 
@@ -231,6 +247,12 @@ function Show-Help {
 $i = 0
 while ($i -lt $args.Count) {
     switch ($args[$i]) {
+        '--verbose' {
+            $VERBOSE_MODE = $true
+            $SILENT_MODE = $false
+            $i++
+            break
+        }
         '--debug' {
             $DEBUG_MODE = $true
             $i++
@@ -292,6 +314,8 @@ function Read-Config {
         $script:PORT = & yq eval '.server.port // 8090' $configFile 2>$null
         $script:HTTP_ONLY = & yq eval '.server.http_only // false' $configFile 2>$null
         $script:PUBLIC_URL = & yq eval '.server.public_url // ""' $configFile 2>$null
+        $script:SYSTEM_RS_HANDLE = & yq eval '.resource.system_resource_server.handle // ""' $configFile 2>$null
+        $script:SYSTEM_RS_IDENTIFIER = & yq eval '.resource.system_resource_server.identifier // ""' $configFile 2>$null
     }
     else {
         # Fallback: basic parsing with Select-String
@@ -331,6 +355,28 @@ function Read-Config {
         else {
             $script:PUBLIC_URL = ""
         }
+
+        # Parse system resource server handle (under resource.system_resource_server)
+        if ($content -match '(?ms)system_resource_server:.*?handle:\s*[''"]([^''"]*)[''"]') {
+            $script:SYSTEM_RS_HANDLE = $matches[1]
+        }
+        elseif ($content -match '(?ms)system_resource_server:.*?handle:\s*([^\s#]+)') {
+            $script:SYSTEM_RS_HANDLE = $matches[1]
+        }
+        else {
+            $script:SYSTEM_RS_HANDLE = ""
+        }
+
+        # Parse system resource server identifier (under resource.system_resource_server)
+        if ($content -match '(?ms)system_resource_server:.*?identifier:\s*[''"]([^''"]*)[''"]') {
+            $script:SYSTEM_RS_IDENTIFIER = $matches[1]
+        }
+        elseif ($content -match '(?ms)system_resource_server:.*?identifier:\s*([^\s#]+)') {
+            $script:SYSTEM_RS_IDENTIFIER = $matches[1]
+        }
+        else {
+            $script:SYSTEM_RS_IDENTIFIER = ""
+        }
     }
 
     # Determine protocol
@@ -349,31 +395,30 @@ Read-Config | Out-Null
 
 # Construct base URL (internal API endpoint)
 $BASE_URL = "$($script:PROTOCOL)://$($script:HOSTNAME):$($script:PORT)"
-$script:THUNDER_API_BASE = $BASE_URL
+$script:API_BASE = $BASE_URL
 
 # Construct public URL (external/redirect URLs), strip trailing slash to avoid double slashes in paths
 $PUBLIC_URL = if ($script:PUBLIC_URL) { $script:PUBLIC_URL.TrimEnd('/') } else { $BASE_URL }
 
 # Export environment variables for bootstrap scripts
-$env:THUNDER_API_BASE = $BASE_URL
-$env:THUNDER_PUBLIC_URL = $PUBLIC_URL
+$env:API_BASE = $BASE_URL
+$env:PUBLIC_URL = $PUBLIC_URL
+$env:SYSTEM_RS_HANDLE = if ($script:SYSTEM_RS_HANDLE) { $script:SYSTEM_RS_HANDLE } else { "" }
+$env:SYSTEM_RS_IDENTIFIER = if ($script:SYSTEM_RS_IDENTIFIER) { $script:SYSTEM_RS_IDENTIFIER } else { "" }
 
 Write-Host ""
 Write-Host "========================================="
-Write-Host "   Thunder Setup"
+Write-Host "   $PRODUCT_NAME Setup"
 Write-Host "========================================="
 Write-Host ""
-Write-Host "Server URL: $BASE_URL" -ForegroundColor Blue
-Write-Host "Public URL: $PUBLIC_URL" -ForegroundColor Blue
-if ($DEBUG_MODE) {
-    Write-Host "Debug: Enabled (port $DEBUG_PORT)" -ForegroundColor Blue
+if ($VERBOSE_MODE) {
+    Write-Host "Server URL: $BASE_URL" -ForegroundColor Blue
+    Write-Host "Public URL: $PUBLIC_URL" -ForegroundColor Blue
+    if ($DEBUG_MODE) {
+        Write-Host "Debug: Enabled (port $DEBUG_PORT)" -ForegroundColor Blue
+    }
+    Write-Host ""
 }
-Write-Host ""
-
-# Log PowerShell version for debugging
-Log-Debug "PowerShell Version: $($PSVersionTable.PSVersion)"
-Log-Debug "PowerShell Edition: $($PSVersionTable.PSEdition)"
-Log-Debug "OS: $($PSVersionTable.OS)"
 Log-Debug "Platform: $($PSVersionTable.Platform)"
 
 # ============================================================================
@@ -434,37 +479,45 @@ if ($DEBUG_MODE -and -not (Get-Command dlv -ErrorAction SilentlyContinue)) {
 }
 
 # ============================================================================
-# Start Thunder Server with Security Disabled
+# Start the Server with Security Disabled
 # ============================================================================
 
-Write-Host "[WARN] Starting temporary server with security disabled..." -ForegroundColor Yellow
-Write-Host ""
+if ($VERBOSE_MODE) {
+    Write-Host "[WARN] Starting temporary server with security disabled..." -ForegroundColor Yellow
+    Write-Host ""
+}
 
 # Export environment variable to skip security
-$hadSkipSecurity = Test-Path Env:THUNDER_SKIP_SECURITY
-$previousSkipSecurity = $env:THUNDER_SKIP_SECURITY
-$env:THUNDER_SKIP_SECURITY = "true"
+$hadSkipSecurity = Test-Path Env:SKIP_SECURITY
+$previousSkipSecurity = $env:SKIP_SECURITY
+$env:SKIP_SECURITY = "true"
 
-# Resolve thunder executable path
+# Resolve the server executable path
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $possible = @(
-    (Join-Path $scriptDir 'thunder.exe'),
-    (Join-Path $scriptDir 'thunder')
+    (Join-Path $scriptDir "${BINARY_NAME}.exe"),
+    (Join-Path $scriptDir $BINARY_NAME)
 )
-$thunderPath = $possible | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $thunderPath) {
-    $thunderPath = Join-Path $scriptDir 'thunder'
+$serverExecPath = $possible | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $serverExecPath) {
+    $serverExecPath = Join-Path $scriptDir $BINARY_NAME
 }
 
 # Start Consent Server (if enabled)
 $consentProc = $null
 $consentDir = Join-Path $scriptDir 'consent'
+$serverStdOutLog = $null
+$serverStdErrLog = $null
+$consentStdOutLog = $null
+$consentStdErrLog = $null
 if ($WITH_CONSENT) {
     if (-not (Test-Path $consentDir)) {
         Log-Error "Consent server is enabled but consent directory not found: $consentDir"
         exit 1
     }
-    Write-Host "[INFO] Starting Consent Server..." -ForegroundColor Cyan
+    if ($VERBOSE_MODE) {
+        Write-Host "[INFO] Starting Consent Server..." -ForegroundColor Cyan
+    }
     $consentPort = if ($env:CONSENT_SERVER_PORT) { $env:CONSENT_SERVER_PORT } else { "9090" }
     $consentBinary = @(
         (Join-Path $consentDir 'consent-server.exe'),
@@ -474,7 +527,19 @@ if ($WITH_CONSENT) {
         Log-Error "Consent server is enabled but consent-server binary not found in: $consentDir"
         exit 1
     }
-    $consentProc = Start-Process -FilePath $consentBinary -WorkingDirectory $consentDir -NoNewWindow -PassThru
+    $consentProcessArgs = @{
+        FilePath = $consentBinary
+        WorkingDirectory = $consentDir
+        NoNewWindow = $true
+        PassThru = $true
+    }
+    if ($SILENT_MODE) {
+        $consentStdOutLog = [System.IO.Path]::GetTempFileName()
+        $consentStdErrLog = [System.IO.Path]::GetTempFileName()
+        $consentProcessArgs["RedirectStandardOutput"] = $consentStdOutLog
+        $consentProcessArgs["RedirectStandardError"] = $consentStdErrLog
+    }
+    $consentProc = Start-Process @consentProcessArgs
     $consentTimeout = 30
     $consentElapsed = 0
     while ($consentElapsed -lt $consentTimeout) {
@@ -485,7 +550,9 @@ if ($WITH_CONSENT) {
         try {
             $resp = Invoke-WebRequest -Uri "http://localhost:${consentPort}/health/readiness" -UseBasicParsing -ErrorAction Stop
             if ($resp.StatusCode -eq 200) {
-                Write-Host "[INFO] Consent server is ready" -ForegroundColor Cyan
+                if ($VERBOSE_MODE) {
+                    Write-Host "[INFO] Consent server is ready" -ForegroundColor Cyan
+                }
                 break
             }
         } catch { }
@@ -500,6 +567,18 @@ if ($WITH_CONSENT) {
 
 $proc = $null
 try {
+    $serverProcessArgs = @{
+        WorkingDirectory = $scriptDir
+        NoNewWindow = $true
+        PassThru = $true
+    }
+    if ($SILENT_MODE) {
+        $serverStdOutLog = [System.IO.Path]::GetTempFileName()
+        $serverStdErrLog = [System.IO.Path]::GetTempFileName()
+        $serverProcessArgs["RedirectStandardOutput"] = $serverStdOutLog
+        $serverProcessArgs["RedirectStandardError"] = $serverStdErrLog
+    }
+
     if ($DEBUG_MODE) {
         $dlvArgs = @(
             'exec'
@@ -508,20 +587,25 @@ try {
             '--api-version=2'
             '--accept-multiclient'
             '--continue'
-            $thunderPath
+            $serverExecPath
         )
-        $proc = Start-Process -FilePath dlv -ArgumentList $dlvArgs -WorkingDirectory $scriptDir -NoNewWindow -PassThru
+        $serverProcessArgs["FilePath"] = "dlv"
+        $serverProcessArgs["ArgumentList"] = $dlvArgs
+        $proc = Start-Process @serverProcessArgs
     }
     else {
-        $proc = Start-Process -FilePath $thunderPath -WorkingDirectory $scriptDir -NoNewWindow -PassThru
+        $serverProcessArgs["FilePath"] = $serverExecPath
+        $proc = Start-Process @serverProcessArgs
     }
 
-    $THUNDER_PID = $proc.Id
+    $SERVER_PID = $proc.Id
 
     # Cleanup function
     $cleanup = {
-        Write-Host ""
-        Write-Host "[STOP] Stopping temporary server..." -ForegroundColor Cyan
+        if ($VERBOSE_MODE) {
+            Write-Host ""
+            Write-Host "[STOP] Stopping temporary server..." -ForegroundColor Cyan
+        }
         if ($proc -and -not $proc.HasExited) {
             try {
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -541,8 +625,10 @@ try {
     # Wait for Server to be Ready
     # ============================================================================
 
-    Write-Host "[WAIT] Waiting for server to be ready..." -ForegroundColor Blue
-    Write-Host "   Server URL: $BASE_URL" -ForegroundColor Blue
+    if ($VERBOSE_MODE) {
+        Write-Host "[WAIT] Waiting for server to be ready..." -ForegroundColor Blue
+        Write-Host "   Server URL: $BASE_URL" -ForegroundColor Blue
+    }
 
     $TIMEOUT = 60
     $ELAPSED = 0
@@ -562,10 +648,12 @@ try {
         Log-Debug "Request completed in $([math]::Round($requestDuration.TotalSeconds, 2))s with status: $statusCode"
 
         if ($statusCode -eq "200") {
-            Write-Host ""
-            Write-Host "[OK] Server is ready" -ForegroundColor Green
-            Log-Debug "Health check response: $body"
-            Write-Host ""
+            if ($VERBOSE_MODE) {
+                Write-Host ""
+                Write-Host "[OK] Server is ready" -ForegroundColor Green
+                Log-Debug "Health check response: $body"
+                Write-Host ""
+            }
             break
         }
         else {
@@ -606,6 +694,9 @@ try {
     # Run Bootstrap Scripts
     # ============================================================================
 
+    # Export environment variable for bootstrap scripts
+    $env:SETUP_SILENT_MODE = if ($SILENT_MODE) { "true" } else { "false" }
+
     # Check if bootstrap directory exists
     if (-not (Test-Path $BOOTSTRAP_DIR)) {
         Log-Warning "Bootstrap directory not found: $BOOTSTRAP_DIR"
@@ -613,7 +704,7 @@ try {
     }
     else {
         Log-Info "========================================="
-        Log-Info "Thunder Bootstrap Process"
+        Log-Info "$PRODUCT_NAME Bootstrap Process"
         Log-Info "========================================="
         Log-Info "Bootstrap directory: $BOOTSTRAP_DIR"
         Log-Info "Fail fast: $BOOTSTRAP_FAIL_FAST"
@@ -657,6 +748,17 @@ try {
             foreach ($bootstrapScript in $sortedScripts) {
                 $scriptName = $bootstrapScript.Name
 
+                if ($SILENT_MODE) {
+                    if ($scriptName -eq "01-default-resources.ps1" -or $scriptName -eq "01-default-resources.sh") {
+                        Write-Host ""
+                        Write-Host "  Default resources"
+                    }
+                    elseif ($scriptName -eq "02-sample-resources.ps1" -or $scriptName -eq "02-sample-resources.sh") {
+                        Write-Host ""
+                        Write-Host "  Sample resources"
+                    }
+                }
+
                 # Skip if matches skip pattern
                 if ($BOOTSTRAP_SKIP_PATTERN -and ($scriptName -match $BOOTSTRAP_SKIP_PATTERN)) {
                     Log-Info "[SKIP] Skipping $scriptName (matches skip pattern regex: $BOOTSTRAP_SKIP_PATTERN)"
@@ -678,7 +780,12 @@ try {
                 $startTime = Get-Date
 
                 try {
-                    & $bootstrapScript.FullName
+                    if ($SILENT_MODE) {
+                        & $bootstrapScript.FullName *> $null
+                    }
+                    else {
+                        & $bootstrapScript.FullName
+                    }
                     $exitCode = $LASTEXITCODE
 
                     $endTime = Get-Date
@@ -747,22 +854,40 @@ try {
     # ============================================================================
 
     Write-Host ""
-    Write-Host "========================================="
-    Write-Host "[OK] Setup completed successfully!" -ForegroundColor Green
-    Write-Host "========================================="
     Write-Host ""
-    Write-Host "[INFO] Next steps:"
-    Write-Host "   1. Start the server: .\start.ps1" -ForegroundColor Cyan
-    Write-Host "   2. Access Thunder at: $BASE_URL" -ForegroundColor Cyan
-    Write-Host "   3. Login with admin credentials:"
-    Write-Host "      Username: admin" -ForegroundColor Cyan
-    Write-Host "      Password: admin" -ForegroundColor Cyan
-    Write-Host ""
+    if ($SILENT_MODE) {
+        Write-Host "========================================="
+        Write-Host "✅ Setup completed successfully!"
+        Write-Host "========================================="
+        Write-Host ""
+        Write-Host "Admin credentials:"
+        Write-Host "  URL:      ${PUBLIC_URL}/console"
+        Write-Host "  Username: admin"
+        Write-Host "  Password: admin"
+        Write-Host ""
+        Write-Host "Run .\start.ps1 to start ${PRODUCT_NAME}."
+        Write-Host ""
+    }
+    else {
+        Write-Host "========================================="
+        Write-Host "[OK] Setup completed successfully!" -ForegroundColor Green
+        Write-Host "========================================="
+        Write-Host ""
+        Write-Host "[INFO] Next steps:"
+        Write-Host "   1. Start the server: .\start.ps1" -ForegroundColor Cyan
+        Write-Host "   2. Access $PRODUCT_NAME at: $BASE_URL" -ForegroundColor Cyan
+        Write-Host "   3. Login with admin credentials:"
+        Write-Host "      Username: admin" -ForegroundColor Cyan
+        Write-Host "      Password: admin" -ForegroundColor Cyan
+        Write-Host ""
+    }
 }
 finally {
     # Cleanup
-    Write-Host ""
-    Write-Host "[STOP] Stopping temporary server..." -ForegroundColor Cyan
+    if ($VERBOSE_MODE) {
+        Write-Host ""
+        Write-Host "[STOP] Stopping temporary server..." -ForegroundColor Cyan
+    }
     if ($proc -and -not $proc.HasExited) {
         try {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -774,11 +899,17 @@ finally {
         } catch { }
     }
 
-    # Restore THUNDER_SKIP_SECURITY to its previous state
+    foreach ($tempLog in @($serverStdOutLog, $serverStdErrLog, $consentStdOutLog, $consentStdErrLog)) {
+        if ($tempLog -and (Test-Path $tempLog)) {
+            Remove-Item $tempLog -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Restore SKIP_SECURITY to its previous state
     if (-not $hadSkipSecurity) {
-        Remove-Item Env:THUNDER_SKIP_SECURITY -ErrorAction SilentlyContinue
+        Remove-Item Env:SKIP_SECURITY -ErrorAction SilentlyContinue
     } else {
-        $env:THUNDER_SKIP_SECURITY = $previousSkipSecurity
+        $env:SKIP_SECURITY = $previousSkipSecurity
     }
 }
 

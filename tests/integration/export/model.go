@@ -35,9 +35,16 @@ type ExportFile struct {
 	Content  string `json:"content"`
 }
 
+// JSONExportResponse represents the simplified JSON response for export endpoints.
+type JSONExportResponse struct {
+	Resources            string `json:"resources"`
+	EnvironmentVariables string `json:"environment_variables"`
+}
+
 // Application represents the structure for application request and response in tests.
 type Application struct {
 	ID                        string              `json:"id,omitempty"`
+	OUID                      string              `json:"ouId,omitempty"`
 	Name                      string              `json:"name"`
 	Description               string              `json:"description,omitempty"`
 	ClientID                  string              `json:"clientId,omitempty"`

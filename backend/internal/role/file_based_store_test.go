@@ -22,8 +22,8 @@ import (
 	"context"
 	"testing"
 
-	declarativeresource "github.com/asgardeo/thunder/internal/system/declarative_resource"
-	"github.com/asgardeo/thunder/internal/system/declarative_resource/entity"
+	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
+	"github.com/thunder-id/thunderid/internal/system/declarative_resource/entity"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -111,7 +111,7 @@ func (suite *RoleFileBasedStoreTestSuite) TestGetRoleAssignmentsAndCount() {
 		Name: "Admin",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 			{ID: "group1", Type: AssigneeTypeGroup},
 		},
 	})
@@ -192,7 +192,7 @@ func (suite *RoleFileBasedStoreTestSuite) TestGetAuthorizedPermissions() {
 		Name: "Admin",
 		OUID: "ou1",
 		Assignments: []RoleAssignment{
-			{ID: "user1", Type: AssigneeTypeUser},
+			{ID: "user1", Type: assigneeTypeEntity},
 			{ID: "group1", Type: AssigneeTypeGroup},
 		},
 		Permissions: []ResourcePermissions{
@@ -238,13 +238,13 @@ func (suite *RoleFileBasedStoreTestSuite) TestImmutability() {
 
 	// Test AddAssignments returns error
 	err = suite.store.AddAssignments(context.Background(), "immutable-role", []RoleAssignment{
-		{ID: "user1", Type: AssigneeTypeUser},
+		{ID: "user1", Type: assigneeTypeEntity},
 	})
 	suite.Error(err)
 
 	// Test RemoveAssignments returns error
 	err = suite.store.RemoveAssignments(context.Background(), "immutable-role", []RoleAssignment{
-		{ID: "user1", Type: AssigneeTypeUser},
+		{ID: "user1", Type: assigneeTypeEntity},
 	})
 	suite.Error(err)
 }
@@ -309,4 +309,37 @@ func (suite *RoleFileBasedStoreTestSuite) TestCreate_SetsIDFromParameter() {
 	retrievedRole, err := suite.store.GetRole(context.Background(), "param-role-id")
 	suite.NoError(err)
 	suite.Equal("param-role-id", retrievedRole.ID)
+}
+
+// GetEntityRoleIDs on the file-based store is a deliberate no-op: API-added role
+// assignments are persisted in the DB, never in YAML, so the file store has no record
+// to surface. Composite callers rely on this returning an empty (non-nil) slice so
+// the union of (db, file) sources stays correct.
+func (suite *RoleFileBasedStoreTestSuite) TestGetEntityRoleIDs_AlwaysEmpty() {
+	suite.seedRole(RoleWithPermissionsAndAssignments{
+		ID: "r1", Name: "R1", OUID: "ou1",
+		Assignments: []RoleAssignment{
+			{ID: "user-x", Type: assigneeTypeEntity},
+			{ID: "group-y", Type: AssigneeTypeGroup},
+		},
+	})
+
+	cases := []struct {
+		name     string
+		entityID string
+		groupIDs []string
+	}{
+		{"populated entity matches YAML", "user-x", []string{"group-y"}},
+		{"populated entity no match", "user-z", []string{"group-z"}},
+		{"empty entity, populated groups", "", []string{"group-y"}},
+		{"empty both", "", nil},
+	}
+	for _, tc := range cases {
+		suite.Run(tc.name, func() {
+			roleIDs, err := suite.store.GetEntityRoleIDs(context.Background(), tc.entityID, tc.groupIDs)
+			suite.NoError(err)
+			suite.Empty(roleIDs)
+			suite.NotNil(roleIDs, "must return [] not nil for safe composite union")
+		})
+	}
 }

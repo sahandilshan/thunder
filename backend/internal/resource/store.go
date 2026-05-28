@@ -23,9 +23,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/database/provider"
-	"github.com/asgardeo/thunder/internal/system/transaction"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/database/provider"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 )
 
 // resourceStoreInterface defines the interface for resource store operations.
@@ -38,7 +38,9 @@ type resourceStoreInterface interface {
 	UpdateResourceServer(ctx context.Context, id string, rs ResourceServer) error
 	DeleteResourceServer(ctx context.Context, id string) error
 	CheckResourceServerNameExists(ctx context.Context, name string) (bool, error)
+	CheckResourceServerHandleExists(ctx context.Context, handle string) (bool, error)
 	CheckResourceServerIdentifierExists(ctx context.Context, identifier string) (bool, error)
+	GetResourceServerByIdentifier(ctx context.Context, identifier string) (ResourceServer, error)
 	CheckResourceServerHasDependencies(ctx context.Context, resServerID string) (bool, error)
 	IsResourceServerDeclarative(id string) bool
 
@@ -52,6 +54,7 @@ type resourceStoreInterface interface {
 	GetResourceListCount(ctx context.Context, resServerID string) (int, error)
 	GetResourceListCountByParent(ctx context.Context, resServerID string, parentID *string) (int, error)
 	UpdateResource(ctx context.Context, id string, resServerID string, res Resource) error
+	UpdateResourcePermission(ctx context.Context, id string, resServerID string, permission string) error
 	DeleteResource(ctx context.Context, id string, resServerID string) error
 	CheckResourceHandleExists(
 		ctx context.Context, resServerID string, handle string, parentID *string,
@@ -65,12 +68,14 @@ type resourceStoreInterface interface {
 	GetActionList(ctx context.Context, resServerID string, resID *string, limit, offset int) ([]Action, error)
 	GetActionListCount(ctx context.Context, resServerID string, resID *string) (int, error)
 	UpdateAction(ctx context.Context, id string, resServerID string, resID *string, action Action) error
+	UpdateActionPermission(ctx context.Context, id string, resServerID string, resID *string, permission string) error
 	DeleteAction(ctx context.Context, id string, resServerID string, resID *string) error
 	IsActionExist(ctx context.Context, id string, resServerID string, resID *string) (bool, error)
 	CheckActionHandleExists(
 		ctx context.Context, resServerID string, resID *string, handle string,
 	) (bool, error)
 	ValidatePermissions(ctx context.Context, resServerID string, permissions []string) ([]string, error)
+	FindResourceServersByPermissions(ctx context.Context, permissions []string) ([]ResourceServer, error)
 }
 
 // resourceStore is the default implementation of resourceStoreInterface.
@@ -93,7 +98,7 @@ func newResourceStore() (resourceStoreInterface, transaction.Transactioner, erro
 	}
 	return &resourceStore{
 		dbProvider:   dbProvider,
-		deploymentID: config.GetThunderRuntime().Config.Server.Identifier,
+		deploymentID: config.GetServerRuntime().Config.Server.Identifier,
 	}, transactioner, nil
 }
 
@@ -107,7 +112,8 @@ func (s *resourceStore) CreateResourceServer(ctx context.Context, id string, rs 
 			rs.OUID,
 			rs.Name,
 			rs.Description,
-			resolveIdentifier(rs.Identifier),
+			resolveNullableString(rs.Handle),
+			resolveNullableString(rs.Identifier),
 			buildPropertiesJSON(rs),
 			s.deploymentID,
 		)
@@ -188,7 +194,8 @@ func (s *resourceStore) UpdateResourceServer(ctx context.Context, id string, rs 
 			rs.OUID,
 			rs.Name,
 			rs.Description,
-			resolveIdentifier(rs.Identifier),
+			resolveNullableString(rs.Handle),
+			resolveNullableString(rs.Identifier),
 			buildPropertiesJSON(rs),
 			id,
 			s.deploymentID,
@@ -228,6 +235,21 @@ func (s *resourceStore) CheckResourceServerNameExists(ctx context.Context, name 
 	return exists, err
 }
 
+// CheckResourceServerHandleExists checks if a resource server handle exists.
+func (s *resourceStore) CheckResourceServerHandleExists(ctx context.Context, handle string) (bool, error) {
+	var exists bool
+	err := s.withDBClient(func(dbClient provider.DBClientInterface) error {
+		results, err := dbClient.QueryContext(ctx, queryCheckResourceServerHandleExists, handle, s.deploymentID)
+		if err != nil {
+			return fmt.Errorf("failed to check resource server handle: %w", err)
+		}
+
+		exists, err = parseBoolFromCount(results)
+		return err
+	})
+	return exists, err
+}
+
 // CheckResourceServerIdentifierExists checks if a resource server identifier exists.
 func (s *resourceStore) CheckResourceServerIdentifierExists(ctx context.Context, identifier string) (bool, error) {
 	var exists bool
@@ -241,6 +263,25 @@ func (s *resourceStore) CheckResourceServerIdentifierExists(ctx context.Context,
 		return err
 	})
 	return exists, err
+}
+
+// GetResourceServerByIdentifier retrieves a resource server by its identifier.
+func (s *resourceStore) GetResourceServerByIdentifier(ctx context.Context, identifier string) (ResourceServer, error) {
+	var rs ResourceServer
+	err := s.withDBClient(func(dbClient provider.DBClientInterface) error {
+		results, err := dbClient.QueryContext(ctx, queryGetResourceServerByIdentifier, identifier, s.deploymentID)
+		if err != nil {
+			return fmt.Errorf("failed to get resource server by identifier: %w", err)
+		}
+
+		if len(results) == 0 {
+			return errResourceServerNotFound
+		}
+
+		rs, err = buildResourceServerFromResultRow(results[0])
+		return err
+	})
+	return rs, err
 }
 
 // CheckResourceServerHasDependencies checks if resource server has dependencies.
@@ -455,6 +496,26 @@ func (s *resourceStore) UpdateResource(ctx context.Context, id string, resServer
 	})
 }
 
+// UpdateResourcePermission updates only the permission field of a resource.
+func (s *resourceStore) UpdateResourcePermission(
+	ctx context.Context, id string, resServerID string, permission string,
+) error {
+	return s.withDBClient(func(dbClient provider.DBClientInterface) error {
+		_, err := dbClient.ExecuteContext(
+			ctx,
+			queryUpdateResourcePermission,
+			permission,
+			id,
+			resServerID,
+			s.deploymentID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update resource permission: %w", err)
+		}
+		return nil
+	})
+}
+
 // DeleteResource deletes a resource.
 func (s *resourceStore) DeleteResource(ctx context.Context, id string, resServerID string) error {
 	return s.withDBClient(func(dbClient provider.DBClientInterface) error {
@@ -665,6 +726,27 @@ func (s *resourceStore) UpdateAction(
 	})
 }
 
+// UpdateActionPermission updates only the permission field of an action.
+func (s *resourceStore) UpdateActionPermission(
+	ctx context.Context, id string, resServerID string, resID *string, permission string,
+) error {
+	return s.withDBClient(func(dbClient provider.DBClientInterface) error {
+		_, err := dbClient.ExecuteContext(
+			ctx,
+			queryUpdateActionPermission,
+			permission,     // $1: PERMISSION
+			id,             // $2: ACTION_ID
+			resServerID,    // $3: RESOURCE_SERVER_ID
+			resID,          // $4: RESOURCE_ID (nullable)
+			s.deploymentID, // $5: DEPLOYMENT_ID
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update action permission: %w", err)
+		}
+		return nil
+	})
+}
+
 // DeleteAction deletes an action.
 func (s *resourceStore) DeleteAction(
 	ctx context.Context, id string, resServerID string, resID *string,
@@ -776,6 +858,48 @@ func (s *resourceStore) ValidatePermissions(
 	return invalidPermissions, nil
 }
 
+// FindResourceServersByPermissions returns distinct resource servers that define at least one of
+// the supplied permissions.
+func (s *resourceStore) FindResourceServersByPermissions(
+	ctx context.Context, permissions []string,
+) ([]ResourceServer, error) {
+	if len(permissions) == 0 {
+		return []ResourceServer{}, nil
+	}
+
+	var resourceServers []ResourceServer
+	err := s.withDBClient(func(dbClient provider.DBClientInterface) error {
+		permissionsJSON, jsonErr := json.Marshal(permissions)
+		if jsonErr != nil {
+			return fmt.Errorf("failed to marshal permissions to JSON: %w", jsonErr)
+		}
+
+		results, err := dbClient.QueryContext(
+			ctx,
+			queryFindResourceServersByPermissions,
+			s.deploymentID,
+			string(permissionsJSON),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to find resource servers by permissions: %w", err)
+		}
+
+		resourceServers = make([]ResourceServer, 0, len(results))
+		for _, row := range results {
+			rs, buildErr := buildResourceServerFromResultRow(row)
+			if buildErr != nil {
+				return fmt.Errorf("failed to build resource server: %w", buildErr)
+			}
+			resourceServers = append(resourceServers, rs)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resourceServers, nil
+}
+
 // Helper methods
 
 // getConfigDBClient retrieves the config database client.
@@ -796,12 +920,12 @@ func (s *resourceStore) withDBClient(fn func(provider.DBClientInterface) error) 
 	return fn(dbClient)
 }
 
-// resolveIdentifier converts empty identifier to nil for database storage.
-func resolveIdentifier(identifier string) interface{} {
-	if identifier == "" {
+// resolveNullableString converts empty string to nil for database storage.
+func resolveNullableString(value string) interface{} {
+	if value == "" {
 		return nil
 	}
-	return identifier
+	return value
 }
 
 // parseCountResult parses a count result from database query.
@@ -893,6 +1017,10 @@ func buildResourceServerFromResultRow(row map[string]interface{}) (ResourceServe
 
 	if desc, ok := row["description"].(string); ok {
 		rs.Description = desc
+	}
+
+	if handle, ok := row["handle"].(string); ok {
+		rs.Handle = handle
 	}
 
 	if identifier, ok := row["identifier"].(string); ok {

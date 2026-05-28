@@ -22,8 +22,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/asgardeo/thunder/tests/integration/flow/common"
-	"github.com/asgardeo/thunder/tests/integration/testutils"
+	"github.com/thunder-id/thunderid/tests/integration/flow/common"
+	"github.com/thunder-id/thunderid/tests/integration/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -178,14 +178,14 @@ var (
 		Parent:      nil,
 	}
 
-	verboseTestUserSchema = testutils.UserSchema{
+	verboseTestEntityType = testutils.UserType{
 		Name: "verbose_test_schema",
 		Schema: map[string]interface{}{
 			"username": map[string]interface{}{
 				"type": "string",
 			},
 			"password": map[string]interface{}{
-				"type": "string",
+				"type":       "string",
 				"credential": true,
 			},
 			"email": map[string]interface{}{
@@ -201,14 +201,14 @@ var (
 		ClientID:                  "verbose_test_client",
 		ClientSecret:              "verbose_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{verboseTestUserSchema.Name},
+		AllowedUserTypes:          []string{verboseTestEntityType.Name},
 		AssertionConfig: map[string]interface{}{
 			"userAttributes": []string{"userType", "ouId", "ouName", "ouHandle"},
 		},
 	}
 
 	verboseTestUser = testutils.User{
-		Type: verboseTestUserSchema.Name,
+		Type: verboseTestEntityType.Name,
 		Attributes: json.RawMessage(`{
 			"username": "verboseuser",
 			"password": "testpassword123",
@@ -219,7 +219,7 @@ var (
 
 var (
 	verboseTestAppID        string
-	verboseUserSchemaID     string
+	verboseEntityTypeID     string
 	verboseFlowWithPromptID string
 	verboseBasicFlowID      string
 )
@@ -243,11 +243,11 @@ func (ts *VerboseMetaTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "Failed to create test organization unit")
 	ts.ouID = ouID
 
-	// Create user schema
-	verboseTestUserSchema.OUID = ouID
-	schemaID, err := testutils.CreateUserType(verboseTestUserSchema)
-	ts.Require().NoError(err, "Failed to create user schema")
-	verboseUserSchemaID = schemaID
+	// create user type
+	verboseTestEntityType.OUID = ouID
+	schemaID, err := testutils.CreateUserType(verboseTestEntityType)
+	ts.Require().NoError(err, "Failed to create user type")
+	verboseEntityTypeID = schemaID
 
 	// Create flows
 	flowWithPromptID, err := testutils.CreateFlow(basicAuthFlowWithPrompt)
@@ -262,6 +262,7 @@ func (ts *VerboseMetaTestSuite) SetupSuite() {
 	verboseBasicFlowID = basicFlowID
 
 	// Create test application with the flow with prompt
+	verboseTestApp.OUID = ts.ouID
 	appID, err := testutils.CreateApplication(verboseTestApp)
 	ts.Require().NoError(err, "Failed to create test application")
 	verboseTestAppID = appID
@@ -291,10 +292,10 @@ func (ts *VerboseMetaTestSuite) TearDownSuite() {
 		ts.Require().NoError(err, "Failed to delete test flow")
 	}
 
-	// Clean up test user schema
-	if verboseUserSchemaID != "" {
-		err := testutils.DeleteUserType(verboseUserSchemaID)
-		ts.Require().NoError(err, "Failed to delete user schema")
+	// Clean up test user type
+	if verboseEntityTypeID != "" {
+		err := testutils.DeleteUserType(verboseEntityTypeID)
+		ts.Require().NoError(err, "Failed to delete user type")
 	}
 
 	// Clean up test organization unit
@@ -332,7 +333,8 @@ func (ts *VerboseMetaTestSuite) TestVerboseModeEnabled() {
 		"password": "testpassword123",
 	}
 	action := "action_001"
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, action)
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, action,
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to continue auth flow")
 	ts.Require().NotNil(flowStep, "Flow step should not be nil")
 
@@ -364,7 +366,8 @@ func (ts *VerboseMetaTestSuite) TestVerboseModeDisabled() {
 		"password": "testpassword123",
 	}
 	action := "action_001"
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, action)
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, action,
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to continue auth flow")
 	ts.Require().NotNil(flowStep, "Flow step should not be nil")
 
@@ -377,13 +380,14 @@ func (ts *VerboseMetaTestSuite) TestVerboseModeWithGraphWithoutMeta() {
 	// Create a new app with a graph that doesn't have meta defined
 	appWithoutMeta := testutils.Application{
 		Name:                      "No Meta Test Application",
+		OUID:                      ts.ouID,
 		Description:               "Application for testing verbose mode without meta",
 		IsRegistrationFlowEnabled: false,
 		AuthFlowID:                verboseBasicFlowID,
 		ClientID:                  "no_meta_test_client",
 		ClientSecret:              "no_meta_test_secret",
 		RedirectURIs:              []string{"http://localhost:3000/callback"},
-		AllowedUserTypes:          []string{verboseTestUserSchema.Name},
+		AllowedUserTypes:          []string{verboseTestEntityType.Name},
 	}
 
 	appID, err := testutils.CreateApplication(appWithoutMeta)
@@ -411,7 +415,8 @@ func (ts *VerboseMetaTestSuite) TestVerboseModeWithGraphWithoutMeta() {
 		"username": "verboseuser",
 		"password": "testpassword123",
 	}
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, "")
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, "",
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to continue auth flow")
 	ts.Require().NotNil(flowStep, "Flow step should not be nil")
 
@@ -436,7 +441,8 @@ func (ts *VerboseMetaTestSuite) TestVerbosePersistsAcrossRequests() {
 	action := "action_001"
 
 	// Note: We're not sending verbose flag here, it should be retrieved from stored context
-	flowStep, err = common.CompleteFlow(flowStep.FlowID, inputs, action)
+	flowStep, err = common.CompleteFlow(flowStep.ExecutionID, inputs, action,
+		flowStep.ChallengeToken)
 	ts.Require().NoError(err, "Failed to continue auth flow")
 	ts.Require().NotNil(flowStep, "Flow step should not be nil")
 

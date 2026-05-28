@@ -23,20 +23,21 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
-	authncm "github.com/asgardeo/thunder/internal/authn/common"
-	"github.com/asgardeo/thunder/internal/flow/common"
-	"github.com/asgardeo/thunder/internal/system/config"
-	"github.com/asgardeo/thunder/internal/system/error/serviceerror"
-	"github.com/asgardeo/thunder/tests/mocks/flow/coremock"
-	"github.com/asgardeo/thunder/tests/mocks/observability/observabilitymock"
+	authncm "github.com/thunder-id/thunderid/internal/authn/common"
+	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/system/config"
+	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
+	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
+	"github.com/thunder-id/thunderid/tests/mocks/flow/coremock"
+	"github.com/thunder-id/thunderid/tests/mocks/observability/observabilitymock"
 )
 
 // setupMockObservability creates a mock observability service for testing
 func setupMockObservability(t *testing.T) *observabilitymock.ObservabilityServiceInterfaceMock {
 	t.Helper()
 
-	// Initialize Thunder runtime with observability enabled
-	config.ResetThunderRuntime()
+	// Initialize runtime with observability enabled
+	config.ResetServerRuntime()
 	testConfig := &config.Config{
 		Observability: config.ObservabilityConfig{
 			Enabled: true,
@@ -49,9 +50,9 @@ func setupMockObservability(t *testing.T) *observabilitymock.ObservabilityServic
 		},
 	}
 
-	err := config.InitializeThunderRuntime("/tmp/thunder-test-events", testConfig)
+	err := config.InitializeServerRuntime("/tmp/test-events", testConfig)
 	if err != nil {
-		t.Fatalf("Failed to initialize Thunder runtime: %v", err)
+		t.Fatalf("Failed to initialize server runtime: %v", err)
 	}
 
 	// Create mockery-generated mock
@@ -69,13 +70,13 @@ func setupMockObservability(t *testing.T) *observabilitymock.ObservabilityServic
 func TestPublishFlowStartedEvent(t *testing.T) {
 	mockObs := setupMockObservability(t)
 	defer mockObs.Shutdown()
-	defer config.ResetThunderRuntime()
+	defer config.ResetServerRuntime()
 
 	t.Run("with_authenticated_user", func(t *testing.T) {
 		ctx := &EngineContext{
-			FlowID:   "flow-001",
-			FlowType: common.FlowTypeAuthentication,
-			AppID:    "app-001",
+			ExecutionID: "flow-001",
+			FlowType:    common.FlowTypeAuthentication,
+			AppID:       "app-001",
 			AuthenticatedUser: authncm.AuthenticatedUser{
 				IsAuthenticated: true,
 				UserID:          "user-123",
@@ -93,7 +94,7 @@ func TestPublishFlowStartedEvent(t *testing.T) {
 
 	t.Run("without_authenticated_user", func(t *testing.T) {
 		ctx := &EngineContext{
-			FlowID:           "flow-002",
+			ExecutionID:      "flow-002",
 			FlowType:         common.FlowTypeRegistration,
 			AppID:            "app-002",
 			ExecutionHistory: make(map[string]*common.NodeExecutionRecord),
@@ -112,12 +113,12 @@ func TestPublishFlowStartedEvent(t *testing.T) {
 func TestPublishFlowCompletedEvent(t *testing.T) {
 	mockObs := setupMockObservability(t)
 	defer mockObs.Shutdown()
-	defer config.ResetThunderRuntime()
+	defer config.ResetServerRuntime()
 
 	ctx := &EngineContext{
-		FlowID:   "flow-003",
-		FlowType: common.FlowTypeAuthentication,
-		AppID:    "app-003",
+		ExecutionID: "flow-003",
+		FlowType:    common.FlowTypeAuthentication,
+		AppID:       "app-003",
 		AuthenticatedUser: authncm.AuthenticatedUser{
 			IsAuthenticated: true,
 			UserID:          "user-456",
@@ -140,20 +141,20 @@ func TestPublishFlowCompletedEvent(t *testing.T) {
 func TestPublishFlowFailedEvent(t *testing.T) {
 	mockObs := setupMockObservability(t)
 	defer mockObs.Shutdown()
-	defer config.ResetThunderRuntime()
+	defer config.ResetServerRuntime()
 
 	t.Run("with_error_description", func(t *testing.T) {
 		ctx := &EngineContext{
-			FlowID:           "flow-004",
+			ExecutionID:      "flow-004",
 			FlowType:         common.FlowTypeAuthentication,
 			AppID:            "app-004",
 			ExecutionHistory: make(map[string]*common.NodeExecutionRecord),
 		}
 
 		svcErr := &serviceerror.ServiceError{
-			Error:            "flow_execution_failed",
+			Error:            i18ncore.I18nMessage{DefaultValue: "flow_execution_failed"},
 			Code:             "FLOW_ERR_001",
-			ErrorDescription: "Authentication failed due to invalid credentials",
+			ErrorDescription: i18ncore.I18nMessage{DefaultValue: "Authentication failed due to invalid credentials"},
 		}
 
 		flowStartTime := int64(1000)
@@ -169,14 +170,14 @@ func TestPublishFlowFailedEvent(t *testing.T) {
 
 	t.Run("without_error_description", func(t *testing.T) {
 		ctx := &EngineContext{
-			FlowID:           "flow-005",
+			ExecutionID:      "flow-005",
 			FlowType:         common.FlowTypeAuthentication,
 			AppID:            "app-005",
 			ExecutionHistory: make(map[string]*common.NodeExecutionRecord),
 		}
 
 		svcErr := &serviceerror.ServiceError{
-			Error: "generic_error",
+			Error: i18ncore.I18nMessage{DefaultValue: "generic_error"},
 			Code:  "ERR_002",
 		}
 
@@ -196,7 +197,7 @@ func TestPublishFlowFailedEvent(t *testing.T) {
 func TestPublishNodeExecutionStartedEvent(t *testing.T) {
 	mockObs := setupMockObservability(t)
 	defer mockObs.Shutdown()
-	defer config.ResetThunderRuntime()
+	defer config.ResetServerRuntime()
 
 	t.Run("new_node_execution", func(t *testing.T) {
 		node := coremock.NewNodeInterfaceMock(t)
@@ -204,7 +205,7 @@ func TestPublishNodeExecutionStartedEvent(t *testing.T) {
 		node.On("GetType").Return(common.NodeTypePrompt)
 
 		ctx := &EngineContext{
-			FlowID:           "flow-006",
+			ExecutionID:      "flow-006",
 			FlowType:         common.FlowTypeAuthentication,
 			AppID:            "app-006",
 			ExecutionHistory: make(map[string]*common.NodeExecutionRecord),
@@ -224,7 +225,7 @@ func TestPublishNodeExecutionStartedEvent(t *testing.T) {
 		node.On("GetType").Return(common.NodeTypeTaskExecution)
 
 		ctx := &EngineContext{
-			FlowID:           "flow-007",
+			ExecutionID:      "flow-007",
 			FlowType:         common.FlowTypeAuthentication,
 			AppID:            "app-007",
 			ExecutionHistory: make(map[string]*common.NodeExecutionRecord),
@@ -253,7 +254,7 @@ func TestPublishNodeExecutionStartedEvent(t *testing.T) {
 func TestPublishNodeExecutionCompletedEvent(t *testing.T) {
 	mockObs := setupMockObservability(t)
 	defer mockObs.Shutdown()
-	defer config.ResetThunderRuntime()
+	defer config.ResetServerRuntime()
 
 	t.Run("node_completed_successfully", func(t *testing.T) {
 		node := coremock.NewNodeInterfaceMock(t)
@@ -261,9 +262,9 @@ func TestPublishNodeExecutionCompletedEvent(t *testing.T) {
 		node.On("GetType").Return(common.NodeTypePrompt)
 
 		ctx := &EngineContext{
-			FlowID:   "flow-008",
-			FlowType: common.FlowTypeAuthentication,
-			AppID:    "app-008",
+			ExecutionID: "flow-008",
+			FlowType:    common.FlowTypeAuthentication,
+			AppID:       "app-008",
 			AuthenticatedUser: authncm.AuthenticatedUser{
 				IsAuthenticated: true,
 				UserID:          "user-789",
@@ -298,7 +299,7 @@ func TestPublishNodeExecutionCompletedEvent(t *testing.T) {
 		node.On("GetType").Return(common.NodeTypeTaskExecution)
 
 		ctx := &EngineContext{
-			FlowID:           "flow-009",
+			ExecutionID:      "flow-009",
 			FlowType:         common.FlowTypeAuthentication,
 			AppID:            "app-009",
 			ExecutionHistory: make(map[string]*common.NodeExecutionRecord),
@@ -314,9 +315,9 @@ func TestPublishNodeExecutionCompletedEvent(t *testing.T) {
 		}
 
 		svcErr := &serviceerror.ServiceError{
-			Error:            "node_execution_failed",
+			Error:            i18ncore.I18nMessage{DefaultValue: "node_execution_failed"},
 			Code:             "NODE_ERR_001",
-			ErrorDescription: "Task execution failed",
+			ErrorDescription: i18ncore.I18nMessage{DefaultValue: "Task execution failed"},
 		}
 
 		executionStartTime := int64(1000)
@@ -336,7 +337,7 @@ func TestPublishNodeExecutionCompletedEvent(t *testing.T) {
 		node.On("GetType").Return(common.NodeTypePrompt)
 
 		ctx := &EngineContext{
-			FlowID:           "flow-010",
+			ExecutionID:      "flow-010",
 			FlowType:         common.FlowTypeAuthentication,
 			AppID:            "app-010",
 			ExecutionHistory: make(map[string]*common.NodeExecutionRecord),
@@ -366,8 +367,8 @@ func TestPublishNodeExecutionCompletedEvent(t *testing.T) {
 
 // TestObservabilityDisabled verifies that no events are published when observability is disabled
 func TestObservabilityDisabled(t *testing.T) {
-	config.ResetThunderRuntime()
-	defer config.ResetThunderRuntime()
+	config.ResetServerRuntime()
+	defer config.ResetServerRuntime()
 
 	testConfig := &config.Config{
 		Observability: config.ObservabilityConfig{
@@ -375,9 +376,9 @@ func TestObservabilityDisabled(t *testing.T) {
 		},
 	}
 
-	err := config.InitializeThunderRuntime("/tmp/thunder-test-disabled", testConfig)
+	err := config.InitializeServerRuntime("/tmp/test-disabled", testConfig)
 	if err != nil {
-		t.Fatalf("Failed to initialize Thunder runtime: %v", err)
+		t.Fatalf("Failed to initialize server runtime: %v", err)
 	}
 
 	mockObs := &observabilitymock.ObservabilityServiceInterfaceMock{}
@@ -386,7 +387,7 @@ func TestObservabilityDisabled(t *testing.T) {
 
 	// Try to publish an event
 	ctx := &EngineContext{
-		FlowID:           "test-flow",
+		ExecutionID:      "test-flow",
 		FlowType:         common.FlowTypeAuthentication,
 		AppID:            "test-app",
 		ExecutionHistory: make(map[string]*common.NodeExecutionRecord),
