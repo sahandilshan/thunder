@@ -116,11 +116,6 @@ const sidebars: SidebarsConfig = {
           id: 'guides/working-with-ai/mcp-server',
           label: 'MCP Server',
         },
-        {
-          type: 'doc',
-          id: 'guides/working-with-ai/get-started-with-mcp',
-          label: 'Getting Started with MCP',
-        },
       ],
     },
 
