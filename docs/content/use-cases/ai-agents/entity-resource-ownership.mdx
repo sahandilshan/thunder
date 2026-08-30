@@ -1,0 +1,67 @@
+---
+title: Agents as Resource Providers
+docType: use-case
+description: The problem of disconnected agent identities and the resource servers they expose, and why a first-class binding is needed.
+sidebar_position: 9
+---
+
+# Agents as Resource Providers
+
+An agent that exposes resources, whether API endpoints, MCP tools, or data, needs two identities in the platform: a client identity (who the agent *is*) and a resource server (what the agent *exposes*). Today these are separate, unrelated objects. Nothing in the platform records that a resource server belongs to a specific agent. This disconnect creates problems across three areas: exposing resources, discovering them across agents, and managing their lifecycle.
+
+## The Client-Resource Disconnect
+
+### The Challenge
+
+Making an agent's resources available to callers requires manual, disconnected setup. An administrator registers the agent, then separately creates a resource server, manually sets its identifier to match the agent's endpoint, and mentally tracks that the two belong together. The platform has no record of the relationship.
+
+This breaks in practice. An agent running an MCP server declares its resource identity in a Protected Resource Metadata (PRM) document. But the identity platform does not know that the resource server in the PRM belongs to this agent. If the agent is removed, the resource server lingers. If credentials are rotated, the resource server is unaware. The two sides of the agent's identity, client and resource, can drift independently.
+
+The same gap affects token validation. When an agent receives an incoming request, it must check the `aud` claim to confirm the token targets its resources. Without a binding, the agent's resource server identifier is a separate configuration value, managed outside the platform, that can fall out of sync.
+
+### Scenario: MCP Server Without a Bound Identity
+
+A team deploys a "Document Extraction" agent with an MCP endpoint exposing text extraction and invoice parsing. The administrator creates the agent's identity, then separately creates a resource server and manually matches its identifier to the PRM. Six months later the agent's capabilities have expanded, but the resource server still carries the original scopes. Nobody remembers who set it up or that it belongs to this agent.
+
+## Cross-Agent Resource Discovery
+
+### The Challenge
+
+When one agent needs to invoke another agent's resources, it must know the target's resource server identifier. The platform cannot answer "what resources does this agent expose?" because it has no record of which resource server belongs to which agent. The caller must obtain the identifier out of band, from documentation, a config file, or a colleague.
+
+In multi-agent systems this becomes fragile. An orchestrator coordinating worker agents carries a static mapping of agent names to resource server identifiers. When a team rotates an identifier, the mapping breaks at runtime with an opaque error. The platform authenticates callers and issues tokens, but it cannot resolve "I want to call Agent B" to "here is Agent B's resource server."
+
+### Scenario: Multi-Agent Orchestration
+
+An enterprise runs a "Customer Data" agent, a "Fraud Detection" agent, and an orchestrator. The orchestrator's deployment manifest maps each agent to its resource server identifier, configured manually by an engineer. When the Fraud Detection team migrates to a new identifier during a security rotation, the orchestrator's manifest goes stale. Token requests fail at runtime as "invalid target" because the platform has no concept of which resource server belongs to which agent.
+
+## Resource Lifecycle
+
+### The Challenge
+
+An agent's lifecycle does not extend to the resources it exposes. Creating an agent does not create its resource server. Deleting an agent leaves the resource server behind as an orphan, still issuing tokens for resources that no longer exist. There is no native correlation between an agent and its resources for audit or analytics.
+
+Agents can register their client identity dynamically (DCR), but there is no equivalent for the resource side. An agent starting up can tell the platform "I exist" but not "I serve these resources."
+
+### Scenario: Orphaned Resources After Decommissioning
+
+An enterprise retires its "Legacy Pricing" agent. The administrator deletes the agent, but the resource server `legacy-pricing-api` remains. For three months the platform continues issuing tokens with that audience. The tokens are valid but point to resources no longer backed by a running service, a security gap nobody notices because no binding existed to flag the orphan.
+
+## Key Principles
+
+**An agent's resource identity is part of its identity.** The client side and the resource side should not be two disconnected objects in the platform.
+
+**Ownership should be queryable.** An agent should be able to look up its own resource server, and a resource server's owning agent should be visible to administrators and callers.
+
+**Standalone resource servers remain valid.** Not every resource server belongs to an agent. Ownership is additive, not mandatory.
+
+**Lifecycle events should propagate.** Deleting or disabling an agent should have a defined effect on its resources, not leave orphaned configuration behind.
+
+**Discovery should replace configuration.** Callers accessing an agent's resources should resolve the target through the platform, not maintain out-of-band identifier mappings.
+
+## Related Use Cases
+
+- [Invoking the Agent and Authenticating Users](../invoking-the-agent): governs who may call an agent and how authentication is enforced for the resources the agent exposes.
+- [Managed Identity](../managed-agent-identity): the registration, lifecycle, and revocation governance that resource ownership extends to the resource side.
+- [Multi-Agent Interactions](../multi-agent): delegation and downscoping between agents, where cross-agent resource discovery determines the target audience for each hop.
+- [Accessing Internal Business Services](../internal-services): the dual-identity problem when accessing resources, which resource ownership makes resolvable through the platform.

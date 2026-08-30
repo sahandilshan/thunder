@@ -244,6 +244,7 @@ const sidebars: SidebarsConfig = {
                 {type: 'doc', id: 'use-cases/ai-agents/internal-services', label: 'Internal Business Services'},
                 {type: 'doc', id: 'use-cases/ai-agents/external-integration', label: 'External Integration'},
                 {type: 'doc', id: 'use-cases/ai-agents/multi-agent', label: 'Multi-Agent Interactions'},
+                {type: 'doc', id: 'use-cases/ai-agents/entity-resource-ownership', label: 'Agents as Resource Providers'},
                 {
                   type: 'category',
                   label: 'Try It Out',
