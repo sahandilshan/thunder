@@ -69,11 +69,12 @@ func (h *clientCredentialsGrantHandler) HandleGrant(ctx context.Context, tokenRe
 
 	// A client_credentials token carries no OIDC scopes, so every requested scope is a permission
 	// scope. Bind the token to a single resource server (RFC 8707 resource or the configured
-	// default). A request with neither scopes nor a resource is not bound to a resource server: its
-	// audience is the app's configured default audiences (falling back to the client_id) and it
-	// carries no scopes.
+	// default). The token subject is the client itself, so the client's own inbound resource server
+	// is never used as the default audience. A request with neither scopes nor a resource is not
+	// bound to a resource server: its audience is the app's configured default audiences (falling
+	// back to the client_id) and it carries no scopes.
 	targetRS, errResp := resourceindicators.ResolveAudienceBinding(
-		ctx, h.resourceService, tokenRequest.Resources, scopes)
+		ctx, h.resourceService, oauthApp, resourceindicators.SubjectClient, tokenRequest.Resources, scopes)
 	if errResp != nil {
 		return nil, errResp
 	}

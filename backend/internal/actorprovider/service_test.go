@@ -6,6 +6,7 @@ package actorprovider
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
@@ -185,4 +186,55 @@ func (s *ActorProviderTestSuite) TestGetActorRoles_NilRoleService_ReturnsNil() {
 
 	s.Nil(err)
 	s.Nil(roles)
+}
+
+// toProviderOAuthClient maps providers.OAuthClient onto itself, so it must preserve every field. It
+// enumerates fields by hand and previously dropped InboundResourceServerID, which would have made
+// entity inbound access invisible to every OAuth grant. This test fails if any field stops
+// round-tripping, including one added to providers.OAuthClient in the future.
+func (s *ActorProviderTestSuite) TestOAuthClientMappingPreservesEveryField() {
+	var populated providers.OAuthClient
+	populateOAuthClientFields(s.T(), reflect.ValueOf(&populated).Elem())
+
+	s.Equal(populated, *toProviderOAuthClient(&populated),
+		"toProviderOAuthClient dropped a field of providers.OAuthClient")
+}
+
+func (s *ActorProviderTestSuite) TestOAuthClientMappingHandlesNil() {
+	s.Nil(toProviderOAuthClient(nil))
+}
+
+// populateOAuthClientFields sets every field of the struct to a distinguishable non-zero value. It
+// fails the test on a field kind it does not know how to populate, so a newly added field cannot
+// slip past TestOAuthClientMappingPreservesEveryField unnoticed.
+func populateOAuthClientFields(t *testing.T, v reflect.Value) {
+	t.Helper()
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		name := v.Type().Field(i).Name
+		switch field.Kind() {
+		case reflect.String:
+			field.SetString("value-" + name)
+		case reflect.Bool:
+			field.SetBool(true)
+		case reflect.Ptr:
+			field.Set(reflect.New(field.Type().Elem()))
+		case reflect.Slice:
+			elem := reflect.New(field.Type().Elem()).Elem()
+			if elem.Kind() != reflect.String {
+				t.Fatalf("field %s has unhandled slice element kind %s; extend populateOAuthClientFields",
+					name, elem.Kind())
+			}
+			elem.SetString("item-" + name)
+			field.Set(reflect.Append(reflect.MakeSlice(field.Type(), 0, 1), elem))
+		case reflect.Map:
+			value := reflect.MakeSlice(field.Type().Elem(), 1, 1)
+			value.Index(0).SetString("claim-" + name)
+			m := reflect.MakeMap(field.Type())
+			m.SetMapIndex(reflect.ValueOf("key-"+name), value)
+			field.Set(m)
+		default:
+			t.Fatalf("field %s has unhandled kind %s; extend populateOAuthClientFields", name, field.Kind())
+		}
+	}
 }

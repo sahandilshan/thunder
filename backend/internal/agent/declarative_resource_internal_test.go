@@ -4,7 +4,9 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	tidcommon "github.com/thunder-id/thunderid/pkg/thunderidengine/common"
@@ -313,4 +315,127 @@ func (s *MakeAgentInboundConfigTestSuite) TestValidator_ValidInboundClient() {
 	cfg := makeAgentInboundConfig(mockSvc)
 	err := cfg.Validator(&inboundmodel.InboundClient{ID: "client-1"})
 	assert.NoError(s.T(), err)
+}
+
+// MakeAgentEntityParserInboundAccessTestSuite covers the declarative inbound access block, which
+// declares the resource server the agent owns inline rather than referencing a separately declared
+// one.
+type MakeAgentEntityParserInboundAccessTestSuite struct {
+	suite.Suite
+}
+
+func TestMakeAgentEntityParserInboundAccessTestSuite(t *testing.T) {
+	suite.Run(t, new(MakeAgentEntityParserInboundAccessTestSuite))
+}
+
+const agentInboundAccessYAML = `
+id: orders-agent
+ouId: ou-1
+type: service-agent
+name: Orders Agent
+inboundAccess:
+  identifier: https://api.example.com/orders
+  resources:
+    - name: Orders
+      handle: orders
+      description: Order management
+      actions:
+        - name: Read
+          handle: read
+          description: Read orders
+        - name: Write
+          handle: write
+    - name: Items
+      handle: items
+      parent: orders
+      actions:
+        - name: Read
+          handle: read
+`
+
+func (s *MakeAgentEntityParserInboundAccessTestSuite) TestParsesPermissionTreeAndLinksEntity() {
+	mockSvc := agentmock.NewAgentServiceInterfaceMock(s.T())
+	mockSvc.EXPECT().ValidateAgent(mock.Anything, mock.Anything, "orders-agent").
+		Return("", "", inboundmodel.InboundClient{}, nil).Once()
+
+	var captured *providers.DeclarativeInboundAccess
+	mockSvc.EXPECT().LoadDeclarativeInboundAccess(
+		mock.Anything, "orders-agent", "ou-1", "Orders Agent", mock.Anything).
+		RunAndReturn(func(_ context.Context, _, _, _ string,
+			access *providers.DeclarativeInboundAccess) (string, error) {
+			captured = access
+			return "orders-agent", nil
+		}).Once()
+
+	parser := makeAgentEntityParser(mockSvc)
+	e, _, _, err := parser([]byte(agentInboundAccessYAML))
+
+	s.Require().NoError(err)
+	s.Require().NotNil(e)
+	assert.Equal(s.T(), "orders-agent", e.ResourceServerID)
+
+	s.Require().NotNil(captured)
+	assert.Equal(s.T(), "https://api.example.com/orders", captured.Identifier)
+	s.Require().Len(captured.Resources, 2)
+	assert.Equal(s.T(), "orders", captured.Resources[0].Handle)
+	assert.Equal(s.T(), "Order management", captured.Resources[0].Description)
+	s.Require().Len(captured.Resources[0].Actions, 2)
+	assert.Equal(s.T(), "read", captured.Resources[0].Actions[0].Handle)
+	assert.Equal(s.T(), "write", captured.Resources[0].Actions[1].Handle)
+	assert.Equal(s.T(), "items", captured.Resources[1].Handle)
+	assert.Equal(s.T(), "orders", captured.Resources[1].ParentHandle)
+}
+
+func (s *MakeAgentEntityParserInboundAccessTestSuite) TestWithoutExplicitIdentifier() {
+	yamlData := []byte(`
+id: orders-agent
+ouId: ou-1
+type: service-agent
+name: Orders Agent
+inboundAccess:
+  resources:
+    - name: Orders
+      handle: orders
+`)
+	mockSvc := agentmock.NewAgentServiceInterfaceMock(s.T())
+	mockSvc.EXPECT().ValidateAgent(mock.Anything, mock.Anything, "orders-agent").
+		Return("", "", inboundmodel.InboundClient{}, nil).Once()
+	mockSvc.EXPECT().LoadDeclarativeInboundAccess(
+		mock.Anything, "orders-agent", "ou-1", "Orders Agent",
+		&providers.DeclarativeInboundAccess{
+			Resources: []providers.Resource{{Name: "Orders", Handle: "orders"}},
+		}).Return("orders-agent", nil).Once()
+
+	parser := makeAgentEntityParser(mockSvc)
+	e, _, _, err := parser(yamlData)
+
+	s.Require().NoError(err)
+	assert.Equal(s.T(), "orders-agent", e.ResourceServerID)
+}
+
+func (s *MakeAgentEntityParserInboundAccessTestSuite) TestWithoutInboundAccessLeavesNoReference() {
+	mockSvc := agentmock.NewAgentServiceInterfaceMock(s.T())
+	mockSvc.EXPECT().ValidateAgent(mock.Anything, mock.Anything, "plain-agent").
+		Return("", "", inboundmodel.InboundClient{}, nil).Once()
+
+	parser := makeAgentEntityParser(mockSvc)
+	e, _, _, err := parser([]byte("id: plain-agent\nouId: ou-1\ntype: service-agent\nname: Plain Agent\n"))
+
+	s.Require().NoError(err)
+	assert.Empty(s.T(), e.ResourceServerID)
+}
+
+func (s *MakeAgentEntityParserInboundAccessTestSuite) TestLoadFailureAbortsParsing() {
+	mockSvc := agentmock.NewAgentServiceInterfaceMock(s.T())
+	mockSvc.EXPECT().ValidateAgent(mock.Anything, mock.Anything, "orders-agent").
+		Return("", "", inboundmodel.InboundClient{}, nil).Once()
+	mockSvc.EXPECT().LoadDeclarativeInboundAccess(
+		mock.Anything, "orders-agent", "ou-1", "Orders Agent", mock.Anything).
+		Return("", errors.New("duplicate resource server identifier")).Once()
+
+	parser := makeAgentEntityParser(mockSvc)
+	_, _, _, err := parser([]byte(agentInboundAccessYAML))
+
+	s.Require().Error(err)
+	assert.Contains(s.T(), err.Error(), "failed to load the inbound access of agent 'orders-agent'")
 }

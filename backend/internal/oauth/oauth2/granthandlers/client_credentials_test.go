@@ -977,3 +977,93 @@ func (suite *ClientCredentialsGrantHandlerTestSuite) TestHandleGrant_NoDPoPProof
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), constants.TokenTypeBearer, result.AccessToken.TokenType)
 }
+
+// Entity inbound access: the token subject is the client itself, so the client's own resource
+// server is never used as the default audience.
+
+func (suite *ClientCredentialsGrantHandlerTestSuite) TestHandleGrant_InboundRS_ScopelessKeepsDefaultAudience() {
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	suite.oauthApp.Token = &providers.OAuthTokenConfig{
+		AccessToken: &providers.AccessTokenConfig{DefaultAudience: "https://api.example.com/booking"},
+	}
+
+	tokenRequest := &model.TokenRequest{
+		GrantType:    "client_credentials",
+		ClientID:     testClientID,
+		ClientSecret: "secret123",
+	}
+
+	expectedAudiences := []string{"https://api.example.com/booking"}
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return slices.Equal(ctx.Audiences, expectedAudiences) && len(ctx.Scopes) == 0
+		})).Return(&model.TokenDTO{
+		Token:     testJWTToken,
+		TokenType: constants.TokenTypeBearer,
+		ClientID:  testClientID,
+		Audiences: expectedAudiences,
+	}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.Equal(suite.T(), expectedAudiences, result.AccessToken.Audiences)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}
+
+func (suite *ClientCredentialsGrantHandlerTestSuite) TestHandleGrant_InboundRS_ScopelessNoDefaultAudUsesClientID() {
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+
+	tokenRequest := &model.TokenRequest{
+		GrantType:    "client_credentials",
+		ClientID:     testClientID,
+		ClientSecret: "secret123",
+	}
+
+	expectedAudiences := []string{testClientID}
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return slices.Equal(ctx.Audiences, expectedAudiences)
+		})).Return(&model.TokenDTO{
+		Token:     testJWTToken,
+		TokenType: constants.TokenTypeBearer,
+		ClientID:  testClientID,
+		Audiences: expectedAudiences,
+	}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.Equal(suite.T(), expectedAudiences, result.AccessToken.Audiences)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}
+
+func (suite *ClientCredentialsGrantHandlerTestSuite) TestHandleGrant_InboundRS_ScopedStillUsesDeploymentDefault() {
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+
+	tokenRequest := &model.TokenRequest{
+		GrantType:    "client_credentials",
+		ClientID:     testClientID,
+		ClientSecret: "secret123",
+		Scope:        "read",
+	}
+
+	mockEvaluateAccessBatch(suite.mockAuthzService, suite.oauthApp.ID, defaultRSID, []string{"read"}, []string{"read"})
+
+	expectedAudiences := []string{defaultRSIdentifier}
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return slices.Equal(ctx.Audiences, expectedAudiences)
+		})).Return(&model.TokenDTO{
+		Token:     testJWTToken,
+		TokenType: constants.TokenTypeBearer,
+		ClientID:  testClientID,
+		Audiences: expectedAudiences,
+	}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.Equal(suite.T(), expectedAudiences, result.AccessToken.Audiences)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}

@@ -116,7 +116,8 @@ func (h *authorizationCodeGrantHandler) HandleGrant(ctx context.Context, tokenRe
 
 	// Bind the token to a single target resource server. Prefer the token request's resource
 	// (validated as a subset of the code's resources); otherwise use the resource recorded on the
-	// authorization code; otherwise fall back to the configured default resource server.
+	// authorization code; otherwise let ResolveAudienceBinding apply the client's own inbound
+	// resource server or the configured default.
 	effectiveResources := tokenRequest.Resources
 	if len(effectiveResources) == 0 {
 		effectiveResources = authCode.Resources
@@ -126,7 +127,7 @@ func (h *authorizationCodeGrantHandler) HandleGrant(ctx context.Context, tokenRe
 	oidcScopes, nonOidcScopes := oauth2utils.SeparateOIDCAndNonOIDCScopes(
 		strings.Join(authorizedScopes, " "), oauthApp.ScopeClaims)
 	targetRS, errResp := resourceindicators.ResolveAudienceBinding(
-		ctx, h.resourceService, effectiveResources, nonOidcScopes)
+		ctx, h.resourceService, oauthApp, resourceindicators.SubjectPrincipal, effectiveResources, nonOidcScopes)
 	if errResp != nil {
 		return nil, errResp
 	}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -81,6 +82,20 @@ func (e *ValidationError) Error() string { return "Validation Failed" }
 func DecodeJSONBody[T any](r *http.Request) (*T, error) {
 	var data T
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		return nil, errors.New("failed to decode JSON: " + err.Error())
+	}
+	if fieldErrors := validateStructNatively(data); fieldErrors != nil {
+		return nil, &ValidationError{Errors: fieldErrors}
+	}
+	return &data, nil
+}
+
+// DecodeOptionalJSONBody decodes JSON from a request body the caller may legitimately omit, for
+// endpoints whose fields are all optional. An absent or empty body yields the zero value of T; a
+// malformed body is still an error, and native field constraints are enforced either way.
+func DecodeOptionalJSONBody[T any](r *http.Request) (*T, error) {
+	var data T
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil && !errors.Is(err, io.EOF) {
 		return nil, errors.New("failed to decode JSON: " + err.Error())
 	}
 	if fieldErrors := validateStructNatively(data); fieldErrors != nil {

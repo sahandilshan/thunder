@@ -169,6 +169,7 @@ func toProviderOAuthClient(c *providers.OAuthClient) *providers.OAuthClient {
 		ScopeClaims:                        c.ScopeClaims,
 		Certificate:                        c.Certificate,
 		AcrValues:                          c.AcrValues,
+		InboundResourceServerID:            c.InboundResourceServerID,
 	}
 	client.GrantTypes = append(client.GrantTypes, c.GrantTypes...)
 	client.ResponseTypes = append(client.ResponseTypes, c.ResponseTypes...)

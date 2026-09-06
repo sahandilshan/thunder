@@ -1375,6 +1375,340 @@ paths:
         "500":
           description: Internal server error
 
+  /agents/{id}/resource-server:
+    get:
+      tags:
+        - Agents
+      summary: Get the inbound access exposed by the agent
+      description: |
+        Returns the resource server the agent owns and exposes as its inbound access. An agent
+        exposes at most one resource server, auto-created by `POST` on this endpoint. There is
+        no way to bind a pre-existing resource server to an agent. Permissions on the resource
+        server are managed through the resource server API (`/resource-servers/{id}`), not here.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: "The unique identifier of the agent"
+          example: "9a475e1e-b0cb-4b29-8df5-2e5b24fb0ed3"
+      responses:
+        "200":
+          description: Inbound access details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentInboundAccessResponse'
+              example:
+                resourceServerId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                identifier: "9a475e1e-b0cb-4b29-8df5-2e5b24fb0ed3"
+                type: "AGENT"
+        "404":
+          description: Inbound access is not enabled, or the agent does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not-enabled:
+                  summary: Inbound access not enabled
+                  value:
+                    code: "AGT-1044"
+                    message:
+                      key: "error.agentservice.inbound_access_not_enabled"
+                      defaultValue: "Inbound access is not enabled"
+                    description:
+                      key: "error.agentservice.inbound_access_not_enabled_description"
+                      defaultValue: "The agent does not expose inbound access"
+                agent-not-found:
+                  summary: Agent not found
+                  value:
+                    code: "AGT-1004"
+                    message:
+                      key: "error.agentservice.agent_not_found"
+                      defaultValue: "Agent not found"
+                    description:
+                      key: "error.agentservice.agent_not_found_description"
+                      defaultValue: "The agent with the specified id does not exist"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          description: Internal server error
+
+    post:
+      tags:
+        - Agents
+      summary: Enable inbound access for the agent
+      description: |
+        Creates a resource server owned by the agent and points the agent at it. This always
+        creates a new resource server. It is not a binding of an existing one, and there is no
+        way to bind a pre-existing resource server to an agent. The request body is entirely
+        optional; a bodyless `POST` enables inbound access with defaults.
+
+        `identifier` is the audience a caller supplies via the OAuth `resource` parameter when
+        requesting a token for this agent. When omitted or blank, it defaults to the agent's own
+        ID.
+
+        Enabling inbound access changes the `aud` of tokens ThunderID issues to this agent's
+        callers, not just tokens that explicitly request it. For grants other than
+        `client_credentials`, this identifier becomes the resolved audience ahead of the
+        deployment default resource server, `defaultAudience`, and the `client_id`, even for a
+        plain OIDC login that supplies no `resource` parameter. It also downscopes non-OIDC
+        scopes to the permissions defined on this resource server. See the aud resolution order
+        under `POST /oauth2/token` for the full precedence and its consequences.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: "The unique identifier of the agent"
+          example: "9a475e1e-b0cb-4b29-8df5-2e5b24fb0ed3"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnableInboundAccessRequest'
+            example:
+              identifier: "calendar-agent-api"
+      responses:
+        "201":
+          description: Inbound access enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentInboundAccessResponse'
+              example:
+                resourceServerId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                identifier: "calendar-agent-api"
+                type: "AGENT"
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "AGT-1001"
+                message:
+                  key: "error.agentservice.invalid_request_format"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.agentservice.invalid_request_format_description"
+                  defaultValue: "The request body is malformed or contains invalid data"
+        "404":
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "AGT-1004"
+                message:
+                  key: "error.agentservice.agent_not_found"
+                  defaultValue: "Agent not found"
+                description:
+                  key: "error.agentservice.agent_not_found_description"
+                  defaultValue: "The agent with the specified id does not exist"
+        "409":
+          description: >-
+            Inbound access is already enabled, or the requested identifier or the entity's
+            derived resource server name conflicts with an existing resource server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                already-enabled:
+                  summary: Inbound access already enabled
+                  value:
+                    code: "AGT-1043"
+                    message:
+                      key: "error.agentservice.inbound_access_already_enabled"
+                      defaultValue: "Inbound access is already enabled"
+                    description:
+                      key: "error.agentservice.inbound_access_already_enabled_description"
+                      defaultValue: "The agent already exposes inbound access. Disable it first to expose a different audience identifier"
+                identifier-conflict:
+                  summary: Identifier already used by another resource server
+                  value:
+                    code: "RES-1013"
+                    message:
+                      key: "error.resourceservice.identifier_conflict"
+                      defaultValue: "Identifier conflict"
+                    description:
+                      key: "error.resourceservice.identifier_conflict_description"
+                      defaultValue: "A resource server with the same identifier already exists"
+                name-conflict:
+                  summary: Derived resource server name already in use
+                  value:
+                    code: "RES-1004"
+                    message:
+                      key: "error.resourceservice.name_conflict"
+                      defaultValue: "Name conflict"
+                    description:
+                      key: "error.resourceservice.name_conflict_description"
+                      defaultValue: "A resource server with the same name already exists"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          description: Internal server error
+
+    put:
+      tags:
+        - Agents
+      summary: Change the audience identifier of the agent's inbound access
+      description: |
+        Changes the `identifier` of the resource server the agent owns. This is the only
+        supported way to change it, since the resource server API (`PUT /resource-servers/{id}`)
+        locks the identifier of an entity-owned resource server and rejects the change with
+        `RES-1025`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: "The unique identifier of the agent"
+          example: "9a475e1e-b0cb-4b29-8df5-2e5b24fb0ed3"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInboundAccessRequest'
+            example:
+              identifier: "calendar-agent-api-v2"
+      responses:
+        "200":
+          description: Inbound access updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentInboundAccessResponse'
+              example:
+                resourceServerId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                identifier: "calendar-agent-api-v2"
+                type: "AGENT"
+        "400":
+          description: Missing identifier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "AGT-1045"
+                message:
+                  key: "error.agentservice.missing_inbound_access_identifier"
+                  defaultValue: "Missing identifier"
+                description:
+                  key: "error.agentservice.missing_inbound_access_identifier_description"
+                  defaultValue: "The identifier is required when updating inbound access"
+        "404":
+          description: Inbound access is not enabled, or the agent does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not-enabled:
+                  summary: Inbound access not enabled
+                  value:
+                    code: "AGT-1044"
+                    message:
+                      key: "error.agentservice.inbound_access_not_enabled"
+                      defaultValue: "Inbound access is not enabled"
+                    description:
+                      key: "error.agentservice.inbound_access_not_enabled_description"
+                      defaultValue: "The agent does not expose inbound access"
+                agent-not-found:
+                  summary: Agent not found
+                  value:
+                    code: "AGT-1004"
+                    message:
+                      key: "error.agentservice.agent_not_found"
+                      defaultValue: "Agent not found"
+                    description:
+                      key: "error.agentservice.agent_not_found_description"
+                      defaultValue: "The agent with the specified id does not exist"
+        "409":
+          description: The requested identifier is already used by another resource server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "RES-1013"
+                message:
+                  key: "error.resourceservice.identifier_conflict"
+                  defaultValue: "Identifier conflict"
+                description:
+                  key: "error.resourceservice.identifier_conflict_description"
+                  defaultValue: "A resource server with the same identifier already exists"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          description: Internal server error
+
+    delete:
+      tags:
+        - Agents
+      summary: Disable inbound access for the agent
+      description: |
+        Deletes the resource server the agent owns and clears the agent's reference to it. This
+        deletes the resource server; it does not merely remove a reference. Permissions defined
+        on it are removed from any role that granted them (cascade delete). Access tokens issued
+        before the deletion remain valid until they expire. There is no revocation. Deleting the
+        agent itself also deletes its owned resource server.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: "The unique identifier of the agent"
+          example: "9a475e1e-b0cb-4b29-8df5-2e5b24fb0ed3"
+      responses:
+        "204":
+          description: Inbound access disabled
+        "404":
+          description: Inbound access is not enabled, or the agent does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not-enabled:
+                  summary: Inbound access not enabled
+                  value:
+                    code: "AGT-1044"
+                    message:
+                      key: "error.agentservice.inbound_access_not_enabled"
+                      defaultValue: "Inbound access is not enabled"
+                    description:
+                      key: "error.agentservice.inbound_access_not_enabled_description"
+                      defaultValue: "The agent does not expose inbound access"
+                agent-not-found:
+                  summary: Agent not found
+                  value:
+                    code: "AGT-1004"
+                    message:
+                      key: "error.agentservice.agent_not_found"
+                      defaultValue: "Agent not found"
+                    description:
+                      key: "error.agentservice.agent_not_found_description"
+                      defaultValue: "The agent with the specified id does not exist"
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "500":
+          description: Internal server error
+
   /agent-types:
     get:
       tags:
@@ -1930,6 +2264,8 @@ components:
             Indicates whether the agent is immutable. When `true`, update and delete
             operations are rejected. Set by the system for declaratively provisioned agents.
           example: false
+        inboundAccess:
+          $ref: '#/components/schemas/InboundAccess'
 
     AgentListResponse:
       type: object
@@ -2195,6 +2531,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/InboundAuthConfigComplete'
+        inboundAccess:
+          $ref: '#/components/schemas/InboundAccess'
 
     AgentGetResponse:
       type: object
@@ -2273,6 +2611,8 @@ components:
           items:
             $ref: '#/components/schemas/InboundAuthConfig'
           description: OAuth config without secrets.
+        inboundAccess:
+          $ref: '#/components/schemas/InboundAccess'
 
     AgentGroup:
       type: object
@@ -2334,6 +2674,84 @@ components:
           items:
             $ref: '#/components/schemas/Link'
 
+    InboundAccess:
+      type: object
+      readOnly: true
+      description: |
+        Inbound access exposed by the agent, backed by the single resource server the agent
+        owns. Omitted entirely from the response when the agent has not enabled inbound access
+        (there is no `"inboundAccess": null` or `"enabled": false` form). Managed exclusively
+        through `/agents/{id}/resource-server`; ignored on create and update.
+      properties:
+        enabled:
+          type: boolean
+          description: Always `true` when this object is present.
+          example: true
+        identifier:
+          type: string
+          description: The audience identifier callers supply via the OAuth `resource` parameter.
+          example: "calendar-agent-api"
+        resourceServerId:
+          type: string
+          format: uuid
+          description: ID of the resource server the agent owns.
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
+    EnableInboundAccessRequest:
+      type: object
+      description: |
+        Request body for enabling inbound access on an agent. Entirely optional, a bodyless
+        `POST` is valid and enables inbound access with defaults.
+      properties:
+        identifier:
+          type: string
+          description: |
+            Audience identifier for the resource server that will be created. When omitted or
+            blank, defaults to the agent's own ID. Becomes the default `aud` for tokens issued to
+            this agent's callers once inbound access is enabled, ahead of `defaultAudience`; see
+            `POST /oauth2/token` for the resolution order.
+          example: "calendar-agent-api"
+
+    UpdateInboundAccessRequest:
+      type: object
+      required: [identifier]
+      description: Request body for changing the audience identifier of an agent's inbound access.
+      properties:
+        identifier:
+          type: string
+          description: |
+            The new audience identifier. Required. Replaces the value used to resolve the `aud`
+            of tokens issued to this agent's callers; see `POST /oauth2/token` for the resolution
+            order.
+          example: "calendar-agent-api-v2"
+
+    AgentInboundAccessResponse:
+      type: object
+      required: [resourceServerId, identifier, type]
+      description: |
+        Describes the inbound access exposed by an agent. Permissions are read and managed
+        through the resource server API (`/resource-servers/{resourceServerId}`) and are
+        deliberately not repeated here.
+      properties:
+        resourceServerId:
+          type: string
+          format: uuid
+          description: ID of the resource server the agent owns.
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        identifier:
+          type: string
+          description: |
+            The audience identifier callers supply via the OAuth `resource` parameter. Also the
+            default `aud` for most tokens issued to this agent's callers while inbound access is
+            enabled, even without a `resource` parameter; see `POST /oauth2/token` for the
+            resolution order.
+          example: "calendar-agent-api"
+        type:
+          type: string
+          enum: [AGENT]
+          description: Always `AGENT` for a resource server owned by an agent.
+          example: "AGENT"
+
     AssertionConfig:
       type: object
       description: |
@@ -2381,10 +2799,13 @@ components:
           type: string
           maxLength: 2048
           description: >
-            The aud claim for access tokens that are not bound to a resource server, that is,
-            OIDC-only or scopeless requests. Falls back to the client_id when empty. A request
-            that targets a resource server (via the resource parameter or API scopes) uses that
-            resource server as the audience instead.
+            The aud claim for client_credentials access tokens that are not bound to a resource
+            server via API scopes. Falls back to the client_id when empty. For every other grant
+            (authorization_code, token exchange, jwt-bearer, CIBA), this is used only when the
+            agent has no inbound access identifier enabled and no resource server is otherwise
+            targeted; once inbound access is enabled, the inbound access identifier takes
+            precedence over defaultAudience for those grants. See the aud resolution order under
+            `POST /oauth2/token` for the full precedence.
           example: https://api.example.com
 
     AccessTokenSubConfig:

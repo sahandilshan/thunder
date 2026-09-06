@@ -67,6 +67,12 @@ func (e *resourceServerExporter) GetAllResourceIDs(ctx context.Context) ([]strin
 			break
 		}
 		for _, server := range servers.ResourceServers {
+			// An entity-owned resource server is exported as the inbound access block of the agent
+			// or application that owns it. Exporting it here as well would re-create it a second
+			// time on import, colliding on its identifier.
+			if server.Type.IsEntityOwned() {
+				continue
+			}
 			if !e.service.IsResourceServerDeclarative(server.ID) {
 				ids = append(ids, server.ID)
 			}
@@ -83,13 +89,25 @@ func (e *resourceServerExporter) GetAllResourceIDs(ctx context.Context) ([]strin
 func (e *resourceServerExporter) GetResourceByID(ctx context.Context, id string) (
 	interface{}, string, *tidcommon.ServiceError,
 ) {
-	// Get the resource server
-	server, err := e.service.GetResourceServer(ctx, id)
+	rs, err := BuildDeclarativeResourceServer(ctx, e.service, id)
 	if err != nil {
 		return nil, "", err
 	}
+	return rs, rs.Name, nil
+}
 
-	// Build providers.ResourceServer with nested structure
+// BuildDeclarativeResourceServer assembles a resource server together with its full resource and
+// action tree in the declarative (YAML) shape. Shared by the resource server exporter and by the
+// agent and application exporters, which emit the same tree inline as the owning entity's inbound
+// access.
+func BuildDeclarativeResourceServer(
+	ctx context.Context, service ResourceServiceInterface, id string,
+) (*providers.ResourceServer, *tidcommon.ServiceError) {
+	server, err := service.GetResourceServer(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
 	rs := &providers.ResourceServer{
 		ID:          server.ID,
 		Name:        server.Name,
@@ -101,13 +119,13 @@ func (e *resourceServerExporter) GetResourceByID(ctx context.Context, id string)
 		Resources:   []providers.Resource{},
 	}
 
-	allResources, err := e.service.GetAllResourceList(ctx, id)
+	allResources, err := service.GetAllResourceList(ctx, id)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	// First pass: build ID-to-Handle map so parent handles can be resolved regardless of order
-	idToHandleMap := make(map[string]string)
+	idToHandleMap := make(map[string]string, len(allResources))
 	for _, res := range allResources {
 		idToHandleMap[res.ID] = res.Handle
 	}
@@ -121,18 +139,23 @@ func (e *resourceServerExporter) GetResourceByID(ctx context.Context, id string)
 			Actions:     []providers.Action{},
 		}
 
-		if res.Parent != nil && *res.Parent != "" {
+		// A database-backed resource carries the resolved parent ID; a declarative one already
+		// carries the parent handle, because the declarative store never resolves handles to IDs.
+		switch {
+		case res.Parent != nil && *res.Parent != "":
 			if parentHandle, ok := idToHandleMap[*res.Parent]; ok {
 				resource.ParentHandle = parentHandle
 			}
+		default:
+			resource.ParentHandle = res.ParentHandle
 		}
 
 		// Get actions for this resource
 		actOffset := 0
 		for {
-			actions, actErr := e.service.GetActionList(ctx, id, &res.ID, "", serverconst.MaxPageSize, actOffset)
+			actions, actErr := service.GetActionList(ctx, id, &res.ID, "", serverconst.MaxPageSize, actOffset)
 			if actErr != nil {
-				return nil, "", actErr
+				return nil, actErr
 			}
 			if len(actions.Actions) == 0 {
 				break
@@ -154,7 +177,7 @@ func (e *resourceServerExporter) GetResourceByID(ctx context.Context, id string)
 		rs.Resources = append(rs.Resources, resource)
 	}
 
-	return rs, server.Name, nil
+	return rs, nil
 }
 
 // ValidateResource validates a resource server resource.
@@ -264,6 +287,15 @@ func parseToResourceServer(data []byte) (*providers.ResourceServer, error) {
 	}
 	if rs.Type != "" && !rs.Type.IsValid() {
 		return nil, fmt.Errorf("invalid type %q for resource server '%s'", rs.Type, rs.Name)
+	}
+	// The entity-owned types label a resource server that an agent or application owns; ownership is
+	// established through that entity's inbound-access endpoints, never by declaring the type here.
+	// The REST path rejects them too, so a declared file cannot mint an owned-looking, unowned
+	// resource server.
+	if rs.Type.IsEntityOwned() {
+		return nil, fmt.Errorf(
+			"type %q for resource server '%s' is assigned by the system to resource servers owned by "+
+				"an agent or application; enable inbound access on that entity instead", rs.Type, rs.Name)
 	}
 	if rs.Type == "" {
 		rs.Type = providers.ResourceServerTypeCustom

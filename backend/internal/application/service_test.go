@@ -23,6 +23,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/entityprovider"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/serverconfig"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
@@ -31,10 +32,12 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 	"github.com/thunder-id/thunderid/tests/mocks/crypto/cryptomock"
+	"github.com/thunder-id/thunderid/tests/mocks/entitymock"
 	"github.com/thunder-id/thunderid/tests/mocks/entityprovidermock"
 	"github.com/thunder-id/thunderid/tests/mocks/i18n/mgtmock"
 	"github.com/thunder-id/thunderid/tests/mocks/inboundclientmock"
 	"github.com/thunder-id/thunderid/tests/mocks/oumock"
+	"github.com/thunder-id/thunderid/tests/mocks/resourcemock"
 	"github.com/thunder-id/thunderid/tests/mocks/serverconfigmock"
 )
 
@@ -147,6 +150,7 @@ func (suite *ServiceTestSuite) setupTestService() (
 	mockEntityProvider.On("UpdateSystemCredentials", mock.Anything, mock.Anything).Maybe().Return(noEPErr)
 	mockStore.On("Validate", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
 	mockStore.On("ResolveInboundAuthProfileHandles", mock.Anything, mock.Anything).Maybe().Return(nil)
+	mockStore.On("IsDeclarative", mock.Anything, mock.Anything).Maybe().Return(false)
 	mockOUService := oumock.NewOrganizationUnitServiceInterfaceMock(suite.T())
 	mockOUService.On("IsOrganizationUnitExists", mock.Anything, mock.Anything).Maybe().Return(true, nil)
 	service := &applicationService{
@@ -1022,6 +1026,73 @@ func (suite *ServiceTestSuite) TestDeleteApplication_Success() {
 	svcErr := service.DeleteApplication(context.Background(), testServiceAppID)
 
 	assert.Nil(suite.T(), svcErr)
+}
+
+// The owned resource server's lifecycle follows the application, so deleting the application must
+// delete it too rather than silently leaving it behind.
+func (suite *ServiceTestSuite) TestDeleteApplication_RemovesOwnedResourceServer() {
+	testConfig := &config.Config{
+		DeclarativeResources: config.DeclarativeResources{Enabled: false},
+	}
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
+	require.NoError(suite.T(), err)
+	defer config.ResetServerRuntime()
+
+	service, mockStore := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+	mockEP.On("DeleteEntity", testServiceAppID).Return((*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockES := entitymock.NewEntityServiceInterfaceMock(suite.T())
+	mockES.On("UpdateEntityResourceServerID", mock.Anything, testServiceAppID, (*string)(nil)).
+		Return(nil)
+	service.SetEntityService(mockES)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, "rs-1").
+		Return((*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	mockStore.On("DeleteInboundClient", mock.Anything, testServiceAppID).Return(nil)
+
+	svcErr := service.DeleteApplication(context.Background(), testServiceAppID)
+
+	assert.Nil(suite.T(), svcErr)
+	mockRS.AssertCalled(suite.T(), "DeleteEntityOwnedResourceServer", mock.Anything, "rs-1")
+	mockEP.AssertCalled(suite.T(), "DeleteEntity", testServiceAppID)
+}
+
+// A failed resource server delete must abort the application delete, leaving it retriable rather
+// than deleting the application and orphaning the resource server.
+func (suite *ServiceTestSuite) TestDeleteApplication_ResourceServerDeleteFailureAbortsDelete() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockES := entitymock.NewEntityServiceInterfaceMock(suite.T())
+	service.SetEntityService(mockES)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, "rs-1").
+		Return(&resource.ErrorCannotDelete)
+	service.SetResourceService(mockRS)
+
+	svcErr := service.DeleteApplication(context.Background(), testServiceAppID)
+
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), tidcommon.InternalServerError.Code, svcErr.Code)
+	mockEP.AssertNotCalled(suite.T(), "DeleteEntity", testServiceAppID)
 }
 
 // TestDeleteApplication_OAuthCertError verifies that when the inbound-client layer reports an
@@ -2334,6 +2405,99 @@ func (suite *ServiceTestSuite) TestUpdateApplication_MetadataUpdate() {
 	assert.Equal(suite.T(), "new_value", result.Metadata["new_key"])
 	assert.Equal(suite.T(), "another_value", result.Metadata["another_key"])
 	mockStore.AssertExpectations(suite.T())
+}
+
+// The owned resource server carries the application's name, so a rename must propagate to it.
+// This path reads ResourceServerID back through the entity provider, so it also guards the
+// provider round-trip that previously dropped the field and left this sync silently dead.
+func (suite *ServiceTestSuite) TestUpdateApplication_RenamePropagatesToOwnedResourceServer() {
+	testConfig := &config.Config{
+		DeclarativeResources: config.DeclarativeResources{Enabled: false},
+	}
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
+	require.NoError(suite.T(), err)
+	defer config.ResetServerRuntime()
+
+	service, mockStore := suite.setupTestService()
+
+	existingApp := &model.ApplicationProcessedDTO{ID: testServiceAppID, Name: "Old App Name"}
+	updatedApp := &model.ApplicationDTO{Name: "New App Name", OUID: testOUID}
+
+	mockStore.On("IsDeclarative", mock.Anything, testServiceAppID).Maybe().Return(false)
+	mockLoadFullApplication(mockStore, service, existingApp)
+	mockStore.On("UpdateInboundClient",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	// The entity owns a resource server, which the rename must reach.
+	ep := resetEntityProviderMethod(service, "GetEntity")
+	ep.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			OUID: testOUID, ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, "rs-1", "New App Name", "").
+		Return(&providers.ResourceServer{ID: "rs-1", Name: "New App Name"},
+			(*tidcommon.ServiceError)(nil))
+	mockRS.On("GetResourceServer", mock.Anything, "rs-1").
+		Return(&providers.ResourceServer{ID: "rs-1", Identifier: "aud"},
+			(*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	result, svcErr := service.UpdateApplication(context.Background(), testServiceAppID, updatedApp)
+
+	suite.Require().Nil(svcErr)
+	mockRS.AssertCalled(suite.T(), "UpdateEntityOwnedResourceServer",
+		mock.Anything, "rs-1", "New App Name", "")
+	suite.Require().NotNil(result.InboundAccess)
+	assert.Equal(suite.T(), "aud", result.InboundAccess.Identifier)
+}
+
+// A failed name sync must fail the update rather than letting the two names drift apart. Resource
+// server names are unique deployment-wide and shared with standalone resource servers, so this
+// conflict is reachable from a name the application-level check cannot see. The sync therefore runs
+// before the entity write, so the conflict aborts with the application's name unchanged and a retry
+// still sees a rename to attempt.
+func (suite *ServiceTestSuite) TestUpdateApplication_RenameSyncFailureFailsUpdate() {
+	testConfig := &config.Config{
+		DeclarativeResources: config.DeclarativeResources{Enabled: false},
+	}
+	config.ResetServerRuntime()
+	err := config.InitializeServerRuntime("/tmp/test", testConfig)
+	require.NoError(suite.T(), err)
+	defer config.ResetServerRuntime()
+
+	service, mockStore := suite.setupTestService()
+
+	existingApp := &model.ApplicationProcessedDTO{ID: testServiceAppID, Name: "Old App Name"}
+	updatedApp := &model.ApplicationDTO{Name: "New App Name", OUID: testOUID}
+
+	mockStore.On("IsDeclarative", mock.Anything, testServiceAppID).Maybe().Return(false)
+	mockLoadFullApplication(mockStore, service, existingApp)
+	mockStore.On("UpdateInboundClient",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	ep := resetEntityProviderMethod(service, "GetEntity")
+	ep.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			OUID: testOUID, ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, "rs-1", "New App Name", "").
+		Return((*providers.ResourceServer)(nil), &resource.ErrorNameConflict)
+	service.SetResourceService(mockRS)
+
+	result, svcErr := service.UpdateApplication(context.Background(), testServiceAppID, updatedApp)
+
+	assert.Nil(suite.T(), result)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), resource.ErrorNameConflict.Code, svcErr.Code)
+	// Nothing was persisted to the entity, so the application keeps its old name and a retry is
+	// still a rename rather than a no-op.
+	service.entityProvider.(*entityprovidermock.EntityProviderInterfaceMock).
+		AssertNotCalled(suite.T(), "UpdateSystemAttributes", testServiceAppID, mock.Anything)
 }
 
 // TestUpdateApplication_AppCertificateUpdateError verifies that when the app certificate update fails
@@ -4456,4 +4620,590 @@ func (suite *ServiceTestSuite) TestSyncPasskeyOriginsToCORS_SkipsInvalidOrigins(
 	// SetConfig must NOT be called because all origins are invalid
 
 	svc.syncPasskeyOriginsToCORS(context.Background(), invalidOrigins)
+}
+
+// --- SetResourceService ---
+
+func (suite *ServiceTestSuite) TestSetResourceService() {
+	service, _ := suite.setupTestService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	service.SetResourceService(mockRS)
+	assert.Equal(suite.T(), mockRS, service.resourceService)
+}
+
+// --- validateAppExists ---
+
+func (suite *ServiceTestSuite) TestValidateAppExists_NotFound() {
+	service, _ := suite.setupTestService()
+	svcErr := service.validateAppExists("missing-app")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorApplicationNotFound.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestValidateAppExists_WrongCategory() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", "agent-entity").Return(
+		&providers.Entity{ID: "agent-entity", Category: providers.EntityCategoryAgent},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	svcErr := service.validateAppExists("agent-entity")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorApplicationNotFound.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestValidateAppExists_Success() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	svcErr := service.validateAppExists(testServiceAppID)
+	assert.Nil(suite.T(), svcErr)
+}
+
+// --- Inbound access ---
+
+// testOwnedResourceServerID backs the *string argument the entity service receives when the
+// application's resource server reference is set.
+var testOwnedResourceServerID = "rs-1"
+
+func (suite *ServiceTestSuite) TestGetApplicationInboundAccess_EmptyID() {
+	service, _ := suite.setupTestService()
+	resp, svcErr := service.GetApplicationInboundAccess(context.Background(), "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorInvalidApplicationID.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestGetApplicationInboundAccess_AppNotFound() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return((*providers.Entity)(nil),
+		&entityprovider.EntityProviderError{Code: entityprovider.ErrorCodeEntityNotFound})
+	service.entityProvider = mockEP
+
+	resp, svcErr := service.GetApplicationInboundAccess(context.Background(), testServiceAppID)
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorApplicationNotFound.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestGetApplicationInboundAccess_WrongCategory() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryAgent},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	resp, svcErr := service.GetApplicationInboundAccess(context.Background(), testServiceAppID)
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorApplicationNotFound.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestGetApplicationInboundAccess_NotEnabled() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	resp, svcErr := service.GetApplicationInboundAccess(context.Background(), testServiceAppID)
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorApplicationInboundAccessNotEnabled.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestGetApplicationInboundAccess_Success() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServer", mock.Anything, "rs-1").Return(&providers.ResourceServer{
+		ID: "rs-1", Identifier: "https://api.example.com",
+		Type: providers.ResourceServerTypeApplication,
+	}, (*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	resp, svcErr := service.GetApplicationInboundAccess(context.Background(), testServiceAppID)
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(resp)
+	assert.Equal(suite.T(), "rs-1", resp.ResourceServerID)
+	assert.Equal(suite.T(), "https://api.example.com", resp.Identifier)
+	assert.Equal(suite.T(), providers.ResourceServerTypeApplication, resp.Type)
+}
+
+func (suite *ServiceTestSuite) TestEnableApplicationInboundAccess_BlankIdentifierDefaultsToAppID() {
+	service, _ := suite.setupTestService()
+
+	sysAttrs, _ := json.Marshal(map[string]interface{}{fieldName: "My App"})
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			OUID: "ou-1", SystemAttributes: sysAttrs},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateEntityOwnedResourceServer", mock.Anything, providers.ResourceServer{
+		Name:       "My App",
+		Identifier: testServiceAppID,
+		Type:       providers.ResourceServerTypeApplication,
+		OUID:       "ou-1",
+	}).Return(&providers.ResourceServer{
+		ID: "rs-1", Identifier: testServiceAppID, Type: providers.ResourceServerTypeApplication,
+	}, (*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	mockES := entitymock.NewEntityServiceInterfaceMock(suite.T())
+	mockES.On("UpdateEntityResourceServerID", mock.Anything, testServiceAppID,
+		&testOwnedResourceServerID).Return(nil)
+	service.SetEntityService(mockES)
+
+	resp, svcErr := service.EnableApplicationInboundAccess(
+		context.Background(), testServiceAppID, "")
+	suite.Require().Nil(svcErr)
+	assert.Equal(suite.T(), testServiceAppID, resp.Identifier)
+}
+
+func (suite *ServiceTestSuite) TestEnableApplicationInboundAccess_ExplicitIdentifierUsed() {
+	service, _ := suite.setupTestService()
+
+	sysAttrs, _ := json.Marshal(map[string]interface{}{fieldName: "My App"})
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			OUID: "ou-1", SystemAttributes: sysAttrs},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateEntityOwnedResourceServer", mock.Anything, providers.ResourceServer{
+		Name:       "My App",
+		Identifier: "https://api.example.com",
+		Type:       providers.ResourceServerTypeApplication,
+		OUID:       "ou-1",
+	}).Return(&providers.ResourceServer{
+		ID: "rs-1", Identifier: "https://api.example.com",
+		Type: providers.ResourceServerTypeApplication,
+	}, (*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	mockES := entitymock.NewEntityServiceInterfaceMock(suite.T())
+	mockES.On("UpdateEntityResourceServerID", mock.Anything, testServiceAppID,
+		&testOwnedResourceServerID).Return(nil)
+	service.SetEntityService(mockES)
+
+	resp, svcErr := service.EnableApplicationInboundAccess(
+		context.Background(), testServiceAppID, "https://api.example.com")
+	suite.Require().Nil(svcErr)
+	assert.Equal(suite.T(), "https://api.example.com", resp.Identifier)
+}
+
+func (suite *ServiceTestSuite) TestEnableApplicationInboundAccess_AlreadyEnabled() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	resp, svcErr := service.EnableApplicationInboundAccess(
+		context.Background(), testServiceAppID, "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorApplicationInboundAccessAlreadyEnabled.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestEnableApplicationInboundAccess_RemovesRSWhenReferenceUpdateFails() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp, OUID: "ou-1"},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateEntityOwnedResourceServer", mock.Anything, mock.Anything).
+		Return(&providers.ResourceServer{ID: "rs-1"}, (*tidcommon.ServiceError)(nil))
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, "rs-1").
+		Return((*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	mockES := entitymock.NewEntityServiceInterfaceMock(suite.T())
+	mockES.On("UpdateEntityResourceServerID", mock.Anything, testServiceAppID,
+		&testOwnedResourceServerID).Return(errors.New("db error"))
+	service.SetEntityService(mockES)
+
+	resp, svcErr := service.EnableApplicationInboundAccess(
+		context.Background(), testServiceAppID, "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), tidcommon.InternalServerError.Code, svcErr.Code)
+	mockRS.AssertCalled(suite.T(), "DeleteEntityOwnedResourceServer", mock.Anything, "rs-1")
+}
+
+func (suite *ServiceTestSuite) TestUpdateApplicationInboundAccess_MissingIdentifier() {
+	service, _ := suite.setupTestService()
+	resp, svcErr := service.UpdateApplicationInboundAccess(
+		context.Background(), testServiceAppID, "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorMissingInboundAccessIdentifier.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestUpdateApplicationInboundAccess_NotEnabled() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	resp, svcErr := service.UpdateApplicationInboundAccess(
+		context.Background(), testServiceAppID, "https://x")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorApplicationInboundAccessNotEnabled.Code, svcErr.Code)
+}
+
+func (suite *ServiceTestSuite) TestUpdateApplicationInboundAccess_Success() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, "rs-1", "", "https://new.example.com").
+		Return(&providers.ResourceServer{
+			ID: "rs-1", Identifier: "https://new.example.com",
+			Type: providers.ResourceServerTypeApplication,
+		}, (*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	resp, svcErr := service.UpdateApplicationInboundAccess(
+		context.Background(), testServiceAppID, "https://new.example.com")
+	suite.Require().Nil(svcErr)
+	assert.Equal(suite.T(), "https://new.example.com", resp.Identifier)
+}
+
+func (suite *ServiceTestSuite) TestDisableApplicationInboundAccess_NotEnabled() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	svcErr := service.DisableApplicationInboundAccess(context.Background(), testServiceAppID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorApplicationInboundAccessNotEnabled.Code, svcErr.Code)
+}
+
+// The resource server must go first: clearing the reference first would strand an orphan that
+// nothing can delete once the application has defined permissions on it.
+func (suite *ServiceTestSuite) TestDisableApplicationInboundAccess_DeletesRSBeforeClearingReference() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	var order []string
+	mockES := entitymock.NewEntityServiceInterfaceMock(suite.T())
+	mockES.On("UpdateEntityResourceServerID", mock.Anything, testServiceAppID, (*string)(nil)).
+		Run(func(mock.Arguments) { order = append(order, "clearReference") }).Return(nil)
+	service.SetEntityService(mockES)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, "rs-1").
+		Run(func(mock.Arguments) { order = append(order, "deleteRS") }).
+		Return((*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	svcErr := service.DisableApplicationInboundAccess(context.Background(), testServiceAppID)
+	assert.Nil(suite.T(), svcErr)
+	assert.Equal(suite.T(), []string{"deleteRS", "clearReference"}, order)
+}
+
+// A failed resource server delete must leave the application still owning it, so the disable is
+// retriable and no orphan is created.
+func (suite *ServiceTestSuite) TestDisableApplicationInboundAccess_RSDeleteFailureKeepsReference() {
+	service, _ := suite.setupTestService()
+
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: "rs-1"},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockES := entitymock.NewEntityServiceInterfaceMock(suite.T())
+	service.SetEntityService(mockES)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, "rs-1").
+		Return(&resource.ErrorCannotDelete)
+	service.SetResourceService(mockRS)
+
+	svcErr := service.DisableApplicationInboundAccess(context.Background(), testServiceAppID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), tidcommon.InternalServerError.Code, svcErr.Code)
+	mockES.AssertNotCalled(suite.T(), "UpdateEntityResourceServerID",
+		mock.Anything, testServiceAppID, (*string)(nil))
+}
+
+// --- populateInboundAccessForList ---
+
+func (suite *ServiceTestSuite) TestPopulateInboundAccessForList_NoOwnedResourceServers() {
+	service, _ := suite.setupTestService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	service.SetResourceService(mockRS)
+
+	apps := []model.BasicApplicationResponse{{ID: testServiceAppID}}
+	service.populateInboundAccessForList(context.Background(), apps,
+		[]providers.Entity{{ID: testServiceAppID}})
+	assert.Nil(suite.T(), apps[0].InboundAccess)
+	mockRS.AssertNotCalled(suite.T(), "GetResourceServersByIDs", mock.Anything, mock.Anything)
+}
+
+func (suite *ServiceTestSuite) TestPopulateInboundAccessForList_BatchesOneLookup() {
+	service, _ := suite.setupTestService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServersByIDs", mock.Anything, []string{"rs-1"}).
+		Return(map[string]providers.ResourceServer{
+			"rs-1": {ID: "rs-1", Identifier: "https://api.example.com"},
+		}, (*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	apps := []model.BasicApplicationResponse{{ID: "app-1"}, {ID: "app-2"}}
+	service.populateInboundAccessForList(context.Background(), apps, []providers.Entity{
+		{ID: "app-1", ResourceServerID: "rs-1"},
+		{ID: "app-2"},
+	})
+
+	suite.Require().NotNil(apps[0].InboundAccess)
+	assert.Equal(suite.T(), "https://api.example.com", apps[0].InboundAccess.Identifier)
+	assert.Nil(suite.T(), apps[1].InboundAccess)
+	mockRS.AssertNumberOfCalls(suite.T(), "GetResourceServersByIDs", 1)
+}
+
+// --- syncOwnedResourceServerName ---
+
+func (suite *ServiceTestSuite) TestSyncOwnedResourceServerName_NoOwnedResourceServer() {
+	service, _ := suite.setupTestService()
+	assert.Nil(suite.T(), service.syncOwnedResourceServerName(context.Background(), "", "New Name"))
+}
+
+func (suite *ServiceTestSuite) TestSyncOwnedResourceServerName_Success() {
+	service, _ := suite.setupTestService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, "rs-1", "New Name", "").
+		Return(&providers.ResourceServer{ID: "rs-1", Name: "New Name"},
+			(*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	assert.Nil(suite.T(), service.syncOwnedResourceServerName(
+		context.Background(), "rs-1", "New Name"))
+}
+
+func (suite *ServiceTestSuite) TestSyncOwnedResourceServerName_FailurePropagates() {
+	service, _ := suite.setupTestService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, "rs-1", "New Name", "").
+		Return((*providers.ResourceServer)(nil), &resource.ErrorNameConflict)
+	service.SetResourceService(mockRS)
+
+	svcErr := service.syncOwnedResourceServerName(context.Background(), "rs-1", "New Name")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), resource.ErrorNameConflict.Code, svcErr.Code)
+}
+
+// --- entityDisplayName ---
+
+func (suite *ServiceTestSuite) TestEntityDisplayName() {
+	assert.Empty(suite.T(), entityDisplayName(nil))
+	assert.Empty(suite.T(), entityDisplayName(json.RawMessage(`{bad`)))
+	assert.Empty(suite.T(), entityDisplayName(json.RawMessage(`{}`)))
+	assert.Equal(suite.T(), "My App",
+		entityDisplayName(json.RawMessage(`{"name":"My App"}`)))
+}
+
+func (suite *ServiceTestSuite) TestLoadDeclarativeInboundAccess_DefaultsIdentifierToAppID() {
+	service, _ := suite.setupTestService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateDeclarativeEntityOwnedResourceServer", mock.Anything, providers.ResourceServer{
+		ID:         testServiceAppID,
+		Name:       "My App",
+		Identifier: testServiceAppID,
+		Type:       providers.ResourceServerTypeApplication,
+		OUID:       "ou-1",
+		Resources:  []providers.Resource{{Name: "Orders", Handle: "orders"}},
+	}).Return(nil)
+	service.SetResourceService(mockRS)
+
+	rsID, err := service.LoadDeclarativeInboundAccess(
+		context.Background(), testServiceAppID, "ou-1", "My App",
+		&providers.DeclarativeInboundAccess{
+			Resources: []providers.Resource{{Name: "Orders", Handle: "orders"}},
+		})
+
+	suite.Require().NoError(err)
+	assert.Equal(suite.T(), testServiceAppID, rsID)
+}
+
+func (suite *ServiceTestSuite) TestLoadDeclarativeInboundAccess_ExplicitIdentifierUsed() {
+	service, _ := suite.setupTestService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateDeclarativeEntityOwnedResourceServer", mock.Anything, providers.ResourceServer{
+		ID:         testServiceAppID,
+		Name:       "My App",
+		Identifier: "https://api.example.com/orders",
+		Type:       providers.ResourceServerTypeApplication,
+		OUID:       "ou-1",
+	}).Return(nil)
+	service.SetResourceService(mockRS)
+
+	rsID, err := service.LoadDeclarativeInboundAccess(
+		context.Background(), testServiceAppID, "ou-1", "My App",
+		&providers.DeclarativeInboundAccess{Identifier: "https://api.example.com/orders"})
+
+	suite.Require().NoError(err)
+	assert.Equal(suite.T(), testServiceAppID, rsID)
+}
+
+func (suite *ServiceTestSuite) TestLoadDeclarativeInboundAccess_NilBlockIsNoOp() {
+	service, _ := suite.setupTestService()
+
+	rsID, err := service.LoadDeclarativeInboundAccess(
+		context.Background(), testServiceAppID, "ou-1", "My App", nil)
+
+	suite.Require().NoError(err)
+	assert.Empty(suite.T(), rsID)
+}
+
+func (suite *ServiceTestSuite) TestGetApplicationDeclarativeInboundAccess_NotEnabled() {
+	service, _ := suite.setupTestService()
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	access, svcErr := service.GetApplicationDeclarativeInboundAccess(context.Background(), testServiceAppID)
+
+	suite.Require().Nil(svcErr)
+	assert.Nil(suite.T(), access)
+}
+
+func (suite *ServiceTestSuite) TestGetApplicationDeclarativeInboundAccess_ReturnsPermissionTree() {
+	service, _ := suite.setupTestService()
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: testOwnedResourceServerID},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	ordersID := "res-orders"
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServer", mock.Anything, testOwnedResourceServerID).Return(&providers.ResourceServer{
+		ID: testOwnedResourceServerID, Name: "My App", Identifier: "https://api.example.com/orders",
+		Type: providers.ResourceServerTypeApplication, Delimiter: ":",
+	}, (*tidcommon.ServiceError)(nil))
+	mockRS.On("GetAllResourceList", mock.Anything, testOwnedResourceServerID).Return([]providers.Resource{
+		{ID: ordersID, Name: "Orders", Handle: "orders"},
+	}, (*tidcommon.ServiceError)(nil))
+	mockRS.On("GetActionList", mock.Anything, testOwnedResourceServerID, &ordersID,
+		providers.ActionKind(""), mock.Anything, 0).
+		Return(&resource.ActionList{
+			TotalResults: 1,
+			Actions:      []providers.Action{{Name: "Read", Handle: "read"}},
+		}, (*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	access, svcErr := service.GetApplicationDeclarativeInboundAccess(context.Background(), testServiceAppID)
+
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(access)
+	assert.Equal(suite.T(), "https://api.example.com/orders", access.Identifier)
+	suite.Require().Len(access.Resources, 1)
+	assert.Equal(suite.T(), "orders", access.Resources[0].Handle)
+	suite.Require().Len(access.Resources[0].Actions, 1)
+	assert.Equal(suite.T(), "read", access.Resources[0].Actions[0].Handle)
+}
+
+// A declarative application's inbound access is defined by its YAML file. Mutating it at runtime
+// would let the database diverge from the file and be silently overwritten on the next reload.
+func (suite *ServiceTestSuite) TestInboundAccessMutationsRejectedForDeclarativeApplication() {
+	service, _ := suite.setupTestService()
+	declarativeStore := inboundclientmock.NewInboundClientServiceInterfaceMock(suite.T())
+	declarativeStore.On("IsDeclarative", mock.Anything, testServiceAppID).Return(true)
+	service.inboundClientService = declarativeStore
+
+	_, svcErr := service.EnableApplicationInboundAccess(context.Background(), testServiceAppID, "")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorCannotModifyDeclarativeResource.Code, svcErr.Code)
+
+	_, svcErr = service.UpdateApplicationInboundAccess(
+		context.Background(), testServiceAppID, "https://api.example.com/new")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorCannotModifyDeclarativeResource.Code, svcErr.Code)
+
+	svcErr = service.DisableApplicationInboundAccess(context.Background(), testServiceAppID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorCannotModifyDeclarativeResource.Code, svcErr.Code)
+}
+
+// Reading the inbound access of a declarative application stays allowed.
+func (suite *ServiceTestSuite) TestInboundAccessReadAllowedForDeclarativeApplication() {
+	service, _ := suite.setupTestService()
+	mockEP := entityprovidermock.NewEntityProviderInterfaceMock(suite.T())
+	mockEP.On("GetEntity", testServiceAppID).Return(
+		&providers.Entity{ID: testServiceAppID, Category: providers.EntityCategoryApp,
+			ResourceServerID: testOwnedResourceServerID},
+		(*entityprovider.EntityProviderError)(nil))
+	service.entityProvider = mockEP
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServer", mock.Anything, testOwnedResourceServerID).Return(&providers.ResourceServer{
+		ID: testOwnedResourceServerID, Identifier: "https://api.example.com/orders",
+		Type: providers.ResourceServerTypeApplication,
+	}, (*tidcommon.ServiceError)(nil))
+	service.SetResourceService(mockRS)
+
+	resp, svcErr := service.GetApplicationInboundAccess(context.Background(), testServiceAppID)
+
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(resp)
+	assert.Equal(suite.T(), "https://api.example.com/orders", resp.Identifier)
 }

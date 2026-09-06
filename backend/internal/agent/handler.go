@@ -15,6 +15,7 @@ import (
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 
 	"github.com/thunder-id/thunderid/internal/agent/model"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/system/error/apierror"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
@@ -216,6 +217,81 @@ func (h *agentHandler) HandleAgentRolesRequest(w http.ResponseWriter, r *http.Re
 	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, resp)
 }
 
+// HandleAgentInboundAccessGetRequest handles GET /agents/{id}/resource-server.
+func (h *agentHandler) HandleAgentInboundAccessGetRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		writeServiceError(ctx, w, &ErrorMissingAgentID)
+		return
+	}
+	resp, svcErr := h.service.GetAgentInboundAccess(ctx, id)
+	if svcErr != nil {
+		writeServiceError(ctx, w, svcErr)
+		return
+	}
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, resp)
+}
+
+// HandleAgentInboundAccessPostRequest handles POST /agents/{id}/resource-server.
+func (h *agentHandler) HandleAgentInboundAccessPostRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		writeServiceError(ctx, w, &ErrorMissingAgentID)
+		return
+	}
+	// The body is optional: identifier defaults to the agent ID, so a bodyless POST enables
+	// inbound access with defaults.
+	req, err := sysutils.DecodeOptionalJSONBody[model.EnableInboundAccessRequest](r)
+	if err != nil {
+		writeServiceError(ctx, w, &ErrorInvalidRequestFormat)
+		return
+	}
+	resp, svcErr := h.service.EnableAgentInboundAccess(ctx, id, sysutils.SanitizeString(req.Identifier))
+	if svcErr != nil {
+		writeServiceError(ctx, w, svcErr)
+		return
+	}
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusCreated, resp)
+}
+
+// HandleAgentInboundAccessPutRequest handles PUT /agents/{id}/resource-server.
+func (h *agentHandler) HandleAgentInboundAccessPutRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		writeServiceError(ctx, w, &ErrorMissingAgentID)
+		return
+	}
+	req, err := sysutils.DecodeJSONBody[model.UpdateInboundAccessRequest](r)
+	if err != nil {
+		writeServiceError(ctx, w, &ErrorInvalidRequestFormat)
+		return
+	}
+	resp, svcErr := h.service.UpdateAgentInboundAccess(ctx, id, sysutils.SanitizeString(req.Identifier))
+	if svcErr != nil {
+		writeServiceError(ctx, w, svcErr)
+		return
+	}
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, resp)
+}
+
+// HandleAgentInboundAccessDeleteRequest handles DELETE /agents/{id}/resource-server.
+func (h *agentHandler) HandleAgentInboundAccessDeleteRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		writeServiceError(ctx, w, &ErrorMissingAgentID)
+		return
+	}
+	if svcErr := h.service.DisableAgentInboundAccess(ctx, id); svcErr != nil {
+		writeServiceError(ctx, w, svcErr)
+		return
+	}
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusNoContent, nil)
+}
+
 // parsePaginationParams parses limit and offset query parameters.
 func parsePaginationParams(query url.Values) (int, int, *tidcommon.ServiceError) {
 	limit := 0
@@ -268,7 +344,8 @@ func writeServiceError(ctx context.Context, w http.ResponseWriter, svcErr *tidco
 	statusCode := http.StatusInternalServerError
 	if svcErr.Type == tidcommon.ClientErrorType {
 		switch svcErr.Code {
-		case ErrorAgentNotFound.Code:
+		case ErrorAgentNotFound.Code,
+			ErrorAgentInboundAccessNotEnabled.Code:
 			statusCode = http.StatusNotFound
 		case ErrorAgentAlreadyExistsWithName.Code,
 			ErrorAttributeConflict.Code,
@@ -276,6 +353,12 @@ func writeServiceError(ctx context.Context, w http.ResponseWriter, svcErr *tidco
 			statusCode = http.StatusConflict
 		case ErrorCannotModifyDeclarativeResource.Code:
 			statusCode = http.StatusForbidden
+		case ErrorAgentInboundAccessAlreadyEnabled.Code,
+			// Surfaced unmapped by the inbound-access endpoints, which delegate to the resource
+			// service: an identifier or name already taken by another resource server is a conflict.
+			resource.ErrorIdentifierConflict.Code,
+			resource.ErrorNameConflict.Code:
+			statusCode = http.StatusConflict
 		default:
 			statusCode = http.StatusBadRequest
 		}

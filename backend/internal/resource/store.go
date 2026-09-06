@@ -19,9 +19,12 @@ type resourceStoreInterface interface {
 	CreateResourceServer(ctx context.Context, id string, rs providers.ResourceServer) error
 	GetResourceServer(ctx context.Context, id string) (providers.ResourceServer, error)
 	GetResourceServerList(ctx context.Context, limit, offset int) ([]providers.ResourceServer, error)
+	GetResourceServersByIDs(ctx context.Context, ids []string) ([]providers.ResourceServer, error)
 	GetResourceServerListCount(ctx context.Context) (int, error)
 	UpdateResourceServer(ctx context.Context, id string, rs providers.ResourceServer) error
 	DeleteResourceServer(ctx context.Context, id string) error
+	DeleteActionsByResourceServer(ctx context.Context, resServerID string) error
+	DeleteResourcesByResourceServer(ctx context.Context, resServerID string) error
 	CheckResourceServerNameExists(ctx context.Context, name string) (bool, error)
 	CheckResourceServerIdentifierExists(ctx context.Context, identifier string) (bool, error)
 	GetResourceServerByIdentifier(ctx context.Context, identifier string) (providers.ResourceServer, error)
@@ -134,6 +137,71 @@ func (s *resourceStore) GetResourceServer(ctx context.Context, id string) (provi
 		return err
 	})
 	return rs, err
+}
+
+// DeleteActionsByResourceServer deletes every action belonging to the resource server.
+func (s *resourceStore) DeleteActionsByResourceServer(ctx context.Context, resServerID string) error {
+	return s.withDBClient(func(dbClient provider.DBClientInterface) error {
+		if _, err := dbClient.ExecuteContext(
+			ctx, queryDeleteActionsByResourceServer, resServerID, s.deploymentID); err != nil {
+			return fmt.Errorf("failed to delete actions by resource server: %w", err)
+		}
+		return nil
+	})
+}
+
+// DeleteResourcesByResourceServer deletes every resource belonging to the resource server. The
+// parent-child foreign key restricts deletion, so the tree is removed one leaf layer at a time
+// until nothing is left. A layer that deletes nothing ends the loop, so a resource that cannot be
+// removed surfaces as a failure on the subsequent resource server delete rather than spinning here.
+func (s *resourceStore) DeleteResourcesByResourceServer(ctx context.Context, resServerID string) error {
+	return s.withDBClient(func(dbClient provider.DBClientInterface) error {
+		for {
+			rowsAffected, err := dbClient.ExecuteContext(
+				ctx, queryDeleteLeafResourcesByResourceServer, resServerID, s.deploymentID)
+			if err != nil {
+				return fmt.Errorf("failed to delete resources by resource server: %w", err)
+			}
+			if rowsAffected == 0 {
+				return nil
+			}
+		}
+	})
+}
+
+// GetResourceServersByIDs retrieves the resource servers matching the given IDs in a single query.
+// IDs that do not resolve are simply absent from the result.
+func (s *resourceStore) GetResourceServersByIDs(
+	ctx context.Context, ids []string,
+) ([]providers.ResourceServer, error) {
+	if len(ids) == 0 {
+		return []providers.ResourceServer{}, nil
+	}
+
+	query, args := buildGetResourceServersByIDsQuery(ids, s.deploymentID)
+
+	var resourceServers []providers.ResourceServer
+	err := s.withDBClient(func(dbClient provider.DBClientInterface) error {
+		results, err := dbClient.QueryContext(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to get resource servers by IDs: %w", err)
+		}
+
+		resourceServers = make([]providers.ResourceServer, 0, len(results))
+		for _, row := range results {
+			rs, err := buildResourceServerFromResultRow(row)
+			if err != nil {
+				return fmt.Errorf("failed to build resource server: %w", err)
+			}
+			resourceServers = append(resourceServers, rs)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resourceServers, nil
 }
 
 // GetResourceServerList retrieves a list of resource servers with pagination.

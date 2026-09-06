@@ -2622,3 +2622,158 @@ func (suite *AuthorizeServiceTestSuite) TestHandleFailedCallback_UnsetToggleSupp
 	assert.Equal(suite.T(), oauth2const.ErrorServerError, authErr.Code)
 	assert.False(suite.T(), authErr.SendErrorToClient)
 }
+
+// Entity inbound access: the authorization endpoint records the client's own resource server on the
+// request (and therefore on the issued code), so the token endpoint later resolves the same aud.
+
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_InboundRSBindsWithoutResource() {
+	app := suite.testApp()
+	app.InboundResourceServerID = testInboundRSID
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockResourceService.EXPECT().GetResourceServer(mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: "https://agent.example.com"}, nil)
+	suite.mockResourceService.EXPECT().ValidatePermissions(mock.Anything, testInboundRSID, mock.Anything).
+		Return([]string{}, nil)
+
+	var captured *flowexec.FlowInitContext
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, ic *flowexec.FlowInitContext) { captured = ic }).
+		Return("test-flow-id", nil)
+	var storedCtx authRequestContext
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, reqCtx authRequestContext) { storedCtx = reqCtx }).
+		Return(testAuthID, nil)
+
+	svc := suite.newService()
+	_, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg())
+
+	suite.Require().Nil(authErr)
+	suite.Require().NotNil(captured)
+	assert.Equal(suite.T(), "https://agent.example.com",
+		captured.RuntimeData[flowcm.RuntimeKeyResourceServerIdentifier])
+	// The bound identifier is recorded on the request, so the authorization code carries it and the
+	// token endpoint resolves the same audience.
+	assert.Equal(suite.T(), []string{"https://agent.example.com"}, storedCtx.OAuthParameters.Resources)
+}
+
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_InboundRSBindsScopelessOIDCOnly() {
+	app := suite.testApp()
+	app.InboundResourceServerID = testInboundRSID
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockResourceService.EXPECT().GetResourceServer(mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: "https://agent.example.com"}, nil)
+
+	var captured *flowexec.FlowInitContext
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, ic *flowexec.FlowInitContext) { captured = ic }).
+		Return("test-flow-id", nil)
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).Return(testAuthID, nil)
+
+	msg := suite.testMsg()
+	msg.RequestQueryParams["scope"] = []string{"openid profile"}
+
+	svc := suite.newService()
+	_, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+
+	suite.Require().Nil(authErr)
+	suite.Require().NotNil(captured)
+	assert.Equal(suite.T(), "https://agent.example.com",
+		captured.RuntimeData[flowcm.RuntimeKeyResourceServerIdentifier])
+}
+
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_InboundRSExplicitResourceWins() {
+	app := suite.testApp()
+	app.InboundResourceServerID = testInboundRSID
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockResourceService.EXPECT().GetResourceServerByIdentifier(mock.Anything, "https://api.example.com").
+		Return(&providers.ResourceServer{ID: "rs-api", Identifier: "https://api.example.com"}, nil)
+	suite.mockResourceService.EXPECT().ValidatePermissions(mock.Anything, "rs-api", mock.Anything).
+		Return([]string{}, nil)
+
+	var captured *flowexec.FlowInitContext
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, ic *flowexec.FlowInitContext) { captured = ic }).
+		Return("test-flow-id", nil)
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).Return(testAuthID, nil)
+
+	msg := suite.testMsg()
+	msg.Resources = []string{"https://api.example.com"}
+
+	svc := suite.newService()
+	_, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+
+	suite.Require().Nil(authErr)
+	suite.Require().NotNil(captured)
+	assert.Equal(suite.T(), "https://api.example.com",
+		captured.RuntimeData[flowcm.RuntimeKeyResourceServerIdentifier])
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}
+
+// The default inbound-access identifier is the bare entity ID. The authorization endpoint records
+// it on the request, and therefore on the issued code, so it must not be judged by the RFC 8707 §2
+// caller-input rule on the way in or on the way back out.
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_InboundRSBareEntityIDIdentifier() {
+	const bareIdentifier = "01997c1e-0f5a-7a3c-9b2e-9f1c4c2d5e60"
+	app := suite.testApp()
+	app.InboundResourceServerID = testInboundRSID
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockResourceService.EXPECT().GetResourceServer(mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: bareIdentifier}, nil)
+	suite.mockResourceService.EXPECT().ValidatePermissions(mock.Anything, testInboundRSID, mock.Anything).
+		Return([]string{}, nil)
+
+	var captured *flowexec.FlowInitContext
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, ic *flowexec.FlowInitContext) { captured = ic }).
+		Return("test-flow-id", nil)
+	var storedCtx authRequestContext
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, reqCtx authRequestContext) { storedCtx = reqCtx }).
+		Return(testAuthID, nil)
+
+	svc := suite.newService()
+	_, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg())
+
+	suite.Require().Nil(authErr)
+	suite.Require().NotNil(captured)
+	assert.Equal(suite.T(), bareIdentifier, captured.RuntimeData[flowcm.RuntimeKeyResourceServerIdentifier])
+	assert.Equal(suite.T(), []string{bareIdentifier}, storedCtx.OAuthParameters.Resources)
+}
+
+// A stale inbound reference leaves the request unbound rather than retargeting it at the
+// deployment default resource server, which would be a broader audience than the client declared.
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_StaleInboundRSStaysUnbound() {
+	app := suite.testApp()
+	app.InboundResourceServerID = testInboundRSID
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockResourceService.EXPECT().GetResourceServer(mock.Anything, testInboundRSID).
+		Return(nil, &tidcommon.ServiceError{Type: tidcommon.ClientErrorType, Code: "RES-1003"})
+
+	var captured *flowexec.FlowInitContext
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, ic *flowexec.FlowInitContext) { captured = ic }).
+		Return("test-flow-id", nil)
+	var storedCtx authRequestContext
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, reqCtx authRequestContext) { storedCtx = reqCtx }).
+		Return(testAuthID, nil)
+
+	svc := suite.newService()
+	_, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg())
+
+	suite.Require().Nil(authErr)
+	suite.Require().NotNil(captured)
+	assert.Empty(suite.T(), captured.RuntimeData[flowcm.RuntimeKeyResourceServerIdentifier])
+	assert.Empty(suite.T(), storedCtx.OAuthParameters.Resources)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServerByIdentifier", mock.Anything, "")
+}

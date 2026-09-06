@@ -2710,3 +2710,39 @@ func (suite *RefreshTokenGrantHandlerTestSuite) TestHandleGrant_SystemAttributes
 	assert.Nil(suite.T(), err)
 	assert.NotNil(suite.T(), response)
 }
+
+// A refresh token inherits the audience frozen at issuance. Enabling inbound access on the client's
+// entity afterwards must not re-bind an existing refresh token to the client's own resource server.
+func (suite *RefreshTokenGrantHandlerTestSuite) TestHandleGrant_InboundRS_InheritsRefreshTokenAudience() {
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+
+	suite.mockTokenValidator.
+		On("ValidateRefreshToken", mock.Anything, suite.validRefreshToken).
+		Return(&tokenservice.RefreshTokenClaims{
+			ClientID:  testRefreshTokenClientID,
+			Sub:       testRefreshTokenUserID,
+			Audiences: []string{testRS01URI},
+			Scopes:    []string{"read", "write"},
+			GrantType: "authorization_code",
+			Iat:       int64(suite.validClaims["iat"].(float64)),
+		}, nil)
+
+	var capturedAudiences []string
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything, mock.MatchedBy(
+		func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			capturedAudiences = ctx.Audiences
+			return true
+		})).Return(&model.TokenDTO{
+		Token:     "new.access.token",
+		IssuedAt:  time.Now().Unix(),
+		ExpiresIn: 3600,
+		Scopes:    []string{"read"},
+	}, nil)
+
+	response, err := suite.handler.HandleGrant(context.Background(), suite.testTokenReq, suite.oauthApp)
+
+	assert.Nil(suite.T(), err)
+	assert.NotNil(suite.T(), response)
+	assert.Equal(suite.T(), []string{testRS01URI}, capturedAudiences)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}

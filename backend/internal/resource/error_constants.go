@@ -286,6 +286,52 @@ var (
 			DefaultValue: "A resource server with the specified ID already exists",
 		},
 	}
+	// ErrorEntityOwnedResourceServerType is returned when a request sets a resource server type that
+	// the system assigns to entity-owned resource servers.
+	ErrorEntityOwnedResourceServerType = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "RES-1024",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.resourceservice.entity_owned_resource_server_type",
+			DefaultValue: "Resource server type is system assigned",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "error.resourceservice.entity_owned_resource_server_type_description",
+			DefaultValue: "The AGENT and APPLICATION resource server types are assigned by the system " +
+				"when an entity enables inbound access and cannot be set through this API",
+		},
+	}
+	// ErrorOwnedResourceServerIdentifierLocked is returned when a request changes the identifier of a
+	// resource server that is owned by an entity.
+	ErrorOwnedResourceServerIdentifierLocked = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "RES-1025",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.resourceservice.owned_resource_server_identifier_locked",
+			DefaultValue: "Identifier is managed by the owning entity",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "error.resourceservice.owned_resource_server_identifier_locked_description",
+			DefaultValue: "This resource server is owned by {{param(ownerType)}} {{param(ownerName)}}. " +
+				"Change the identifier through that resource's inbound access instead",
+		},
+	}
+	// ErrorOwnedResourceServerNameLocked is returned when a request changes the name of a resource
+	// server that is owned by an entity. The name mirrors the owning entity and is kept in sync when
+	// the entity is renamed, so it cannot be changed independently.
+	ErrorOwnedResourceServerNameLocked = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "RES-1026",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.resourceservice.owned_resource_server_name_locked",
+			DefaultValue: "Name is managed by the owning entity",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "error.resourceservice.owned_resource_server_name_locked_description",
+			DefaultValue: "This resource server is owned by {{param(ownerType)}} {{param(ownerName)}} " +
+				"and takes its name from it. Rename that resource instead",
+		},
+	}
 )
 
 // Internal error constants.
@@ -309,6 +355,11 @@ var (
 	// errDeclarativeDefaultLocked is returned when attempting to override a declarative default.
 	errDeclarativeDefaultLocked = errors.New(
 		"default resource server is set declaratively and cannot be overridden")
+
+	// errEntityOwnedDefaultResourceServer is returned when the configured default resource server is
+	// owned by an agent or application.
+	errEntityOwnedDefaultResourceServer = errors.New(
+		"default resource server cannot be a resource server owned by an agent or application")
 
 	// errDefaultResourceServerLookupFailed is returned when resource server lookup fails.
 	errDefaultResourceServerLookupFailed = errors.New("failed to resolve default resource server")

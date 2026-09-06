@@ -351,3 +351,41 @@ func (s *FileBasedStoreTestSuite) TestSearchEntities_MultipleMatches() {
 	s.NoError(err)
 	s.Len(got, 2)
 }
+
+// A declarative agent or application carries the ID of the resource server it owns. Dropping it
+// anywhere on the read path would make that entity's inbound access unreachable.
+func (s *FileBasedStoreTestSuite) TestResourceServerIDRoundTrips() {
+	e := makeTestEntity("agent-1", "agent", "ou1")
+	e.ResourceServerID = "agent-1"
+	s.Require().NoError(s.store.CreateEntity(s.ctx, e, nil, nil))
+
+	stored, err := s.store.GetEntity(s.ctx, "agent-1")
+	s.Require().NoError(err)
+	s.Equal("agent-1", stored.ResourceServerID)
+
+	withCreds, err := s.store.GetEntityWithCredentials(s.ctx, "agent-1")
+	s.Require().NoError(err)
+	s.Equal("agent-1", withCreds.Entity.ResourceServerID)
+
+	listed, err := s.store.GetEntityList(s.ctx, "agent", 10, 0, nil)
+	s.Require().NoError(err)
+	s.Require().Len(listed, 1)
+	s.Equal("agent-1", listed[0].ResourceServerID)
+
+	byIDs, err := s.store.GetEntitiesByIDs(s.ctx, []string{"agent-1"})
+	s.Require().NoError(err)
+	s.Require().Len(byIDs, 1)
+	s.Equal("agent-1", byIDs[0].ResourceServerID)
+
+	owners, err := s.store.GetEntitiesByResourceServerID(s.ctx, "agent-1")
+	s.Require().NoError(err)
+	s.Require().Len(owners, 1)
+	s.Equal("agent-1", owners[0].ID)
+}
+
+// The file store holds declarative entities only, so the resource server reference is fixed by the
+// YAML file and cannot be rewritten at runtime.
+func (s *FileBasedStoreTestSuite) TestUpdateEntityResourceServerIDUnsupported() {
+	rsID := "agent-1"
+	s.Error(s.store.UpdateEntityResourceServerID(s.ctx, "agent-1", &rsID))
+}

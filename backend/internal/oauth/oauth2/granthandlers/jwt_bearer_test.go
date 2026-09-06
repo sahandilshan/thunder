@@ -538,3 +538,165 @@ func (suite *JWTBearerGrantHandlerTestSuite) TestHandleGrant_TokenBuildError() {
 	assert.NotNil(suite.T(), errResp)
 	assert.Equal(suite.T(), constants.ErrorServerError, errResp.Error)
 }
+
+// Entity inbound access: the ID-JAG subject is the assertion's sub, so the client's own resource
+// server is the default audience.
+
+func (suite *JWTBearerGrantHandlerTestSuite) TestHandleGrant_InboundRS_NoResourceNoScopes() {
+	now := time.Now().Unix()
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	suite.mockResourceService.On("GetResourceServer", mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: testInboundRSIdentifier}, nil)
+
+	tokenRequest := &model.TokenRequest{
+		GrantType: string(providers.GrantTypeJWTBearer),
+		ClientID:  testClientID,
+		Assertion: testAssertion,
+	}
+	suite.mockTokenValidator.On("ValidateIDJAGAssertion", mock.Anything, testAssertion).
+		Return(&tokenservice.IDJAGAssertionClaims{Sub: testUserID, Iss: testCustomIssuer}, nil)
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return len(ctx.Audiences) == 1 && ctx.Audiences[0] == testInboundRSIdentifier && len(ctx.Scopes) == 0
+		})).Return(&model.TokenDTO{Token: testTokenExchangeJWT, IssuedAt: now, ExpiresIn: 3600}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.NotNil(suite.T(), result)
+}
+
+func (suite *JWTBearerGrantHandlerTestSuite) TestHandleGrant_InboundRS_ScopesDownscopedToBoundRS() {
+	now := time.Now().Unix()
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	suite.mockResourceService.On("GetResourceServer", mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: testInboundRSIdentifier}, nil)
+	// "write" is defined on another resource server only, so it is dropped.
+	suite.mockResourceService.On("ValidatePermissions", mock.Anything, testInboundRSID,
+		[]string{"read", "write"}).Return([]string{"write"}, nil)
+
+	tokenRequest := &model.TokenRequest{
+		GrantType: string(providers.GrantTypeJWTBearer),
+		ClientID:  testClientID,
+		Assertion: testAssertion,
+	}
+	suite.mockTokenValidator.On("ValidateIDJAGAssertion", mock.Anything, testAssertion).
+		Return(&tokenservice.IDJAGAssertionClaims{
+			Sub:    testUserID,
+			Iss:    testCustomIssuer,
+			Scopes: []string{"read", "write"},
+		}, nil)
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return len(ctx.Audiences) == 1 && ctx.Audiences[0] == testInboundRSIdentifier &&
+				tokenservice.JoinScopes(ctx.Scopes) == testScopeRead
+		})).Return(&model.TokenDTO{Token: testTokenExchangeJWT, IssuedAt: now, ExpiresIn: 3600}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.NotNil(suite.T(), result)
+}
+
+func (suite *JWTBearerGrantHandlerTestSuite) TestHandleGrant_InboundRS_ExplicitResourceWins() {
+	now := time.Now().Unix()
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	explicit := "https://explicit.example.com"
+	suite.mockResourceService.On("GetResourceServerByIdentifier", mock.Anything, explicit).
+		Return(&providers.ResourceServer{ID: "explicit-rs", Identifier: explicit}, nil)
+	suite.mockResourceService.On("ValidatePermissions", mock.Anything, "explicit-rs",
+		[]string{"read"}).Return([]string{}, nil)
+
+	tokenRequest := &model.TokenRequest{
+		GrantType: string(providers.GrantTypeJWTBearer),
+		ClientID:  testClientID,
+		Assertion: testAssertion,
+		Resources: []string{explicit},
+	}
+	suite.mockTokenValidator.On("ValidateIDJAGAssertion", mock.Anything, testAssertion).
+		Return(&tokenservice.IDJAGAssertionClaims{
+			Sub:    testUserID,
+			Iss:    testCustomIssuer,
+			Scopes: []string{"read"},
+		}, nil)
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return len(ctx.Audiences) == 1 && ctx.Audiences[0] == explicit
+		})).Return(&model.TokenDTO{Token: testTokenExchangeJWT, IssuedAt: now, ExpiresIn: 3600}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.NotNil(suite.T(), result)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}
+
+func (suite *JWTBearerGrantHandlerTestSuite) TestHandleGrant_NoInboundRS_UsesDeploymentDefault() {
+	now := time.Now().Unix()
+	tokenRequest := &model.TokenRequest{
+		GrantType: string(providers.GrantTypeJWTBearer),
+		ClientID:  testClientID,
+		Assertion: testAssertion,
+	}
+	suite.mockTokenValidator.On("ValidateIDJAGAssertion", mock.Anything, testAssertion).
+		Return(&tokenservice.IDJAGAssertionClaims{
+			Sub:    testUserID,
+			Iss:    testCustomIssuer,
+			Scopes: []string{"read"},
+		}, nil)
+	suite.mockResourceService.On("ValidatePermissions", mock.Anything, testJWTBearerDefaultRSID,
+		[]string{"read"}).Return([]string{}, nil)
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return len(ctx.Audiences) == 1 && ctx.Audiences[0] == testJWTBearerDefaultRSAudience
+		})).Return(&model.TokenDTO{Token: testTokenExchangeJWT, IssuedAt: now, ExpiresIn: 3600}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.NotNil(suite.T(), result)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, mock.Anything)
+}
+
+// Both the request's resource parameter and the assertion's resource claim are caller-supplied, so
+// both are held to the RFC 8707 §2 shape rule where they enter the handler.
+func (suite *JWTBearerGrantHandlerTestSuite) TestHandleGrant_CallerSuppliedNonURIResourceRejected() {
+	const bareIdentifier = "01997c1e-0f5a-7a3c-9b2e-9f1c4c2d5e60"
+	suite.mockTokenValidator.On("ValidateIDJAGAssertion", mock.Anything, testAssertion).
+		Return(&tokenservice.IDJAGAssertionClaims{
+			Sub:    testUserID,
+			Iss:    testCustomIssuer,
+			Scopes: []string{"read"},
+		}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), &model.TokenRequest{
+		GrantType: string(providers.GrantTypeJWTBearer),
+		ClientID:  testClientID,
+		Assertion: testAssertion,
+		Resources: []string{bareIdentifier},
+	}, suite.oauthApp)
+
+	assert.Nil(suite.T(), result)
+	suite.Require().NotNil(errResp)
+	assert.Equal(suite.T(), constants.ErrorInvalidTarget, errResp.Error)
+}
+
+func (suite *JWTBearerGrantHandlerTestSuite) TestHandleGrant_AssertionNonURIResourceClaimRejected() {
+	suite.mockTokenValidator.On("ValidateIDJAGAssertion", mock.Anything, testAssertion).
+		Return(&tokenservice.IDJAGAssertionClaims{
+			Sub:       testUserID,
+			Iss:       testCustomIssuer,
+			Scopes:    []string{"read"},
+			Resources: []string{"calendar-agent-api"},
+		}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), &model.TokenRequest{
+		GrantType: string(providers.GrantTypeJWTBearer),
+		ClientID:  testClientID,
+		Assertion: testAssertion,
+	}, suite.oauthApp)
+
+	assert.Nil(suite.T(), result)
+	suite.Require().NotNil(errResp)
+	assert.Equal(suite.T(), constants.ErrorInvalidTarget, errResp.Error)
+}

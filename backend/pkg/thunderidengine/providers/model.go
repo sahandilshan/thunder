@@ -115,6 +115,10 @@ const (
 	ResourceServerTypeMCP ResourceServerType = "MCP"
 	// ResourceServerTypeCustom represents a custom resource server.
 	ResourceServerTypeCustom ResourceServerType = "CUSTOM"
+	// ResourceServerTypeAgent labels a resource server owned by an agent entity.
+	ResourceServerTypeAgent ResourceServerType = "AGENT"
+	// ResourceServerTypeApplication labels a resource server owned by an application entity.
+	ResourceServerTypeApplication ResourceServerType = "APPLICATION"
 )
 
 // supportedResourceServerTypes lists all the supported resource server types.
@@ -122,6 +126,8 @@ var supportedResourceServerTypes = []ResourceServerType{
 	ResourceServerTypeAPI,
 	ResourceServerTypeMCP,
 	ResourceServerTypeCustom,
+	ResourceServerTypeAgent,
+	ResourceServerTypeApplication,
 }
 
 // IsValid reports whether the resource server type is one of the supported values.
@@ -132,6 +138,34 @@ func (t ResourceServerType) IsValid() bool {
 		}
 	}
 	return false
+}
+
+// IsEntityOwned reports whether the type is assigned by the system to a resource server owned by
+// an entity. Such types cannot be set through the public resource server APIs. The type is a label
+// only; ownership itself is always resolved through the entity that references the resource server.
+func (t ResourceServerType) IsEntityOwned() bool {
+	return t == ResourceServerTypeAgent || t == ResourceServerTypeApplication
+}
+
+// InboundAccess describes the inbound access an entity exposes, backed by the single resource
+// server the entity owns. It is omitted from responses when the entity has no inbound access.
+type InboundAccess struct {
+	Enabled          bool   `yaml:"-" json:"enabled"`
+	Identifier       string `yaml:"-" json:"identifier,omitempty"`
+	ResourceServerID string `yaml:"-" json:"resourceServerId,omitempty"`
+}
+
+// DeclarativeInboundAccess is the declarative (YAML) form of the inbound access an entity exposes.
+// It is self-contained: the loader creates the resource server the entity owns from this block, so
+// it never references a separately declared resource server. Resources reuse the resource server
+// permission format verbatim, including the parent-handle form of nesting, so the same permission
+// tree reads the same way whether it is declared on a standalone resource server or inline on the
+// entity that owns it.
+type DeclarativeInboundAccess struct {
+	// Identifier is the audience identifier of the owned resource server. Defaults to the entity ID.
+	Identifier string `yaml:"identifier,omitempty" json:"identifier,omitempty"`
+	// Resources is the permission tree exposed by the entity.
+	Resources []Resource `yaml:"resources,omitempty" json:"resources,omitempty"`
 }
 
 // ActionKind discriminates MCP primitives stored as actions.
@@ -558,6 +592,9 @@ type OAuthClient struct {
 	ScopeClaims                        map[string][]string     `yaml:"scopeClaims,omitempty"`
 	Certificate                        *Certificate            `yaml:"certificate,omitempty"`
 	AcrValues                          []string                `yaml:"acrValues,omitempty"`
+	// InboundResourceServerID is the id of the resource server the client's own entity owns, empty
+	// when the entity has no inbound access. It is internal routing state, never serialized.
+	InboundResourceServerID string `yaml:"-" json:"-"`
 }
 
 // OAuthTokenConfig wraps access and ID token configs.
@@ -736,6 +773,7 @@ type Entity struct {
 	Attributes       json.RawMessage `json:"attributes,omitempty"`
 	SystemAttributes json.RawMessage `json:"systemAttributes,omitempty"`
 	IsReadOnly       bool            `json:"isReadOnly"`
+	ResourceServerID string          `yaml:"-" json:"-"`
 }
 
 // EntityGroup represents a group with basic information for entity group membership queries.
@@ -1015,6 +1053,10 @@ type Application struct {
 	InboundAuthProfile `yaml:",inline"`
 	InboundAuthConfig  []InboundAuthConfigWithSecret `yaml:"inboundAuthConfig,omitempty" json:"inboundAuthConfig,omitempty" jsonschema:"Inbound authentication configuration (OAuth2/OIDC settings)."`
 	Metadata           map[string]interface{}        `yaml:"metadata,omitempty" json:"metadata,omitempty" jsonschema:"Generic metadata key-value pairs."`
+	InboundAccess      *InboundAccess                `yaml:"-" json:"inboundAccess,omitempty" jsonschema:"Read-only. Inbound access exposed by the application, managed through the application's resource-server endpoints."`
+	// InboundAccessYAML carries the declarative form of the inbound access, including the permission
+	// tree, for export. InboundAccess is the API view and is deliberately not YAML-marshaled.
+	InboundAccessYAML *DeclarativeInboundAccess `yaml:"inboundAccess,omitempty" json:"-"`
 }
 
 // InboundAuthProfile is the wire field block embedded in entity DTOs (requests and responses).

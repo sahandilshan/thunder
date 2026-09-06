@@ -49,11 +49,19 @@ func (h *DefaultResourceServerConfigHandler) Validate(incoming, readOnly, _ any)
 	if cfg.ResourceServerID == "" {
 		return nil
 	}
-	if _, svcErr := h.resourceService.GetResourceServer(context.Background(), cfg.ResourceServerID); svcErr != nil {
+	rs, svcErr := h.resourceService.GetResourceServer(context.Background(), cfg.ResourceServerID)
+	if svcErr != nil {
 		if svcErr.Code == ErrorResourceServerNotFound.Code {
 			return errUnknownDefaultResourceServer
 		}
 		return errDefaultResourceServerLookupFailed
+	}
+	// A resource server owned by an agent or application backs that entity's inbound access, so
+	// pointing the deployment default at it would resolve every unscoped request to that one
+	// entity's audience. It also follows the owning entity's lifecycle: deleting the entity deletes
+	// the resource server and would leave this configuration pointing at nothing.
+	if rs.Type.IsEntityOwned() {
+		return errEntityOwnedDefaultResourceServer
 	}
 	return nil
 }

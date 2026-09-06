@@ -14,10 +14,18 @@ import (
 
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
 // ValidateResourceURIs returns an error response when any resource URI is not absolute
 // or contains a fragment component (RFC 8707 §2, RFC 3986 §4.3).
+//
+// RFC 8707 constrains the "resource" *request parameter*, so this belongs at the boundary where a
+// caller-supplied value enters: the authorization request validator, the PAR push, the CIBA
+// backchannel request, and each grant handler's read of the token request. It must not be applied to
+// an identifier this server resolved from its own database and recorded on an authorization code or
+// a CIBA record. Those identifiers are not request parameters and are not required to be absolute
+// URIs — the default identifier of an entity's inbound access is the bare entity ID.
 func ValidateResourceURIs(resources []string) *model.ErrorResponse {
 	for _, res := range resources {
 		parsedURI, err := url.Parse(res)
@@ -43,14 +51,15 @@ func ValidateResourceURIs(resources []string) *model.ErrorResponse {
 // provider, which (when default-aware) resolves the deployment's configured default resource server;
 // if no default is configured the request is rejected (invalid_target) — token issuance is bound to
 // exactly one resource server.
+//
+// Resources are resolved as-is. Caller-supplied values must already have been checked with
+// ValidateResourceURIs at the boundary that received them; see that function for why the check does
+// not belong here.
 func ResolveTargetResourceServer(
 	ctx context.Context,
 	resourceService providers.ResourceServerProvider,
 	resources []string,
 ) (*providers.ResourceServer, *model.ErrorResponse) {
-	if errResp := ValidateResourceURIs(resources); errResp != nil {
-		return nil, errResp
-	}
 	if len(resources) > 1 {
 		return nil, &model.ErrorResponse{
 			Error:            constants.ErrorInvalidTarget,
@@ -77,21 +86,105 @@ func ResolveTargetResourceServer(
 	return rs, nil
 }
 
-// ResolveAudienceBinding decides the single resource server an access token binds to. It returns
-// (nil, nil) when the request carries neither a resource nor any permission scope, for example an
-// OIDC-only or scopeless request: such a token is not bound to a resource server, and the caller
-// sets its audience to the client_id. Otherwise it resolves the single target resource server via
-// ResolveTargetResourceServer (rejecting with invalid_target when none can be determined).
+// TokenSubject identifies whose identity the access token being issued represents. It selects
+// whether the client's own inbound resource server may act as the default audience.
+type TokenSubject string
+
+const (
+	// SubjectClient marks a grant whose token subject is the OAuth client itself, which today is
+	// only client_credentials. Such a token never defaults to the client's own inbound resource
+	// server: a client calling itself is not inbound access.
+	SubjectClient TokenSubject = "client"
+	// SubjectPrincipal marks a grant whose token subject is a principal signing in to the client
+	// (authorization_code, token_exchange, jwt_bearer, ciba). Such a token defaults to the client's
+	// own inbound resource server when the client exposes inbound access.
+	SubjectPrincipal TokenSubject = "principal"
+)
+
+// ResolveAudienceBinding decides the single resource server an access token binds to. It is the one
+// place that knows this rule; grant handlers must not derive an audience themselves. Precedence:
+//
+//  1. an explicit resource, resolved by identifier. This is either the RFC 8707 resource parameter
+//     the caller supplied, or the identifier this server resolved earlier in the same exchange and
+//     recorded on the authorization code or CIBA record;
+//  2. for SubjectPrincipal only, the resource server the client's own entity owns (inbound access);
+//  3. the deployment's configured default resource server, when permission scopes are requested;
+//  4. otherwise unbound — (nil, nil), and the caller falls back to the client's configured
+//     defaultAudience and then to the client_id.
+//
+// Step 2 is skipped for SubjectClient, so client_credentials keeps its historical chain. It is also
+// skipped for a client with no inbound access, so such clients see no behavioral change.
+//
+// A client that declares an inbound audience but whose reference no longer resolves stops at step 2
+// and is unbound. It does not fall through to step 3: the deployment default is a broader audience
+// than the one the client declared, and an operator who disabled inbound access to stop a client
+// issuing scoped tokens must not get a wider audience instead.
+//
+// Resources are not re-validated as URIs here; see ValidateResourceURIs.
 func ResolveAudienceBinding(
 	ctx context.Context,
 	resourceService providers.ResourceServerProvider,
+	client *providers.OAuthClient,
+	subject TokenSubject,
 	resources []string,
 	permissionScopes []string,
 ) (*providers.ResourceServer, *model.ErrorResponse) {
-	if len(resources) == 0 && len(permissionScopes) == 0 {
+	if len(resources) > 0 {
+		return ResolveTargetResourceServer(ctx, resourceService, resources)
+	}
+	if subject == SubjectPrincipal {
+		boundRS, stale, errResp := resolveInboundResourceServer(ctx, resourceService, client)
+		if errResp != nil {
+			return nil, errResp
+		}
+		if boundRS != nil {
+			return boundRS, nil
+		}
+		if stale {
+			return nil, nil
+		}
+	}
+	if len(permissionScopes) == 0 {
 		return nil, nil
 	}
-	return ResolveTargetResourceServer(ctx, resourceService, resources)
+	return ResolveTargetResourceServer(ctx, resourceService, nil)
+}
+
+// resolveInboundResourceServer resolves the resource server the client's own entity owns. The
+// lookup is by the id carried on the client itself, so the resolved resource server is always the
+// client's own: this path can never widen a token's audience to another entity's resource server.
+//
+// The second return value reports a stale reference: the client declares an inbound audience but it
+// no longer resolves. Disabling inbound access deletes the resource server before clearing the
+// entity's reference to it, so the reference can be stale either transiently or, if the second write
+// fails, permanently. Failing the request would take every token grant for the client down with it,
+// so the request degrades to unbound instead — but the caller must stop there rather than widen the
+// audience to the deployment default.
+//
+// A client that simply exposes no inbound access returns (nil, false, nil).
+func resolveInboundResourceServer(
+	ctx context.Context,
+	resourceService providers.ResourceServerProvider,
+	client *providers.OAuthClient,
+) (*providers.ResourceServer, bool, *model.ErrorResponse) {
+	if client == nil || client.InboundResourceServerID == "" || resourceService == nil {
+		return nil, false, nil
+	}
+	rs, svcErr := resourceService.GetResourceServer(ctx, client.InboundResourceServerID)
+	if svcErr != nil {
+		if svcErr.Type == tidcommon.ServerErrorType {
+			return nil, false, &model.ErrorResponse{
+				Error:            constants.ErrorServerError,
+				ErrorDescription: "Failed to resolve resource server",
+			}
+		}
+		log.GetLogger().With(log.String(log.LoggerKeyComponentName, "ResourceIndicators")).
+			Debug(ctx, "Client references a resource server that no longer exists; "+
+				"issuing an unbound token instead of widening the audience to the deployment default",
+				log.String("clientID", client.ClientID))
+		return nil, true, nil
+	}
+	return rs, false, nil
 }
 
 // resolveTargetError maps a resource-service error to invalid_target (client) or server_error.

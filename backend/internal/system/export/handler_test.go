@@ -50,6 +50,8 @@ func (suite *HandlerTestSuite) SetupTest() {
 
 	// Setup services and handler
 	suite.mockAppService = applicationmock.NewApplicationServiceInterfaceMock(suite.T())
+	suite.mockAppService.EXPECT().GetApplicationDeclarativeInboundAccess(mock.Anything, mock.Anything).
+		Maybe().Return(nil, nil)
 	suite.mockIDPService = idpmock.NewIDPServiceInterfaceMock(suite.T())
 	suite.mockNotificationService = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(suite.T())
 	suite.mockEntityTypeService = entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())
@@ -428,6 +430,8 @@ func setupBenchmarkTest(b *testing.B) (*exportHandler, []byte) {
 	b.Cleanup(func() { config.ResetServerRuntime() })
 
 	mockAppService := applicationmock.NewApplicationServiceInterfaceMock(b)
+	mockAppService.EXPECT().GetApplicationDeclarativeInboundAccess(mock.Anything, mock.Anything).
+		Maybe().Return(nil, nil)
 	mockIDPService := idpmock.NewIDPServiceInterfaceMock(b)
 	mockNotificationService := notificationmock.NewNotificationSenderMgtSvcInterfaceMock(b)
 	mockEntityTypeService := entitytypemock.NewEntityTypeServiceInterfaceMock(b)

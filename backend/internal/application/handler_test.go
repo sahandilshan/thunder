@@ -21,6 +21,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/application/model"
 	"github.com/thunder-id/thunderid/internal/cert"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/system/error/apierror"
 	"github.com/thunder-id/thunderid/internal/system/log"
 )
@@ -2480,4 +2481,322 @@ func (suite *HandlerTestSuite) TestHandleApplicationPutRequest_ForwardsPasskeyAl
 
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
 	mockService.AssertExpectations(suite.T())
+}
+
+// --- Inbound Access Handler Tests ---
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessGetRequest_Success() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("GetApplicationInboundAccess", mock.Anything, "app-123").
+		Return(&model.ApplicationInboundAccessResponse{
+			ResourceServerID: "rs-1",
+			Identifier:       "app-123",
+			Type:             providers.ResourceServerTypeApplication,
+		}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/applications/app-123/resource-server", nil)
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessGetRequest(w, req)
+	assert.Equal(suite.T(), http.StatusOK, w.Code)
+	assert.Contains(suite.T(), w.Body.String(), `"type":"APPLICATION"`)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessGetRequest_MissingID() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+
+	req := httptest.NewRequest(http.MethodGet, "/applications//resource-server", nil)
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessGetRequest(w, req)
+	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessGetRequest_NotEnabledReturns404() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("GetApplicationInboundAccess", mock.Anything, "app-123").
+		Return(nil, &ErrorApplicationInboundAccessNotEnabled)
+
+	req := httptest.NewRequest(http.MethodGet, "/applications/app-123/resource-server", nil)
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessGetRequest(w, req)
+	assert.Equal(suite.T(), http.StatusNotFound, w.Code)
+	assert.Contains(suite.T(), w.Body.String(), ErrorApplicationInboundAccessNotEnabled.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPostRequest_Success() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("EnableApplicationInboundAccess", mock.Anything, "app-123", "https://api.example.com").
+		Return(&model.ApplicationInboundAccessResponse{
+			ResourceServerID: "rs-1",
+			Identifier:       "https://api.example.com",
+			Type:             providers.ResourceServerTypeApplication,
+		}, nil)
+
+	body, _ := json.Marshal(model.EnableInboundAccessRequest{Identifier: "https://api.example.com"})
+	req := httptest.NewRequest(http.MethodPost, "/applications/app-123/resource-server",
+		bytes.NewBuffer(body))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPostRequest(w, req)
+	assert.Equal(suite.T(), http.StatusCreated, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPostRequest_BlankIdentifier() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("EnableApplicationInboundAccess", mock.Anything, "app-123", "").
+		Return(&model.ApplicationInboundAccessResponse{
+			ResourceServerID: "rs-1",
+			Identifier:       "app-123",
+			Type:             providers.ResourceServerTypeApplication,
+		}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/app-123/resource-server",
+		bytes.NewBufferString(`{}`))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPostRequest(w, req)
+	assert.Equal(suite.T(), http.StatusCreated, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPostRequest_BodylessEnablesWithDefaults() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("EnableApplicationInboundAccess", mock.Anything, "app-123", "").
+		Return(&model.ApplicationInboundAccessResponse{
+			ResourceServerID: "rs-1",
+			Identifier:       "app-123",
+			Type:             providers.ResourceServerTypeApplication,
+		}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/app-123/resource-server", nil)
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPostRequest(w, req)
+	assert.Equal(suite.T(), http.StatusCreated, w.Code)
+	assert.Contains(suite.T(), w.Body.String(), `"identifier":"app-123"`)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPostRequest_MissingID() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications//resource-server",
+		bytes.NewBufferString(`{}`))
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPostRequest(w, req)
+	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPostRequest_InvalidJSON() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/app-123/resource-server",
+		bytes.NewBufferString(`{bad`))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPostRequest(w, req)
+	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPostRequest_AlreadyEnabled() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("EnableApplicationInboundAccess", mock.Anything, "app-123", "").
+		Return(nil, &ErrorApplicationInboundAccessAlreadyEnabled)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/app-123/resource-server",
+		bytes.NewBufferString(`{}`))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPostRequest(w, req)
+	assert.Equal(suite.T(), http.StatusConflict, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPutRequest_Success() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("UpdateApplicationInboundAccess", mock.Anything, "app-123", "https://new.example.com").
+		Return(&model.ApplicationInboundAccessResponse{
+			ResourceServerID: "rs-1",
+			Identifier:       "https://new.example.com",
+			Type:             providers.ResourceServerTypeApplication,
+		}, nil)
+
+	body, _ := json.Marshal(model.UpdateInboundAccessRequest{Identifier: "https://new.example.com"})
+	req := httptest.NewRequest(http.MethodPut, "/applications/app-123/resource-server",
+		bytes.NewBuffer(body))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPutRequest(w, req)
+	assert.Equal(suite.T(), http.StatusOK, w.Code)
+}
+
+// The identifier carries no native constraint, so decoding must not short-circuit: the request has
+// to reach the service, which returns the dedicated missing-identifier error.
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPutRequest_MissingIdentifierReturnsDedicatedError() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("UpdateApplicationInboundAccess", mock.Anything, "app-123", "").
+		Return(nil, &ErrorMissingInboundAccessIdentifier)
+
+	req := httptest.NewRequest(http.MethodPut, "/applications/app-123/resource-server",
+		bytes.NewBufferString(`{}`))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPutRequest(w, req)
+	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
+	assert.Contains(suite.T(), w.Body.String(), ErrorMissingInboundAccessIdentifier.Code)
+	mockService.AssertCalled(suite.T(), "UpdateApplicationInboundAccess", mock.Anything, "app-123", "")
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPutRequest_MissingID() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+
+	req := httptest.NewRequest(http.MethodPut, "/applications//resource-server",
+		bytes.NewBufferString(`{"identifier":"x"}`))
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPutRequest(w, req)
+	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessDeleteRequest_Success() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("DisableApplicationInboundAccess", mock.Anything, "app-123").Return(nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/applications/app-123/resource-server", nil)
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessDeleteRequest(w, req)
+	assert.Equal(suite.T(), http.StatusNoContent, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessDeleteRequest_MissingID() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+
+	req := httptest.NewRequest(http.MethodDelete, "/applications//resource-server", nil)
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessDeleteRequest(w, req)
+	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessDeleteRequest_ServiceError() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("DisableApplicationInboundAccess", mock.Anything, "app-123").
+		Return(&ErrorApplicationNotFound)
+
+	req := httptest.NewRequest(http.MethodDelete, "/applications/app-123/resource-server", nil)
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessDeleteRequest(w, req)
+	assert.Equal(suite.T(), http.StatusNotFound, w.Code)
+}
+
+// The inbound-access endpoints delegate to the resource service and return its errors unmapped, so
+// the handler must translate the resource service's conflict codes rather than defaulting to 400.
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPostRequest_IdentifierConflictReturns409() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("EnableApplicationInboundAccess", mock.Anything, "app-123", "https://taken.example.com").
+		Return(nil, &resource.ErrorIdentifierConflict)
+
+	body, _ := json.Marshal(model.EnableInboundAccessRequest{Identifier: "https://taken.example.com"})
+	req := httptest.NewRequest(http.MethodPost, "/applications/app-123/resource-server",
+		bytes.NewBuffer(body))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPostRequest(w, req)
+
+	assert.Equal(suite.T(), http.StatusConflict, w.Code)
+	assert.Contains(suite.T(), w.Body.String(), resource.ErrorIdentifierConflict.Code)
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPutRequest_NameConflictReturns409() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("UpdateApplicationInboundAccess", mock.Anything, "app-123", "https://api.example.com").
+		Return(nil, &resource.ErrorNameConflict)
+
+	body, _ := json.Marshal(model.UpdateInboundAccessRequest{Identifier: "https://api.example.com"})
+	req := httptest.NewRequest(http.MethodPut, "/applications/app-123/resource-server",
+		bytes.NewBuffer(body))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPutRequest(w, req)
+
+	assert.Equal(suite.T(), http.StatusConflict, w.Code)
+	assert.Contains(suite.T(), w.Body.String(), resource.ErrorNameConflict.Code)
+}
+
+// The identifier reaches the service sanitized the same way POST /resource-servers sanitizes it:
+// surrounding whitespace is trimmed before the value is persisted as the resource server identifier.
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPostRequest_SanitizesIdentifier() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("EnableApplicationInboundAccess", mock.Anything, "app-123", "https://api.example.com").
+		Return(&model.ApplicationInboundAccessResponse{
+			ResourceServerID: "rs-1", Identifier: "https://api.example.com",
+		}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/applications/app-123/resource-server",
+		bytes.NewBufferString(`{"identifier": "   https://api.example.com   "}`))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPostRequest(w, req)
+
+	assert.Equal(suite.T(), http.StatusCreated, w.Code)
+	mockService.AssertCalled(suite.T(), "EnableApplicationInboundAccess",
+		mock.Anything, "app-123", "https://api.example.com")
+}
+
+func (suite *HandlerTestSuite) TestHandleApplicationInboundAccessPutRequest_SanitizesIdentifier() {
+	mockService := NewApplicationServiceInterfaceMock(suite.T())
+	handler := newApplicationHandler(mockService)
+	mockService.On("UpdateApplicationInboundAccess", mock.Anything, "app-123", "https://api.example.com").
+		Return(&model.ApplicationInboundAccessResponse{
+			ResourceServerID: "rs-1", Identifier: "https://api.example.com",
+		}, nil)
+
+	req := httptest.NewRequest(http.MethodPut, "/applications/app-123/resource-server",
+		bytes.NewBufferString(`{"identifier": "  https://api.example.com  "}`))
+	req.SetPathValue("id", "app-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleApplicationInboundAccessPutRequest(w, req)
+
+	assert.Equal(suite.T(), http.StatusOK, w.Code)
+	mockService.AssertCalled(suite.T(), "UpdateApplicationInboundAccess",
+		mock.Anything, "app-123", "https://api.example.com")
 }

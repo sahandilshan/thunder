@@ -425,6 +425,61 @@ func (suite *HTTPUtilTestSuite) TestDecodeJSONBody() {
 	}
 }
 
+// optionalStruct mirrors a request body whose fields are all optional.
+type optionalStruct struct {
+	Identifier string `json:"identifier,omitempty"`
+}
+
+func (suite *HTTPUtilTestSuite) TestDecodeOptionalJSONBody_AbsentBodyYieldsZeroValue() {
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+
+	result, err := DecodeOptionalJSONBody[optionalStruct](req)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Empty(suite.T(), result.Identifier)
+}
+
+func (suite *HTTPUtilTestSuite) TestDecodeOptionalJSONBody_EmptyObjectYieldsZeroValue() {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+
+	result, err := DecodeOptionalJSONBody[optionalStruct](req)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Empty(suite.T(), result.Identifier)
+}
+
+func (suite *HTTPUtilTestSuite) TestDecodeOptionalJSONBody_PopulatedBodyDecoded() {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"identifier":"aud"}`))
+
+	result, err := DecodeOptionalJSONBody[optionalStruct](req)
+
+	assert.NoError(suite.T(), err)
+	assert.Equal(suite.T(), "aud", result.Identifier)
+}
+
+func (suite *HTTPUtilTestSuite) TestDecodeOptionalJSONBody_MalformedBodyStillErrors() {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{bad`))
+
+	result, err := DecodeOptionalJSONBody[optionalStruct](req)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), result)
+}
+
+// An absent body must not bypass native field constraints.
+func (suite *HTTPUtilTestSuite) TestDecodeOptionalJSONBody_AbsentBodyStillValidatesConstraints() {
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+
+	result, err := DecodeOptionalJSONBody[testStruct](req)
+
+	assert.Error(suite.T(), err)
+	assert.Nil(suite.T(), result)
+	var valErr *ValidationError
+	assert.True(suite.T(), errors.As(err, &valErr))
+}
+
 func (suite *HTTPUtilTestSuite) TestSanitizeString() {
 	testCases := []struct {
 		name     string

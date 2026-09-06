@@ -36,6 +36,9 @@ import (
 
 const testUserID = "user-1"
 
+// testInboundRSID is the resource server owned by the client's own entity (inbound access).
+const testInboundRSID = "rs-inbound"
+
 type CIBAServiceTestSuite struct {
 	suite.Suite
 	mockStore          *CIBARequestStoreInterfaceMock
@@ -1409,4 +1412,141 @@ func (suite *CIBAServiceTestSuite) TestHandleCallback_Failure_UpdateStateFailure
 
 	suite.NotNil(cibaErr)
 	suite.Equal(oauth2const.ErrorServerError, cibaErr.Code)
+}
+
+// Entity inbound access: a CIBA request from a client with inbound access binds to the client's own
+// resource server, so the token issued at the polling endpoint carries it as aud.
+
+func (suite *CIBAServiceTestSuite) TestInitiate_InboundRSBindsWhenNoResourceOrScopes() {
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	suite.mockResourceSvc.EXPECT().GetResourceServer(mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: "https://agent.example.com"}, nil)
+	suite.expectFlowInitiateSuccess()
+
+	var stored *CIBAAuthRequest
+	suite.mockStore.EXPECT().Add(mock.Anything, mock.MatchedBy(func(r *CIBAAuthRequest) bool {
+		stored = r
+		return true
+	})).Return(nil)
+
+	_, cibaErr := suite.service.InitiateBackchannelAuth(context.Background(), &BackchannelAuthRequest{
+		LoginHint: "alice",
+		Scope:     "openid profile",
+	}, suite.oauthApp)
+
+	suite.Nil(cibaErr)
+	suite.Equal([]string{"https://agent.example.com"}, stored.Resources)
+}
+
+func (suite *CIBAServiceTestSuite) TestInitiate_InboundRSWinsOverDeploymentDefault() {
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	suite.mockResourceSvc.EXPECT().GetResourceServer(mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: "https://agent.example.com"}, nil)
+	// "read:things" is not a permission on the bound resource server, so it is dropped.
+	suite.mockResourceSvc.EXPECT().ValidatePermissions(mock.Anything, testInboundRSID, mock.Anything).
+		Return([]string{"read:things"}, nil)
+	suite.mockFlowExec.EXPECT().InitiateAndExecute(mock.Anything, mock.MatchedBy(
+		func(initCtx *flowexec.FlowInitContext) bool {
+			return initCtx.RuntimeData[flowcm.RuntimeKeyResourceServerIdentifier] == "https://agent.example.com" &&
+				initCtx.RuntimeData[flowcm.RuntimeKeyRequestedPermissions] == ""
+		})).Return(&flowexec.FlowStep{ExecutionID: "exec-1", Status: providers.FlowStatusIncomplete}, nil)
+
+	var stored *CIBAAuthRequest
+	suite.mockStore.EXPECT().Add(mock.Anything, mock.MatchedBy(func(r *CIBAAuthRequest) bool {
+		stored = r
+		return true
+	})).Return(nil)
+
+	_, cibaErr := suite.service.InitiateBackchannelAuth(context.Background(), &BackchannelAuthRequest{
+		LoginHint: "alice",
+		Scope:     "openid read:things",
+	}, suite.oauthApp)
+
+	suite.Nil(cibaErr)
+	suite.Equal([]string{"https://agent.example.com"}, stored.Resources)
+}
+
+func (suite *CIBAServiceTestSuite) TestInitiate_InboundRSExplicitResourceWins() {
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	suite.mockResourceSvc.EXPECT().GetResourceServerByIdentifier(mock.Anything, "https://api.example.com").
+		Return(&providers.ResourceServer{ID: "rs-1", Identifier: "https://api.example.com"}, nil)
+	suite.mockResourceSvc.EXPECT().ValidatePermissions(mock.Anything, "rs-1", mock.Anything).
+		Return([]string{}, nil)
+	suite.expectFlowInitiateSuccess()
+
+	var stored *CIBAAuthRequest
+	suite.mockStore.EXPECT().Add(mock.Anything, mock.MatchedBy(func(r *CIBAAuthRequest) bool {
+		stored = r
+		return true
+	})).Return(nil)
+
+	_, cibaErr := suite.service.InitiateBackchannelAuth(context.Background(), &BackchannelAuthRequest{
+		LoginHint: "alice",
+		Scope:     "openid read:things",
+		Resources: []string{"https://api.example.com"},
+	}, suite.oauthApp)
+
+	suite.Nil(cibaErr)
+	suite.Equal([]string{"https://api.example.com"}, stored.Resources)
+	suite.mockResourceSvc.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}
+
+// The default inbound-access identifier is the bare entity ID, so the identifier CIBA records on the
+// request is not always an absolute URI. Recording it must succeed; the token endpoint resolves it
+// back by identifier without re-applying the RFC 8707 §2 caller-input rule.
+func (suite *CIBAServiceTestSuite) TestInitiate_InboundRSWithBareEntityIDIdentifierIsRecorded() {
+	const bareIdentifier = "01997c1e-0f5a-7a3c-9b2e-9f1c4c2d5e60"
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	suite.mockResourceSvc.EXPECT().GetResourceServer(mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: bareIdentifier}, nil)
+	suite.expectFlowInitiateSuccess()
+
+	var stored *CIBAAuthRequest
+	suite.mockStore.EXPECT().Add(mock.Anything, mock.MatchedBy(func(r *CIBAAuthRequest) bool {
+		stored = r
+		return true
+	})).Return(nil)
+
+	_, cibaErr := suite.service.InitiateBackchannelAuth(context.Background(), &BackchannelAuthRequest{
+		LoginHint: "alice",
+		Scope:     "openid profile",
+	}, suite.oauthApp)
+
+	suite.Nil(cibaErr)
+	suite.Equal([]string{bareIdentifier}, stored.Resources)
+}
+
+// A caller-supplied resource is still held to the RFC 8707 §2 shape rule, checked where it enters.
+func (suite *CIBAServiceTestSuite) TestInitiate_CallerSuppliedNonURIResourceRejected() {
+	_, cibaErr := suite.service.InitiateBackchannelAuth(context.Background(), &BackchannelAuthRequest{
+		LoginHint: "alice",
+		Scope:     "openid read:things",
+		Resources: []string{"01997c1e-0f5a-7a3c-9b2e-9f1c4c2d5e60"},
+	}, suite.oauthApp)
+
+	suite.Require().NotNil(cibaErr)
+	suite.Equal(oauth2const.ErrorInvalidTarget, cibaErr.Code)
+}
+
+// A stale inbound reference stops at "unbound" instead of widening the audience to the deployment
+// default resource server.
+func (suite *CIBAServiceTestSuite) TestInitiate_StaleInboundRSDoesNotFallBackToDeploymentDefault() {
+	suite.oauthApp.InboundResourceServerID = testInboundRSID
+	suite.mockResourceSvc.EXPECT().GetResourceServer(mock.Anything, testInboundRSID).
+		Return(nil, &tidcommon.ServiceError{Type: tidcommon.ClientErrorType, Code: "RS-1002"})
+	suite.expectFlowInitiateSuccess()
+
+	var stored *CIBAAuthRequest
+	suite.mockStore.EXPECT().Add(mock.Anything, mock.MatchedBy(func(r *CIBAAuthRequest) bool {
+		stored = r
+		return true
+	})).Return(nil)
+
+	_, cibaErr := suite.service.InitiateBackchannelAuth(context.Background(), &BackchannelAuthRequest{
+		LoginHint: "alice",
+		Scope:     "openid read:things",
+	}, suite.oauthApp)
+
+	suite.Nil(cibaErr)
+	suite.Empty(stored.Resources)
 }

@@ -96,6 +96,13 @@ func (s *cibaService) InitiateBackchannelAuth(
 		return nil, validationErr
 	}
 
+	// The resource parameter is caller input, so it is checked here where it enters (RFC 8707 §2).
+	// The identifier resolved from it below is recorded on the CIBA request and is deliberately not
+	// re-checked when the token endpoint reads it back.
+	if errResp := resourceindicators.ValidateResourceURIs(request.Resources); errResp != nil {
+		return nil, &CIBAError{Code: errResp.Error, Message: errResp.ErrorDescription}
+	}
+
 	authReqID, err := utils.GenerateUUIDv7()
 	if err != nil {
 		s.logger.Error(ctx, "Failed to generate auth_req_id", log.Error(err))
@@ -115,7 +122,8 @@ func (s *cibaService) InitiateBackchannelAuth(
 	// OIDC-only (no resource, no permission scopes) stays unbound; a permission-bearing request resolves
 	// an explicit resource or the configured default, rejecting with invalid_target when none applies.
 	targetRS, rsErr := resourceindicators.ResolveAudienceBinding(
-		ctx, s.resourceService, request.Resources, permissionScopes)
+		ctx, s.resourceService, oauthApp, resourceindicators.SubjectPrincipal,
+		request.Resources, permissionScopes)
 	if rsErr != nil {
 		return nil, &CIBAError{Code: rsErr.Error, Message: rsErr.ErrorDescription}
 	}

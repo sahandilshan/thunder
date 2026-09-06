@@ -88,58 +88,90 @@ func (s *cacheBackedEntityStore) GetEntityWithCredentials(ctx context.Context,
 	return result, nil
 }
 
+// UpdateEntity drops the entity's cache entries around the write.
+//
+// The by-ID entry is invalidated rather than re-seeded from the caller's struct. The update
+// statement writes only a subset of the entity's columns, so the supplied struct is not a faithful
+// image of the stored row: re-seeding from it published a partial entity, which silently dropped
+// ResourceServerID and made an agent's inbound access unreachable after any update. Callers pay one
+// cache miss on the next read instead.
+//
+// The by-ID entry is invalidated on both sides of the write. Callers run this inside their own
+// transaction, so the post-write invalidation happens before commit: a concurrent reader can
+// repopulate the entry from the pre-commit state, and on rollback that entry would describe a row
+// that never existed. Invalidating first bounds that to the window around the write itself.
 func (s *cacheBackedEntityStore) UpdateEntity(ctx context.Context, entity *providers.Entity) error {
-	s.invalidateIdentifierCache(ctx, entity.ID)
+	// Resolve the identifier keys while the pre-update values are still stored; once the write lands
+	// the old values are gone and their entries could no longer be located.
+	staleIdentifierKeys := s.identifierCacheKeys(ctx, entity.ID)
 	s.invalidateEntityByID(ctx, entity.ID)
 
 	if err := s.store.UpdateEntity(ctx, entity); err != nil {
 		return err
 	}
 
-	s.cacheEntityByID(ctx, entity)
+	s.deleteIdentifierCacheKeys(ctx, staleIdentifierKeys)
+	s.invalidateEntityByID(ctx, entity.ID)
 	s.cacheEntityIDByIdentifiers(ctx, entity)
 	return nil
 }
 
 func (s *cacheBackedEntityStore) UpdateAttributes(ctx context.Context,
 	entityID string, attributes json.RawMessage) error {
-	s.invalidateIdentifierCache(ctx, entityID)
-	s.invalidateEntityByID(ctx, entityID)
+	staleIdentifierKeys := s.identifierCacheKeys(ctx, entityID)
 
-	return s.store.UpdateAttributes(ctx, entityID, attributes)
+	if err := s.store.UpdateAttributes(ctx, entityID, attributes); err != nil {
+		return err
+	}
+
+	s.deleteIdentifierCacheKeys(ctx, staleIdentifierKeys)
+	s.invalidateEntityByID(ctx, entityID)
+	return nil
 }
 
 func (s *cacheBackedEntityStore) UpdateSystemAttributes(ctx context.Context,
 	entityID string, attrs json.RawMessage) error {
-	s.invalidateIdentifierCache(ctx, entityID)
-	s.invalidateEntityByID(ctx, entityID)
+	staleIdentifierKeys := s.identifierCacheKeys(ctx, entityID)
 
-	return s.store.UpdateSystemAttributes(ctx, entityID, attrs)
+	if err := s.store.UpdateSystemAttributes(ctx, entityID, attrs); err != nil {
+		return err
+	}
+
+	s.deleteIdentifierCacheKeys(ctx, staleIdentifierKeys)
+	s.invalidateEntityByID(ctx, entityID)
+	return nil
 }
 
 func (s *cacheBackedEntityStore) UpdateCredentials(ctx context.Context,
 	entityID string, creds json.RawMessage) error {
-	s.invalidateEntityByID(ctx, entityID)
+	if err := s.store.UpdateCredentials(ctx, entityID, creds); err != nil {
+		return err
+	}
 
-	return s.store.UpdateCredentials(ctx, entityID, creds)
+	s.invalidateEntityByID(ctx, entityID)
+	return nil
 }
 
 func (s *cacheBackedEntityStore) UpdateSystemCredentials(ctx context.Context,
 	entityID string, creds json.RawMessage) error {
-	s.invalidateEntityByID(ctx, entityID)
+	if err := s.store.UpdateSystemCredentials(ctx, entityID, creds); err != nil {
+		return err
+	}
 
-	return s.store.UpdateSystemCredentials(ctx, entityID, creds)
+	s.invalidateEntityByID(ctx, entityID)
+	return nil
 }
 
 func (s *cacheBackedEntityStore) DeleteEntity(ctx context.Context, id string) error {
-	// Invalidate identifier cache before the store delete so the store fallback
-	// can still fetch the entity if the by-ID cache is cold.
-	s.invalidateIdentifierCache(ctx, id)
+	// Resolve the identifier keys before the store delete so the store fallback can still fetch the
+	// entity if the by-ID cache is cold; the entries themselves are dropped after the delete lands.
+	staleIdentifierKeys := s.identifierCacheKeys(ctx, id)
 
 	if err := s.store.DeleteEntity(ctx, id); err != nil {
 		return err
 	}
 
+	s.deleteIdentifierCacheKeys(ctx, staleIdentifierKeys)
 	s.invalidateEntityByID(ctx, id)
 	return nil
 }
@@ -227,6 +259,21 @@ func (s *cacheBackedEntityStore) GetEntityGroups(ctx context.Context,
 	return s.store.GetEntityGroups(ctx, entityID, limit, offset)
 }
 
+func (s *cacheBackedEntityStore) UpdateEntityResourceServerID(ctx context.Context,
+	entityID string, resourceServerID *string) error {
+	if err := s.store.UpdateEntityResourceServerID(ctx, entityID, resourceServerID); err != nil {
+		return err
+	}
+
+	s.invalidateEntityByID(ctx, entityID)
+	return nil
+}
+
+func (s *cacheBackedEntityStore) GetEntitiesByResourceServerID(ctx context.Context,
+	resourceServerID string) ([]providers.Entity, error) {
+	return s.store.GetEntitiesByResourceServerID(ctx, resourceServerID)
+}
+
 func (s *cacheBackedEntityStore) IsEntityDeclarative(ctx context.Context, id string) (bool, error) {
 	return s.store.IsEntityDeclarative(ctx, id)
 }
@@ -289,9 +336,13 @@ func (s *cacheBackedEntityStore) cacheEntityIDByIdentifiers(ctx context.Context,
 	}
 }
 
-func (s *cacheBackedEntityStore) invalidateIdentifierCache(ctx context.Context, entityID string) {
+// identifierCacheKeys resolves the identifier cache keys the entity currently occupies. Callers
+// resolve them before a write or delete, while the entity still holds its pre-change identifier
+// values, and drop them with deleteIdentifierCacheKeys once the change has landed.
+func (s *cacheBackedEntityStore) identifierCacheKeys(
+	ctx context.Context, entityID string) []cache.CacheKey {
 	if entityID == "" || len(s.cacheableIdentifiers) == 0 {
-		return
+		return nil
 	}
 	var entity *providers.Entity
 	if cached, ok := s.entityByIDCache.Get(ctx, cache.CacheKey{Key: entityID}); ok && cached != nil {
@@ -301,20 +352,28 @@ func (s *cacheBackedEntityStore) invalidateIdentifierCache(ctx context.Context, 
 		if err != nil {
 			s.logger.Error(ctx, "Failed to fetch entity for identifier cache invalidation",
 				log.String("entityID", entityID), log.Error(err))
-			return
+			return nil
 		}
 		entity = &fetched
 	}
 	attrs := s.parseEntityAttributes(ctx, entity)
+	keys := make([]cache.CacheKey, 0, len(s.cacheableIdentifiers))
 	for key := range s.cacheableIdentifiers {
 		val, _ := attrs[key].(string)
 		if val == "" {
 			continue
 		}
-		if err := s.entityIDByIdentifierCache.Delete(ctx,
-			identifierCacheKey(key, val)); err != nil {
+		keys = append(keys, identifierCacheKey(key, val))
+	}
+	return keys
+}
+
+// deleteIdentifierCacheKeys drops the given identifier cache entries.
+func (s *cacheBackedEntityStore) deleteIdentifierCacheKeys(ctx context.Context, keys []cache.CacheKey) {
+	for _, key := range keys {
+		if err := s.entityIDByIdentifierCache.Delete(ctx, key); err != nil {
 			s.logger.Error(ctx, "Failed to invalidate identifier cache",
-				log.String("key", key), log.String("value", val), log.Error(err))
+				log.String("key", key.Key), log.Error(err))
 		}
 	}
 }

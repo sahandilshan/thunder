@@ -26,9 +26,19 @@ CREATE TABLE "ENTITY" (
     SYSTEM_ATTRIBUTES   JSONB,
     CREDENTIALS         JSONB,
     SYSTEM_CREDENTIALS  JSONB,
+    RESOURCE_SERVER_ID  VARCHAR(36),
     CREATED_AT          TIMESTAMPTZ NOT NULL,
     UPDATED_AT          TIMESTAMPTZ NOT NULL
 );
+
+-- Users must not reference a resource server
+ALTER TABLE "ENTITY" ADD CONSTRAINT chk_user_no_rs
+  CHECK ("CATEGORY" != 'user' OR "RESOURCE_SERVER_ID" IS NULL);
+
+-- Unique partial index enforcing at most one entity per resource server within a deployment
+CREATE UNIQUE INDEX idx_entity_rs_lookup
+  ON "ENTITY" (DEPLOYMENT_ID, "RESOURCE_SERVER_ID")
+  WHERE "RESOURCE_SERVER_ID" IS NOT NULL;
 
 -- Composite index for category-based entity listing
 CREATE INDEX idx_entity_category_deployment ON "ENTITY" (DEPLOYMENT_ID, CATEGORY);

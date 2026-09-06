@@ -258,7 +258,8 @@ func (h *tokenExchangeGrantHandler) HandleGrant(ctx context.Context, tokenReques
 	// and carries no resource is not bound to a resource server: its audience is the app's configured
 	// default audiences, falling back to the client_id.
 	targetRS, resErr := resourceindicators.ResolveAudienceBinding(
-		ctx, h.resourceService, tokenRequest.Resources, permissionScopes)
+		ctx, h.resourceService, oauthApp, resourceindicators.SubjectPrincipal,
+		tokenRequest.Resources, permissionScopes)
 	if resErr != nil {
 		return nil, resErr
 	}

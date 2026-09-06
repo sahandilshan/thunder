@@ -27,6 +27,8 @@ import (
 
 const (
 	testAuthID = "test-auth-id"
+	// testInboundRSID is the resource server owned by the client's own entity (inbound access).
+	testInboundRSID = "rs-inbound"
 )
 
 type AuthorizeHandlerTestSuite struct {

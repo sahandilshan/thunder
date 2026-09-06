@@ -81,6 +81,8 @@ func (suite *ExportServiceTestSuite) SetupTest() {
 	_ = config.InitializeServerRuntime(tempDir, testConfig)
 
 	suite.appServiceMock = applicationmock.NewApplicationServiceInterfaceMock(suite.T())
+	suite.appServiceMock.EXPECT().GetApplicationDeclarativeInboundAccess(mock.Anything, mock.Anything).
+		Maybe().Return(nil, nil)
 	suite.idpServiceMock = idpmock.NewIDPServiceInterfaceMock(suite.T())
 	suite.mockNotificationService = notificationmock.NewNotificationSenderMgtSvcInterfaceMock(suite.T())
 	suite.mockEntityTypeService = entitytypemock.NewEntityTypeServiceInterfaceMock(suite.T())

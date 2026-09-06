@@ -13,11 +13,13 @@ import (
 
 	"github.com/thunder-id/thunderid/internal/application/model"
 	"github.com/thunder-id/thunderid/internal/cert"
+	"github.com/thunder-id/thunderid/internal/entity"
 	"github.com/thunder-id/thunderid/internal/entityprovider"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 	oauthutils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
 	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/serverconfig"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
@@ -48,6 +50,25 @@ type ApplicationServiceInterface interface {
 	GetResourceDependencies(
 		ctx context.Context, resourceType, id string) ([]resourcedependency.ResourceDependency, error)
 	SetDependencyRegistry(r resourcedependency.Registry)
+	SetResourceService(rs resource.ResourceServiceInterface)
+	SetEntityService(es entity.EntityServiceInterface)
+	GetApplicationInboundAccess(ctx context.Context, appID string) (
+		*model.ApplicationInboundAccessResponse, *tidcommon.ServiceError)
+	EnableApplicationInboundAccess(ctx context.Context, appID, identifier string) (
+		*model.ApplicationInboundAccessResponse, *tidcommon.ServiceError)
+	UpdateApplicationInboundAccess(ctx context.Context, appID, identifier string) (
+		*model.ApplicationInboundAccessResponse, *tidcommon.ServiceError)
+	DisableApplicationInboundAccess(ctx context.Context, appID string) *tidcommon.ServiceError
+	// LoadDeclarativeInboundAccess registers the resource server a declaratively defined application
+	// owns, with the permission tree declared inline on that application, and returns its ID. Called
+	// by the declarative loader at startup only.
+	LoadDeclarativeInboundAccess(ctx context.Context, appID, ouID, name string,
+		access *providers.DeclarativeInboundAccess) (string, error)
+	// GetApplicationDeclarativeInboundAccess returns the application's inbound access in declarative
+	// form, including the permission tree. Returns nil when the application exposes none. Used by
+	// the exporter.
+	GetApplicationDeclarativeInboundAccess(ctx context.Context, appID string) (
+		*providers.DeclarativeInboundAccess, *tidcommon.ServiceError)
 }
 
 // ApplicationService is the default implementation of the ApplicationServiceInterface.
@@ -60,6 +81,8 @@ type applicationService struct {
 	cryptoSvc            providers.RuntimeCryptoProvider
 	dependencyRegistry   resourcedependency.Registry
 	serverConfigService  serverconfig.ServerConfigService
+	resourceService      resource.ResourceServiceInterface
+	entityService        entity.EntityServiceInterface
 }
 
 // newApplicationService creates a new instance of ApplicationService.
@@ -328,6 +351,7 @@ func (as *applicationService) GetApplicationList(
 		}
 		applicationList = append(applicationList, buildBasicApplicationResponse(*cfg, &entities[i]))
 	}
+	as.populateInboundAccessForList(ctx, applicationList, entities)
 
 	return &model.ApplicationListResponse{
 		TotalResults: totalResults,
@@ -377,7 +401,14 @@ func (as *applicationService) GetApplication(ctx context.Context, appID string) 
 		return nil, svcErr
 	}
 
-	return as.enrichApplicationWithCertificate(ctx, buildApplicationResponse(fullApp))
+	app, svcErr := as.enrichApplicationWithCertificate(ctx, buildApplicationResponse(fullApp))
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e, epErr := as.entityProvider.GetEntity(appID); epErr == nil && e != nil {
+		app.InboundAccess = as.inboundAccessFor(ctx, e.ResourceServerID)
+	}
+	return app, nil
 }
 
 // UpdateApplication update the application for given app id.
@@ -422,6 +453,21 @@ func (as *applicationService) UpdateApplication(ctx context.Context, appID strin
 		return nil, &tidcommon.InternalServerError
 	}
 
+	ownedResourceServerID := ""
+	if e, epErr := as.entityProvider.GetEntity(appID); epErr == nil && e != nil {
+		ownedResourceServerID = e.ResourceServerID
+	}
+
+	// The owned resource server carries the application's name, so a rename must propagate to it.
+	// This runs before the entity write: resource server names are unique deployment-wide, so the
+	// sync can conflict with a name the application-level check does not see. Renaming the entity
+	// first would leave the two names permanently apart, because a retry no longer sees a change.
+	if existingApp.Name != app.Name {
+		if svcErr := as.syncOwnedResourceServerName(ctx, ownedResourceServerID, app.Name); svcErr != nil {
+			return nil, svcErr
+		}
+	}
+
 	if svcErr := as.updateEntityDataForApplicationUpdate(ctx, appID, app, inboundAuthConfig); svcErr != nil {
 		return nil, svcErr
 	}
@@ -451,8 +497,10 @@ func (as *applicationService) UpdateApplication(ctx context.Context, appID strin
 			inboundAuthConfig.OAuthConfig.Certificate = nil
 		}
 	}
-	return buildReturnApplicationDTO(appID, &appForReturn, inboundClient.Assertion, processedDTO.Metadata,
-		inboundAuthConfig, oauthToken, userInfo, scopeClaims), nil
+	returnDTO := buildReturnApplicationDTO(appID, &appForReturn, inboundClient.Assertion, processedDTO.Metadata,
+		inboundAuthConfig, oauthToken, userInfo, scopeClaims)
+	returnDTO.InboundAccess = as.inboundAccessFor(ctx, ownedResourceServerID)
+	return returnDTO, nil
 }
 
 func (as *applicationService) updateEntityDataForApplicationUpdate(ctx context.Context,
@@ -597,26 +645,317 @@ func appRequiresClientSecret(cfg *providers.OAuthConfigWithSecret) bool {
 	return true
 }
 
-// DeleteApplication delete the application for given app id.
 // SetDependencyRegistry injects the dependency registry. Called by servicemanager after the
 // provider services are initialized to avoid a cyclic import.
 func (as *applicationService) SetDependencyRegistry(r resourcedependency.Registry) {
 	as.dependencyRegistry = r
 }
 
+// SetResourceService injects the resource service for ownership operations.
+func (as *applicationService) SetResourceService(rs resource.ResourceServiceInterface) {
+	as.resourceService = rs
+}
+
+// SetEntityService injects the entity service for resource server reference operations.
+func (as *applicationService) SetEntityService(es entity.EntityServiceInterface) {
+	as.entityService = es
+}
+
+// resolveApplicationEntity loads the entity and verifies it is an application.
+func (as *applicationService) resolveApplicationEntity(appID string) (
+	*providers.Entity, *tidcommon.ServiceError) {
+	if appID == "" {
+		return nil, &ErrorInvalidApplicationID
+	}
+	e, epErr := as.entityProvider.GetEntity(appID)
+	if epErr != nil {
+		if epErr.Code == entityprovider.ErrorCodeEntityNotFound {
+			return nil, &ErrorApplicationNotFound
+		}
+		return nil, &tidcommon.InternalServerError
+	}
+	if e == nil || e.Category != providers.EntityCategoryApp {
+		return nil, &ErrorApplicationNotFound
+	}
+	return e, nil
+}
+
+// GetApplicationInboundAccess returns the inbound access exposed by the given application.
+func (as *applicationService) GetApplicationInboundAccess(ctx context.Context, appID string) (
+	*model.ApplicationInboundAccessResponse, *tidcommon.ServiceError) {
+	e, svcErr := as.resolveApplicationEntity(appID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e.ResourceServerID == "" {
+		return nil, &ErrorApplicationInboundAccessNotEnabled
+	}
+
+	rs, svcErr := as.resourceService.GetResourceServer(ctx, e.ResourceServerID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	return inboundAccessResponse(rs), nil
+}
+
+// EnableApplicationInboundAccess creates the resource server the application owns and points the
+// application at it. The identifier defaults to the application ID when not supplied.
+func (as *applicationService) EnableApplicationInboundAccess(
+	ctx context.Context, appID, identifier string) (
+	*model.ApplicationInboundAccessResponse, *tidcommon.ServiceError) {
+	if as.inboundClientService.IsDeclarative(ctx, appID) {
+		return nil, &ErrorCannotModifyDeclarativeResource
+	}
+	e, svcErr := as.resolveApplicationEntity(appID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e.ResourceServerID != "" {
+		return nil, &ErrorApplicationInboundAccessAlreadyEnabled
+	}
+	if identifier == "" {
+		identifier = appID
+	}
+
+	rs, svcErr := as.resourceService.CreateEntityOwnedResourceServer(ctx, providers.ResourceServer{
+		Name:       entityDisplayName(e.SystemAttributes),
+		Identifier: identifier,
+		Type:       providers.ResourceServerTypeApplication,
+		OUID:       e.OUID,
+	})
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	if err := as.entityService.UpdateEntityResourceServerID(ctx, appID, &rs.ID); err != nil {
+		as.logger.Error(ctx, "Failed to reference the created resource server from the application",
+			log.String("appID", appID), log.Error(err))
+		// Remove the just-created resource server so a failed enable leaves no orphan behind. The
+		// entity-owned delete is used because the reference write may have landed before failing,
+		// which would make the entity a blocking dependency of the resource server.
+		if delErr := as.resourceService.DeleteEntityOwnedResourceServer(ctx, rs.ID); delErr != nil {
+			as.logger.Error(ctx, "Failed to remove orphaned resource server after enable failure",
+				log.String("appID", appID), log.String("resourceServerID", rs.ID),
+				log.String("error", delErr.Error.DefaultValue))
+		}
+		return nil, &tidcommon.InternalServerError
+	}
+
+	return inboundAccessResponse(rs), nil
+}
+
+// UpdateApplicationInboundAccess changes the audience identifier of the resource server the
+// application owns. This is the only supported way to change it: the public resource server API
+// locks the identifier of an owned resource server.
+func (as *applicationService) UpdateApplicationInboundAccess(
+	ctx context.Context, appID, identifier string) (
+	*model.ApplicationInboundAccessResponse, *tidcommon.ServiceError) {
+	if identifier == "" {
+		return nil, &ErrorMissingInboundAccessIdentifier
+	}
+	if as.inboundClientService.IsDeclarative(ctx, appID) {
+		return nil, &ErrorCannotModifyDeclarativeResource
+	}
+	e, svcErr := as.resolveApplicationEntity(appID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e.ResourceServerID == "" {
+		return nil, &ErrorApplicationInboundAccessNotEnabled
+	}
+
+	rs, svcErr := as.resourceService.UpdateEntityOwnedResourceServer(ctx, e.ResourceServerID, "", identifier)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	return inboundAccessResponse(rs), nil
+}
+
+// DisableApplicationInboundAccess removes the resource server the application owns, together with
+// the permissions defined on it.
+func (as *applicationService) DisableApplicationInboundAccess(
+	ctx context.Context, appID string) *tidcommon.ServiceError {
+	if as.inboundClientService.IsDeclarative(ctx, appID) {
+		return &ErrorCannotModifyDeclarativeResource
+	}
+	e, svcErr := as.resolveApplicationEntity(appID)
+	if svcErr != nil {
+		return svcErr
+	}
+	if e.ResourceServerID == "" {
+		return &ErrorApplicationInboundAccessNotEnabled
+	}
+
+	return as.deleteOwnedResourceServer(ctx, appID, e.ResourceServerID)
+}
+
+// LoadDeclarativeInboundAccess registers the resource server a declaratively defined application
+// owns and returns its ID for the application's resource server reference. The identifier defaults
+// to the application ID when the block does not declare one.
+//
+// The owned resource server reuses the application's own ID. Resource server and entity IDs live in
+// separate key spaces, so this is unambiguous, and it is deterministic: reloading the same file
+// rebuilds the same resource server instead of adding a second one.
+func (as *applicationService) LoadDeclarativeInboundAccess(ctx context.Context, appID, ouID, name string,
+	access *providers.DeclarativeInboundAccess) (string, error) {
+	if access == nil {
+		return "", nil
+	}
+	if as.resourceService == nil {
+		return "", fmt.Errorf("resource service is required to load the inbound access of application '%s'", appID)
+	}
+
+	identifier := access.Identifier
+	if identifier == "" {
+		identifier = appID
+	}
+
+	if err := as.resourceService.CreateDeclarativeEntityOwnedResourceServer(ctx, providers.ResourceServer{
+		ID:         appID,
+		Name:       name,
+		Identifier: identifier,
+		Type:       providers.ResourceServerTypeApplication,
+		OUID:       ouID,
+		Resources:  access.Resources,
+	}); err != nil {
+		return "", err
+	}
+
+	return appID, nil
+}
+
+// GetApplicationDeclarativeInboundAccess returns the application's inbound access in declarative
+// form. Returns nil when the application exposes none, so the exporter simply omits the block.
+func (as *applicationService) GetApplicationDeclarativeInboundAccess(ctx context.Context, appID string) (
+	*providers.DeclarativeInboundAccess, *tidcommon.ServiceError) {
+	e, svcErr := as.resolveApplicationEntity(appID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e.ResourceServerID == "" || as.resourceService == nil {
+		return nil, nil
+	}
+
+	rs, svcErr := resource.BuildDeclarativeResourceServer(ctx, as.resourceService, e.ResourceServerID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	return &providers.DeclarativeInboundAccess{
+		Identifier: rs.Identifier,
+		Resources:  rs.Resources,
+	}, nil
+}
+
+// deleteOwnedResourceServer removes the resource server owned by the application and then clears
+// the application's reference to it. A no-op when the application owns none.
+//
+// The resource server is deleted first. It carries the permissions the application exposes, and
+// both those permissions and the application's own reference register as blocking dependencies, so
+// the delete goes through the entity-owned path that removes the resource server with its children
+// instead of refusing. Deleting first means a failure leaves the application still owning a live
+// resource server, which is consistent and retriable; clearing the reference first would strand an
+// orphan that nothing can delete and whose identifier would block ever enabling inbound access
+// again. The entity-owned delete treats an already-deleted resource server as success, so a retry
+// after a failure between the two steps still clears the reference.
+func (as *applicationService) deleteOwnedResourceServer(
+	ctx context.Context, appID, resourceServerID string) *tidcommon.ServiceError {
+	if resourceServerID == "" {
+		return nil
+	}
+	if delErr := as.resourceService.DeleteEntityOwnedResourceServer(ctx, resourceServerID); delErr != nil {
+		as.logger.Error(ctx, "Failed to delete the resource server owned by the application",
+			log.String("appID", appID), log.String("resourceServerID", resourceServerID),
+			log.String("error", delErr.Error.DefaultValue))
+		return &tidcommon.InternalServerError
+	}
+
+	if err := as.entityService.UpdateEntityResourceServerID(ctx, appID, nil); err != nil {
+		as.logger.Error(ctx, "Failed to clear the application resource server reference",
+			log.String("appID", appID), log.Error(err))
+		return &tidcommon.InternalServerError
+	}
+
+	return nil
+}
+
+// syncOwnedResourceServerName keeps the name of the resource server the application owns aligned
+// with the application's name. A failure fails the update rather than letting the two names drift.
+func (as *applicationService) syncOwnedResourceServerName(
+	ctx context.Context, resourceServerID, name string) *tidcommon.ServiceError {
+	if resourceServerID == "" {
+		return nil
+	}
+	if _, svcErr := as.resourceService.UpdateEntityOwnedResourceServer(
+		ctx, resourceServerID, name, ""); svcErr != nil {
+		as.logger.Error(ctx, "Failed to sync the owned resource server name",
+			log.String("resourceServerID", resourceServerID),
+			log.String("error", svcErr.Error.DefaultValue))
+		return svcErr
+	}
+	return nil
+}
+
+// inboundAccessResponse renders the inbound access view of an owned resource server.
+func inboundAccessResponse(rs *providers.ResourceServer) *model.ApplicationInboundAccessResponse {
+	return &model.ApplicationInboundAccessResponse{
+		ResourceServerID: rs.ID,
+		Identifier:       rs.Identifier,
+		Type:             rs.Type,
+	}
+}
+
+// entityDisplayName extracts the display name stored in an entity's system attributes.
+func entityDisplayName(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var attrs map[string]interface{}
+	if err := json.Unmarshal(raw, &attrs); err != nil {
+		return ""
+	}
+	name, _ := attrs[fieldName].(string)
+	return name
+}
+
+// validateAppExists checks that the entity exists and is an application.
+func (as *applicationService) validateAppExists(appID string) *tidcommon.ServiceError {
+	e, epErr := as.entityProvider.GetEntity(appID)
+	if epErr != nil {
+		if epErr.Code == entityprovider.ErrorCodeEntityNotFound {
+			return &ErrorApplicationNotFound
+		}
+		return &tidcommon.InternalServerError
+	}
+	if e == nil || e.Category != providers.EntityCategoryApp {
+		return &ErrorApplicationNotFound
+	}
+	return nil
+}
+
+// DeleteApplication delete the application for given app id.
 func (as *applicationService) DeleteApplication(ctx context.Context, appID string) *tidcommon.ServiceError {
 	if appID == "" {
 		return &ErrorInvalidApplicationID
 	}
 
+	ownedResourceServerID := ""
 	if existing, epErr := as.entityProvider.GetEntity(appID); epErr != nil {
 		if epErr.Code != entityprovider.ErrorCodeEntityNotFound {
 			as.logger.Error(ctx, "Failed to load entity before delete",
 				log.String("appID", appID), log.Error(epErr))
 			return &tidcommon.InternalServerError
 		}
-	} else if existing != nil && existing.Category != providers.EntityCategoryApp {
-		return &ErrorApplicationNotFound
+	} else if existing != nil {
+		if existing.Category != providers.EntityCategoryApp {
+			return &ErrorApplicationNotFound
+		}
+		ownedResourceServerID = existing.ResourceServerID
+	}
+
+	// The resource server the application owns follows the application's lifecycle. Run before the
+	// deletes so a cleanup failure aborts and leaves the application retriable.
+	if svcErr := as.deleteOwnedResourceServer(ctx, appID, ownedResourceServerID); svcErr != nil {
+		return svcErr
 	}
 
 	// Remove dependents that must be deleted with the application (e.g. its role assignments and
@@ -665,6 +1004,10 @@ func (as *applicationService) DeleteApplication(ctx context.Context, appID strin
 // (the inbound-client store limit).
 func (as *applicationService) GetResourceDependencies(
 	ctx context.Context, resourceType, id string) ([]resourcedependency.ResourceDependency, error) {
+	if resourceType == resourcedependency.ResourceTypeResourceServer {
+		return as.getAppsByResourceServer(ctx, id)
+	}
+
 	ids, _, err := as.inboundClientService.GetEntityIDsByReference(
 		ctx, resourceType, id, serverconst.MaxCompositeStoreRecords, 0)
 	if err != nil {
@@ -702,6 +1045,43 @@ func (as *applicationService) GetResourceDependencies(
 			ID:               e.ID,
 			DisplayName:      name,
 			BehaviorOnDelete: resourcedependency.BehaviorFallback,
+		})
+	}
+	return usages, nil
+}
+
+// getAppsByResourceServer returns the applications that reference the given resource server.
+func (as *applicationService) getAppsByResourceServer(
+	ctx context.Context, resourceServerID string) ([]resourcedependency.ResourceDependency, error) {
+	if as.entityService == nil {
+		return []resourcedependency.ResourceDependency{}, nil
+	}
+	entities, err := as.entityService.GetEntitiesByResourceServerID(ctx, resourceServerID)
+	if err != nil {
+		as.logger.Error(ctx, "Failed to get entities by resource server ID", log.Error(err))
+		return nil, err
+	}
+
+	usages := make([]resourcedependency.ResourceDependency, 0, len(entities))
+	for _, e := range entities {
+		if e.Category != providers.EntityCategoryApp {
+			continue
+		}
+		name := ""
+		var sysAttrs map[string]interface{}
+		if len(e.SystemAttributes) > 0 {
+			_ = json.Unmarshal(e.SystemAttributes, &sysAttrs)
+		}
+		if sysAttrs != nil {
+			if n, ok := sysAttrs[fieldName].(string); ok {
+				name = n
+			}
+		}
+		usages = append(usages, resourcedependency.ResourceDependency{
+			ResourceType:     resourcedependency.ResourceTypeApplication,
+			ID:               e.ID,
+			DisplayName:      name,
+			BehaviorOnDelete: resourcedependency.BehaviorRestrict,
 		})
 	}
 	return usages, nil
@@ -961,12 +1341,13 @@ func toProcessedDTO(
 			}
 		}
 
-		var ouID string
+		var ouID, resourceServerID string
 		if e != nil {
 			ouID = e.OUID
+			resourceServerID = e.ResourceServerID
 		}
 		oauthProcessed := inboundclient.BuildOAuthClient(
-			dao.ID, clientID, ouID, providers.EntityCategoryApp, oauthProfile)
+			dao.ID, clientID, ouID, providers.EntityCategoryApp, resourceServerID, oauthProfile)
 		dto.InboundAuthConfig = []inboundmodel.InboundAuthConfigProcessed{
 			{Type: providers.OAuthInboundAuthType, OAuthConfig: oauthProcessed},
 		}
@@ -1933,6 +2314,66 @@ func buildBasicApplicationResponse(
 		}
 	}
 	return resp
+}
+
+// populateInboundAccessForList resolves inbound access for a page of applications in a single
+// batched resource server read, so listing does not fan out one lookup per row.
+func (as *applicationService) populateInboundAccessForList(
+	ctx context.Context, apps []model.BasicApplicationResponse, entities []providers.Entity) {
+	if len(apps) == 0 {
+		return
+	}
+
+	rsIDByApp := make(map[string]string, len(entities))
+	ids := make([]string, 0, len(entities))
+	for i := range entities {
+		if entities[i].ResourceServerID == "" {
+			continue
+		}
+		rsIDByApp[entities[i].ID] = entities[i].ResourceServerID
+		ids = append(ids, entities[i].ResourceServerID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	byID, svcErr := as.resourceService.GetResourceServersByIDs(ctx, ids)
+	if svcErr != nil {
+		as.logger.Debug(ctx, "Failed to resolve resource servers for the application list")
+		return
+	}
+
+	for i := range apps {
+		rs, ok := byID[rsIDByApp[apps[i].ID]]
+		if !ok {
+			continue
+		}
+		apps[i].InboundAccess = &providers.InboundAccess{
+			Enabled:          true,
+			Identifier:       rs.Identifier,
+			ResourceServerID: rs.ID,
+		}
+	}
+}
+
+// inboundAccessFor resolves the inbound access view for an owned resource server. Returns nil when
+// the application exposes none or the resource server cannot be resolved.
+func (as *applicationService) inboundAccessFor(
+	ctx context.Context, resourceServerID string) *providers.InboundAccess {
+	if resourceServerID == "" {
+		return nil
+	}
+	rs, svcErr := as.resourceService.GetResourceServer(ctx, resourceServerID)
+	if svcErr != nil {
+		as.logger.Debug(ctx, "Failed to resolve the resource server owned by the application",
+			log.String("resourceServerID", resourceServerID))
+		return nil
+	}
+	return &providers.InboundAccess{
+		Enabled:          true,
+		Identifier:       rs.Identifier,
+		ResourceServerID: rs.ID,
+	}
 }
 
 // buildBaseApplicationProcessedDTO constructs an ApplicationProcessedDTO with the common base fields.

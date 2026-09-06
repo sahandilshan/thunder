@@ -304,6 +304,26 @@ func (c *entityCompositeStore) GetEntityGroups(ctx context.Context, entityID str
 	return c.dbStore.GetEntityGroups(ctx, entityID, limit, offset)
 }
 
+func (c *entityCompositeStore) UpdateEntityResourceServerID(ctx context.Context,
+	entityID string, resourceServerID *string) error {
+	return c.dbStore.UpdateEntityResourceServerID(ctx, entityID, resourceServerID)
+}
+
+func (c *entityCompositeStore) GetEntitiesByResourceServerID(ctx context.Context,
+	resourceServerID string) ([]providers.Entity, error) {
+	dbEntities, err := c.dbStore.GetEntitiesByResourceServerID(ctx, resourceServerID)
+	if err != nil {
+		return nil, err
+	}
+
+	fileEntities, err := c.fileStore.GetEntitiesByResourceServerID(ctx, resourceServerID)
+	if err != nil {
+		return nil, err
+	}
+
+	return mergeAndDeduplicateEntities(dbEntities, fileEntities), nil
+}
+
 // IsEntityDeclarative checks if an entity is declarative (exists in file store).
 func (c *entityCompositeStore) IsEntityDeclarative(ctx context.Context, id string) (bool, error) {
 	isDeclarative, err := c.fileStore.IsEntityDeclarative(ctx, id)

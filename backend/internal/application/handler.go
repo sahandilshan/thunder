@@ -14,6 +14,7 @@ import (
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 
 	"github.com/thunder-id/thunderid/internal/application/model"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/system/error/apierror"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
@@ -191,14 +192,15 @@ func (ah *applicationHandler) HandleApplicationGetRequest(w http.ResponseWriter,
 			PasskeyAllowedOrigins:     appDTO.PasskeyAllowedOrigins,
 			Attestation:               appDTO.Attestation,
 		},
-		Type:      model.ApplicationType(appDTO.Type),
-		Template:  appDTO.Template,
-		URL:       appDTO.URL,
-		LogoURL:   appDTO.LogoURL,
-		TosURI:    appDTO.TosURI,
-		PolicyURI: appDTO.PolicyURI,
-		Contacts:  appDTO.Contacts,
-		Metadata:  appDTO.Metadata,
+		Type:          model.ApplicationType(appDTO.Type),
+		Template:      appDTO.Template,
+		URL:           appDTO.URL,
+		LogoURL:       appDTO.LogoURL,
+		TosURI:        appDTO.TosURI,
+		PolicyURI:     appDTO.PolicyURI,
+		Contacts:      appDTO.Contacts,
+		Metadata:      appDTO.Metadata,
+		InboundAccess: appDTO.InboundAccess,
 	}
 
 	// TODO: Need to refactor when supporting other/multiple inbound auth types.
@@ -374,14 +376,15 @@ func (ah *applicationHandler) HandleApplicationPutRequest(w http.ResponseWriter,
 			PasskeyAllowedOrigins:     updatedAppDTO.PasskeyAllowedOrigins,
 			Attestation:               updatedAppDTO.Attestation,
 		},
-		Type:      updatedAppDTO.Type,
-		Template:  updatedAppDTO.Template,
-		URL:       updatedAppDTO.URL,
-		LogoURL:   updatedAppDTO.LogoURL,
-		TosURI:    updatedAppDTO.TosURI,
-		PolicyURI: updatedAppDTO.PolicyURI,
-		Contacts:  updatedAppDTO.Contacts,
-		Metadata:  updatedAppDTO.Metadata,
+		Type:          updatedAppDTO.Type,
+		Template:      updatedAppDTO.Template,
+		URL:           updatedAppDTO.URL,
+		LogoURL:       updatedAppDTO.LogoURL,
+		TosURI:        updatedAppDTO.TosURI,
+		PolicyURI:     updatedAppDTO.PolicyURI,
+		Contacts:      updatedAppDTO.Contacts,
+		Metadata:      updatedAppDTO.Metadata,
+		InboundAccess: updatedAppDTO.InboundAccess,
 	}
 
 	// TODO: Need to refactor when supporting other/multiple inbound auth types.
@@ -491,6 +494,87 @@ func (ah *applicationHandler) processInboundAuthConfig(
 	return true
 }
 
+// HandleApplicationInboundAccessGetRequest handles GET /applications/{id}/resource-server.
+func (ah *applicationHandler) HandleApplicationInboundAccessGetRequest(
+	w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		ah.handleError(ctx, w, r, &ErrorInvalidApplicationID)
+		return
+	}
+	resp, svcErr := ah.service.GetApplicationInboundAccess(ctx, id)
+	if svcErr != nil {
+		ah.handleError(ctx, w, r, svcErr)
+		return
+	}
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, resp)
+}
+
+// HandleApplicationInboundAccessPostRequest handles POST /applications/{id}/resource-server.
+func (ah *applicationHandler) HandleApplicationInboundAccessPostRequest(
+	w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		ah.handleError(ctx, w, r, &ErrorInvalidApplicationID)
+		return
+	}
+	// The body is optional: identifier defaults to the application ID, so a bodyless POST enables
+	// inbound access with defaults.
+	req, err := sysutils.DecodeOptionalJSONBody[model.EnableInboundAccessRequest](r)
+	if err != nil {
+		ah.handleError(ctx, w, r, &ErrorInvalidRequestFormat)
+		return
+	}
+	resp, svcErr := ah.service.EnableApplicationInboundAccess(
+		ctx, id, sysutils.SanitizeString(req.Identifier))
+	if svcErr != nil {
+		ah.handleError(ctx, w, r, svcErr)
+		return
+	}
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusCreated, resp)
+}
+
+// HandleApplicationInboundAccessPutRequest handles PUT /applications/{id}/resource-server.
+func (ah *applicationHandler) HandleApplicationInboundAccessPutRequest(
+	w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		ah.handleError(ctx, w, r, &ErrorInvalidApplicationID)
+		return
+	}
+	req, err := sysutils.DecodeJSONBody[model.UpdateInboundAccessRequest](r)
+	if err != nil {
+		ah.handleError(ctx, w, r, &ErrorInvalidRequestFormat)
+		return
+	}
+	resp, svcErr := ah.service.UpdateApplicationInboundAccess(
+		ctx, id, sysutils.SanitizeString(req.Identifier))
+	if svcErr != nil {
+		ah.handleError(ctx, w, r, svcErr)
+		return
+	}
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, resp)
+}
+
+// HandleApplicationInboundAccessDeleteRequest handles DELETE /applications/{id}/resource-server.
+func (ah *applicationHandler) HandleApplicationInboundAccessDeleteRequest(
+	w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		ah.handleError(ctx, w, r, &ErrorInvalidApplicationID)
+		return
+	}
+	if svcErr := ah.service.DisableApplicationInboundAccess(ctx, id); svcErr != nil {
+		ah.handleError(ctx, w, r, svcErr)
+		return
+	}
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusNoContent, nil)
+}
+
 // handleError handles service errors and returns appropriate HTTP responses.
 // When the resolved status is 500, the error is logged with request context.
 func (ah *applicationHandler) handleError(ctx context.Context, w http.ResponseWriter, r *http.Request,
@@ -503,9 +587,17 @@ func (ah *applicationHandler) handleError(ctx context.Context, w http.ResponseWr
 
 	statusCode := http.StatusInternalServerError
 	if svcErr.Type == tidcommon.ClientErrorType {
-		if svcErr.Code == ErrorApplicationNotFound.Code {
+		switch svcErr.Code {
+		case ErrorApplicationNotFound.Code,
+			ErrorApplicationInboundAccessNotEnabled.Code:
 			statusCode = http.StatusNotFound
-		} else {
+		case ErrorApplicationInboundAccessAlreadyEnabled.Code,
+			// Surfaced unmapped by the inbound-access endpoints, which delegate to the resource
+			// service: an identifier or name already taken by another resource server is a conflict.
+			resource.ErrorIdentifierConflict.Code,
+			resource.ErrorNameConflict.Code:
+			statusCode = http.StatusConflict
+		default:
 			statusCode = http.StatusBadRequest
 		}
 	}

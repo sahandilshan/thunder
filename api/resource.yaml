@@ -308,7 +308,17 @@ paths:
       tags:
         - Resource Servers
       summary: Update resource server
-      description: Updates resource server name, description, identifier, and organization unit.
+      description: |
+        Updates resource server name, description, identifier, and organization unit.
+
+        A resource server owned by an entity (`type` is `AGENT` or `APPLICATION`) has
+        restrictions. Its `identifier` cannot be changed here. A request that changes it is
+        rejected with `RES-1025`, because the identifier is managed by the owning agent or
+        application and can only be changed through that entity's `/resource-server` endpoint.
+        Its `name` cannot be changed here either. A request that changes it is rejected with
+        `RES-1026`, because the name is derived from the owning entity and is kept in step
+        with it automatically when that entity is renamed. Description and organization unit
+        changes, and permission edits (resources/actions), remain allowed.
       parameters:
         - in: path
           name: id
@@ -389,6 +399,16 @@ paths:
                     description:
                       key: "error.resourceservice.cannot_modify_declarative_resource_server_description"
                       defaultValue: "Resource server is defined in declarative configuration and cannot be modified"
+                owned-identifier-locked:
+                  summary: Identifier is locked on an entity-owned resource server
+                  value:
+                    code: "RES-1025"
+                    message:
+                      key: "error.resourceservice.owned_resource_server_identifier_locked"
+                      defaultValue: "Identifier is managed by the owning entity"
+                    description:
+                      key: "error.resourceservice.owned_resource_server_identifier_locked_description"
+                      defaultValue: "This resource server is owned by agent Calendar Agent. Change the identifier through that resource's inbound access instead"
         "404":
           description: Resource server not found
           content:
@@ -449,7 +469,14 @@ paths:
       tags:
         - Resource Servers
       summary: Delete a resource server by id
-      description: Deletes a resource server. Cannot delete if it has resources or actions.
+      description: |
+        Deletes a resource server. Cannot delete if it has resources or actions.
+
+        A resource server owned by an entity (`type` is `AGENT` or `APPLICATION`) cannot be
+        deleted here either. Ownership is itself a blocking dependency, so the request is
+        rejected with the same `RES-1006` cannot-delete error. Disable inbound access through
+        the owning agent's or application's `/resource-server` endpoint instead, which deletes
+        the resource server as part of that operation.
       parameters:
         - in: path
           name: id
@@ -479,6 +506,16 @@ paths:
                       defaultValue: "Resource server ID is required"
                 cannot-delete:
                   summary: Cannot delete resource server
+                  value:
+                    code: "RES-1006"
+                    message:
+                      key: "error.resourceservice.cannot_delete"
+                      defaultValue: "Cannot delete resource server"
+                    description:
+                      key: "error.resourceservice.cannot_delete_description"
+                      defaultValue: "Cannot delete resource server that has resources or actions"
+                owned-by-entity:
+                  summary: Cannot delete a resource server owned by an agent or application
                   value:
                     code: "RES-1006"
                     message:
@@ -2281,8 +2318,15 @@ components:
           description: Unique identifier for this resource server. When set to an absolute URI, the resource server is used in RFC 8707 resource indicator flows and the identifier is used as the access token audience claim value.
         type:
           type: string
-          enum: [API, MCP, CUSTOM]
-          description: Immutable type of the resource server (metadata only). Defaults to CUSTOM when not provided at creation.
+          enum: [API, MCP, CUSTOM, AGENT, APPLICATION]
+          description: |
+            Immutable type of the resource server (metadata only). Defaults to CUSTOM when not
+            provided at creation. `AGENT` and `APPLICATION` are system-assigned: the system sets
+            one of them when an agent or application enables inbound access via its
+            `/resource-server` endpoint (see the Agent and Application Management APIs), and a
+            resource server carrying either type is owned by that entity. They cannot be set
+            through this API, since `CreateResourceServerRequest` only accepts `API`, `MCP`, and
+            `CUSTOM`.
         ouId:
           type: string
           format: uuid
@@ -2310,7 +2354,12 @@ components:
         type:
           type: string
           enum: [API, MCP, CUSTOM]
-          description: Optional immutable type of the resource server (metadata only). Defaults to CUSTOM when not provided.
+          description: |
+            Optional immutable type of the resource server (metadata only). Defaults to CUSTOM
+            when not provided. `AGENT` and `APPLICATION` are not accepted here. They are
+            assigned by the system only to resource servers created through an agent's or
+            application's `/resource-server` endpoint, and a request that sets either is
+            rejected with `RES-1024` (Resource server type is system assigned).
         ouId:
           type: string
           format: uuid

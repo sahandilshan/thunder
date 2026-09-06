@@ -62,6 +62,24 @@ func (c *compositeResourceStore) GetResourceServer(ctx context.Context, id strin
 	return server, err
 }
 
+// GetResourceServersByIDs resolves the given IDs across both stores, preferring the database store
+// and marking declarative results read-only.
+func (c *compositeResourceStore) GetResourceServersByIDs(
+	ctx context.Context, ids []string) ([]providers.ResourceServer, error) {
+	dbServers, err := c.dbStore.GetResourceServersByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	fileServers, err := c.fileStore.GetResourceServersByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// mergeAndDeduplicateResourceServers sets IsReadOnly on both sides as it merges.
+	return mergeAndDeduplicateResourceServers(dbServers, fileServers), nil
+}
+
 // GetResourceServerList returns a paginated, deduplicated list of resource servers from both stores.
 func (c *compositeResourceStore) GetResourceServerList(
 	ctx context.Context, limit, offset int) ([]providers.ResourceServer, error) {
@@ -155,6 +173,18 @@ func (c *compositeResourceStore) UpdateResourceServer(
 // DeleteResourceServer deletes a resource server from the database store.
 func (c *compositeResourceStore) DeleteResourceServer(ctx context.Context, id string) error {
 	return c.dbStore.DeleteResourceServer(ctx, id)
+}
+
+// DeleteActionsByResourceServer deletes the resource server's actions from the database store.
+func (c *compositeResourceStore) DeleteActionsByResourceServer(
+	ctx context.Context, resServerID string) error {
+	return c.dbStore.DeleteActionsByResourceServer(ctx, resServerID)
+}
+
+// DeleteResourcesByResourceServer deletes the resource server's resources from the database store.
+func (c *compositeResourceStore) DeleteResourcesByResourceServer(
+	ctx context.Context, resServerID string) error {
+	return c.dbStore.DeleteResourcesByResourceServer(ctx, resServerID)
 }
 
 // CheckResourceServerNameExists checks whether a resource server name exists in either store.

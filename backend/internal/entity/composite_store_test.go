@@ -490,3 +490,54 @@ func (s *CompositeStoreTestSuite) TestSearchEntities_FileError() {
 	_, err := s.store.SearchEntities(s.ctx, filters)
 	s.Error(err)
 }
+
+// testOwnedEntityID is the entity that owns a resource server; the owned resource server reuses the
+// entity's own ID.
+const testOwnedEntityID = "agent-1"
+
+// A declarative agent or application resolved through the file fallback must keep the ID of the
+// resource server it owns, and be marked read-only so the inbound access endpoints refuse writes.
+func (s *CompositeStoreTestSuite) TestGetEntity_FileFallbackKeepsResourceServerID() {
+	e := compEntity(testOwnedEntityID, "ou1")
+	e.ResourceServerID = testOwnedEntityID
+	s.dbStore.On("GetEntity", mock.Anything, testOwnedEntityID).Return(providers.Entity{}, ErrEntityNotFound)
+	s.fileStore.On("GetEntity", mock.Anything, testOwnedEntityID).Return(e, nil)
+
+	got, err := s.store.GetEntity(s.ctx, testOwnedEntityID)
+
+	s.NoError(err)
+	s.Equal(testOwnedEntityID, got.ResourceServerID)
+	s.True(got.IsReadOnly)
+}
+
+func (s *CompositeStoreTestSuite) TestGetEntityWithCredentials_FileFallbackKeepsResourceServerID() {
+	e := compEntity(testOwnedEntityID, "ou1")
+	e.ResourceServerID = testOwnedEntityID
+	s.dbStore.On("GetEntityWithCredentials", mock.Anything, testOwnedEntityID).Return(nil, ErrEntityNotFound)
+	s.fileStore.On("GetEntityWithCredentials", mock.Anything, testOwnedEntityID).
+		Return(&entityWithCredentials{Entity: &e}, nil)
+
+	got, err := s.store.GetEntityWithCredentials(s.ctx, testOwnedEntityID)
+
+	s.NoError(err)
+	s.Equal(testOwnedEntityID, got.Entity.ResourceServerID)
+	s.True(got.Entity.IsReadOnly)
+}
+
+// Owner lookup spans both stores so a declaratively owned resource server still resolves its owner.
+func (s *CompositeStoreTestSuite) TestGetEntitiesByResourceServerID_MergesFileEntities() {
+	fileEntity := compEntity(testOwnedEntityID, "ou1")
+	fileEntity.ResourceServerID = testOwnedEntityID
+	s.dbStore.On("GetEntitiesByResourceServerID", mock.Anything, testOwnedEntityID).
+		Return([]providers.Entity{}, nil)
+	s.fileStore.On("GetEntitiesByResourceServerID", mock.Anything, testOwnedEntityID).
+		Return([]providers.Entity{fileEntity}, nil)
+
+	got, err := s.store.GetEntitiesByResourceServerID(s.ctx, testOwnedEntityID)
+
+	s.NoError(err)
+	s.Require().Len(got, 1)
+	s.Equal(testOwnedEntityID, got[0].ID)
+	s.Equal(testOwnedEntityID, got[0].ResourceServerID)
+	s.True(got[0].IsReadOnly)
+}

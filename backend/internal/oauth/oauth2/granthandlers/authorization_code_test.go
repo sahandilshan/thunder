@@ -41,6 +41,8 @@ const (
 	testDPoPThumbprint          = "thumbprint-abc"
 	testDefaultRSID             = "default-rs-id"
 	testDefaultRSIdentifier     = "https://default.example.com/api"
+	testInboundRSID             = "inbound-rs-id"
+	testInboundRSIdentifier     = "https://agent.example.com"
 )
 
 // convertToStringSlice converts groups from various formats to []string for testing.
@@ -1607,4 +1609,169 @@ func (suite *AuthorizationCodeGrantHandlerTestSuite) TestHandleGrant_DownscopeVa
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), err)
 	assert.Equal(suite.T(), constants.ErrorServerError, err.Error)
+}
+
+// Entity inbound access: the resource server the client's own entity owns is the default audience
+// for a token whose subject is the signed-in user.
+
+func (suite *AuthorizationCodeGrantHandlerTestSuite) TestHandleGrant_InboundRS_NoResourceNoScopes() {
+	// A scopeless sign-in for a client with inbound access binds to the client's own resource
+	// server rather than staying unbound on the client_id.
+	scopelessCode := suite.testAuthzCode
+	scopelessCode.Scopes = ""
+	suite.mockAuthzService.On("GetAuthorizationCodeDetails", mock.Anything, testClientID, "test-auth-code").
+		Return(&scopelessCode, nil)
+
+	suite.mockResourceService.ExpectedCalls = nil
+	suite.mockResourceService.On("GetResourceServer", mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: testInboundRSIdentifier}, nil)
+
+	var capturedAudiences, capturedScopes []string
+	suite.stubBuildAccessToken(&capturedAudiences, &capturedScopes)
+
+	app := *suite.oauthApp
+	app.InboundResourceServerID = testInboundRSID
+
+	result, err := suite.handler.HandleGrant(context.Background(), suite.testTokenReq, &app)
+
+	assert.Nil(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), []string{testInboundRSIdentifier}, capturedAudiences)
+	assert.Empty(suite.T(), capturedScopes)
+}
+
+func (suite *AuthorizationCodeGrantHandlerTestSuite) TestHandleGrant_InboundRS_ScopesDownscopedToBoundRS() {
+	// "write" is not a permission on the bound resource server, so it is dropped from the token.
+	suite.mockAuthzService.On("GetAuthorizationCodeDetails", mock.Anything, testClientID, "test-auth-code").
+		Return(&suite.testAuthzCode, nil)
+
+	suite.mockResourceService.ExpectedCalls = nil
+	suite.mockResourceService.On("GetResourceServer", mock.Anything, testInboundRSID).
+		Return(&providers.ResourceServer{ID: testInboundRSID, Identifier: testInboundRSIdentifier}, nil)
+	suite.mockResourceService.On("ValidatePermissions", mock.Anything, testInboundRSID, mock.Anything).
+		Return([]string{"write"}, nil)
+
+	var capturedAudiences, capturedScopes []string
+	suite.stubBuildAccessToken(&capturedAudiences, &capturedScopes)
+
+	app := *suite.oauthApp
+	app.InboundResourceServerID = testInboundRSID
+
+	result, err := suite.handler.HandleGrant(context.Background(), suite.testTokenReq, &app)
+
+	assert.Nil(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), []string{testInboundRSIdentifier}, capturedAudiences)
+	assert.Equal(suite.T(), []string{"read"}, capturedScopes)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServerByIdentifier", mock.Anything, "")
+}
+
+func (suite *AuthorizationCodeGrantHandlerTestSuite) TestHandleGrant_InboundRS_ExplicitResourceWins() {
+	codeWithResource := suite.testAuthzCode
+	codeWithResource.Resources = []string{testResourceURL}
+	suite.mockAuthzService.On("GetAuthorizationCodeDetails", mock.Anything, testClientID, "test-auth-code").
+		Return(&codeWithResource, nil)
+
+	var capturedAudiences, capturedScopes []string
+	suite.stubBuildAccessToken(&capturedAudiences, &capturedScopes)
+
+	app := *suite.oauthApp
+	app.InboundResourceServerID = testInboundRSID
+
+	tokenReq := *suite.testTokenReq
+	tokenReq.Resources = []string{testResourceURL}
+
+	result, err := suite.handler.HandleGrant(context.Background(), &tokenReq, &app)
+
+	assert.Nil(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), []string{testResourceURL}, capturedAudiences)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}
+
+func (suite *AuthorizationCodeGrantHandlerTestSuite) TestHandleGrant_InboundRS_ExplicitDifferentRSUnchanged() {
+	// A resource naming a resource server other than the client's own behaves exactly as it does for
+	// a client with no inbound access: it resolves and binds, with no extra restriction.
+	codeWithResource := suite.testAuthzCode
+	codeWithResource.Resources = []string{testResourceURL2}
+	suite.mockAuthzService.On("GetAuthorizationCodeDetails", mock.Anything, testClientID, "test-auth-code").
+		Return(&codeWithResource, nil)
+
+	var capturedAudiences, capturedScopes []string
+	suite.stubBuildAccessToken(&capturedAudiences, &capturedScopes)
+
+	app := *suite.oauthApp
+	app.InboundResourceServerID = testInboundRSID
+
+	result, err := suite.handler.HandleGrant(context.Background(), suite.testTokenReq, &app)
+
+	assert.Nil(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), []string{testResourceURL2}, capturedAudiences)
+	suite.mockResourceService.AssertNotCalled(suite.T(), "GetResourceServer", mock.Anything, testInboundRSID)
+}
+
+// stubBuildAccessToken wires the token builder to capture the audiences and scopes it is handed.
+func (suite *AuthorizationCodeGrantHandlerTestSuite) stubBuildAccessToken(audiences, scopes *[]string) {
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			*audiences = ctx.Audiences
+			*scopes = ctx.Scopes
+			return true
+		})).Return(func(_ context.Context, ctx *tokenservice.AccessTokenBuildContext) (*model.TokenDTO, error) {
+		return &model.TokenDTO{
+			Token:     "mock-jwt-token",
+			TokenType: constants.TokenTypeBearer,
+			IssuedAt:  time.Now().Unix(),
+			ExpiresIn: 3600,
+			Scopes:    ctx.Scopes,
+			ClientID:  testClientID,
+		}, nil
+	})
+}
+
+// testBareEntityIdentifier is the shape of the default inbound-access identifier: the bare entity
+// ID, which is deliberately not an absolute URI.
+const testBareEntityIdentifier = "01997c1e-0f5a-7a3c-9b2e-9f1c4c2d5e60"
+
+// The authorization endpoint records the resolved resource server identifier on the authorization
+// code. When inbound access was enabled with defaults that identifier is the bare entity ID, so the
+// token endpoint must resolve it back without judging it by the RFC 8707 §2 caller-input rule.
+// Failing here would break the documented enable-with-defaults flow, and only after the user had
+// already authenticated.
+func (suite *AuthorizationCodeGrantHandlerTestSuite) TestHandleGrant_RecordedBareEntityIDIdentifierIsAccepted() {
+	authCode := suite.testAuthzCode
+	authCode.Resources = []string{testBareEntityIdentifier}
+	suite.mockAuthzService.On("GetAuthorizationCodeDetails", mock.Anything, testClientID, "test-auth-code").
+		Return(&authCode, nil)
+
+	suite.mockTokenBuilder.On("BuildAccessToken", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return len(ctx.Audiences) == 1 && ctx.Audiences[0] == testBareEntityIdentifier
+		})).Return(&model.TokenDTO{
+		Token:     "test-jwt-token",
+		TokenType: constants.TokenTypeBearer,
+		ExpiresIn: 3600,
+		Audiences: []string{testBareEntityIdentifier},
+	}, nil)
+
+	result, err := suite.handler.HandleGrant(context.Background(), suite.testTokenReq, suite.oauthApp)
+
+	assert.Nil(suite.T(), err)
+	suite.Require().NotNil(result)
+	assert.Equal(suite.T(), []string{testBareEntityIdentifier}, result.AccessToken.Audiences)
+}
+
+// The caller-input rule is unchanged: a client that supplies a non-absolute-URI resource parameter
+// still gets invalid_target at the boundary, even when it exactly matches the identifier recorded on
+// the code. ValidateGrant runs before HandleGrant in the token service, so the request never reaches
+// the resolver.
+func (suite *AuthorizationCodeGrantHandlerTestSuite) TestValidateGrant_CallerSuppliedNonURIResourceRejected() {
+	tokenReq := *suite.testTokenReq
+	tokenReq.Resources = []string{testBareEntityIdentifier}
+
+	err := suite.handler.ValidateGrant(context.Background(), &tokenReq, suite.oauthApp)
+
+	suite.Require().NotNil(err)
+	assert.Equal(suite.T(), constants.ErrorInvalidTarget, err.Error)
 }

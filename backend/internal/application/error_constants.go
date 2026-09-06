@@ -575,4 +575,50 @@ var (
 				"and string-typed in an allowed user type",
 		},
 	}
+
+	// ErrorApplicationInboundAccessAlreadyEnabled is returned when enabling inbound access on an
+	// application that already exposes it.
+	ErrorApplicationInboundAccessAlreadyEnabled = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "APP-1046",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.applicationservice.inbound_access_already_enabled",
+			DefaultValue: "Inbound access is already enabled",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "error.applicationservice.inbound_access_already_enabled_description",
+			DefaultValue: "The application already exposes inbound access. " +
+				"Disable it first to expose a different audience identifier",
+		},
+	}
+
+	// ErrorApplicationInboundAccessNotEnabled is returned when reading, updating or disabling
+	// inbound access on an application that does not expose it.
+	ErrorApplicationInboundAccessNotEnabled = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "APP-1047",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.applicationservice.inbound_access_not_enabled",
+			DefaultValue: "Inbound access is not enabled",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.applicationservice.inbound_access_not_enabled_description",
+			DefaultValue: "The application does not expose inbound access",
+		},
+	}
+
+	// ErrorMissingInboundAccessIdentifier is returned when an inbound access update omits the
+	// audience identifier.
+	ErrorMissingInboundAccessIdentifier = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "APP-1048",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.applicationservice.missing_inbound_access_identifier",
+			DefaultValue: "Missing identifier",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.applicationservice.missing_inbound_access_identifier_description",
+			DefaultValue: "The identifier is required when updating inbound access",
+		},
+	}
 )

@@ -1521,9 +1521,10 @@ func (suite *InboundClientServiceTestSuite) TestBuildOAuthClient_MapsAllFields()
 		Scopes:                             []string{"openid"},
 		ScopeClaims:                        map[string][]string{"profile": {"name"}},
 	}
-	client := BuildOAuthClient("entity-1", "client-1", "ou-1", providers.EntityCategoryApp, dao)
+	client := BuildOAuthClient("entity-1", "client-1", "ou-1", providers.EntityCategoryApp, "rs-1", dao)
 
 	assert.Equal(suite.T(), "entity-1", client.ID)
+	assert.Equal(suite.T(), "rs-1", client.InboundResourceServerID)
 	assert.Equal(suite.T(), "client-1", client.ClientID)
 	assert.Equal(suite.T(), "ou-1", client.OUID)
 	assert.Equal(suite.T(), providers.EntityCategoryApp, client.EntityCategory)

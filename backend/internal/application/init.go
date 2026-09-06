@@ -14,6 +14,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/entityprovider"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/serverconfig"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	declarativeresource "github.com/thunder-id/thunderid/internal/system/declarative_resource"
@@ -33,10 +34,15 @@ func Initialize(
 	i18nService i18nmgt.I18nServiceInterface,
 	cryptoSvc providers.RuntimeCryptoProvider,
 	serverConfigSvc serverconfig.ServerConfigService,
+	resourceService resource.ResourceServiceInterface,
 ) (ApplicationServiceInterface, declarativeresource.ResourceExporter, error) {
 	appService := newApplicationService(
 		inboundClient, entityProvider, ouService, i18nService, cryptoSvc, serverConfigSvc,
 	)
+	// Injected before the declarative load rather than in servicemanager's second wiring phase: a
+	// declarative application may declare inbound access, which the loader turns into the resource
+	// server the application owns.
+	appService.SetResourceService(resourceService)
 
 	if err := entityService.LoadIndexedAttributes(getAppIndexedAttributes()); err != nil {
 		return nil, nil, err
@@ -96,4 +102,23 @@ func registerRoutes(mux *http.ServeMux, appHandler *applicationHandler) {
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		}, opts2))
+
+	rsOpts := middleware.CORSOptions{
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
+		AllowCredentials: true,
+		MaxAge:           600,
+	}
+	mux.HandleFunc(middleware.WithCORS("GET /applications/{id}/resource-server",
+		appHandler.HandleApplicationInboundAccessGetRequest, rsOpts))
+	mux.HandleFunc(middleware.WithCORS("POST /applications/{id}/resource-server",
+		appHandler.HandleApplicationInboundAccessPostRequest, rsOpts))
+	mux.HandleFunc(middleware.WithCORS("PUT /applications/{id}/resource-server",
+		appHandler.HandleApplicationInboundAccessPutRequest, rsOpts))
+	mux.HandleFunc(middleware.WithCORS("DELETE /applications/{id}/resource-server",
+		appHandler.HandleApplicationInboundAccessDeleteRequest, rsOpts))
+	mux.HandleFunc(middleware.WithCORS("OPTIONS /applications/{id}/resource-server",
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}, rsOpts))
 }

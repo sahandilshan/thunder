@@ -21,6 +21,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/resource"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
@@ -28,6 +29,7 @@ import (
 	"github.com/thunder-id/thunderid/tests/mocks/entitymock"
 	"github.com/thunder-id/thunderid/tests/mocks/inboundclientmock"
 	"github.com/thunder-id/thunderid/tests/mocks/oumock"
+	"github.com/thunder-id/thunderid/tests/mocks/resourcemock"
 	"github.com/thunder-id/thunderid/tests/mocks/rolemock"
 )
 
@@ -37,6 +39,7 @@ const (
 	testAgentType = "employee"
 	testOUID      = "ou-id-abc"
 	testAgentLogo = "avatar:shape=circle,variant=anonymous_entity,content=bot_head,colors=0"
+	testRSID      = "rs-1"
 )
 
 // AgentServiceTestSuite groups all agent service unit tests.
@@ -146,6 +149,10 @@ func (noopDepRegistry) ValidateReferenceUpdate(
 }
 
 // buildAgentEntityFixture returns an providers.Entity with system attributes for the given fields.
+// testRSIDVar backs the *string argument the entity service receives when a resource server
+// reference is set.
+var testRSIDVar = testRSID
+
 func buildAgentEntityFixture(name, description, owner, clientID string) *providers.Entity {
 	attrs := map[string]interface{}{}
 	if name != "" {
@@ -787,6 +794,50 @@ func (suite *AgentServiceTestSuite) TestDeleteAgent_Success_WithInboundClient() 
 	mockEntity.AssertCalled(suite.T(), "DeleteEntity", mock.Anything, testAgentID)
 }
 
+func (suite *AgentServiceTestSuite) TestDeleteAgent_RemovesOwnedResourceServer() {
+	svc, mockEntity, mockInbound, _, _ := suite.setupService()
+
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+	mockEntity.On("UpdateEntityResourceServerID", mock.Anything, testAgentID, (*string)(nil)).Return(nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, testRSID).
+		Return((*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	clearMockCalls(mockInbound, "DeleteInboundClient")
+	mockInbound.On("DeleteInboundClient", mock.Anything, testAgentID).Return(nil)
+	clearMockCalls(mockEntity, "DeleteEntity")
+	mockEntity.On("DeleteEntity", mock.Anything, testAgentID).Return(nil)
+
+	svcErr := svc.DeleteAgent(context.Background(), testAgentID)
+	assert.Nil(suite.T(), svcErr)
+	mockRS.AssertCalled(suite.T(), "DeleteEntityOwnedResourceServer", mock.Anything, testRSID)
+	mockEntity.AssertCalled(suite.T(), "DeleteEntity", mock.Anything, testAgentID)
+}
+
+func (suite *AgentServiceTestSuite) TestDeleteAgent_ResourceServerDeleteFailureAbortsDelete() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, testRSID).
+		Return(&resource.ErrorCannotDelete)
+	svc.SetResourceService(mockRS)
+
+	svcErr := svc.DeleteAgent(context.Background(), testAgentID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), tidcommon.InternalServerError.Code, svcErr.Code)
+	mockEntity.AssertNotCalled(suite.T(), "DeleteEntity", mock.Anything, testAgentID)
+}
+
 // --- GetAgentList ---
 
 func (suite *AgentServiceTestSuite) TestGetAgentList_InvalidLimit() {
@@ -1162,6 +1213,62 @@ func (suite *AgentServiceTestSuite) TestUpdateAgent_Success_EntityOnly() {
 	suite.Require().Nil(svcErr)
 	suite.Require().NotNil(resp)
 	assert.Equal(suite.T(), testAgentName, resp.Name)
+}
+
+func (suite *AgentServiceTestSuite) TestUpdateAgent_RenamePropagatesToOwnedResourceServer() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+
+	agentEntity := buildAgentEntityFixture("old-name", "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+	clearMockCalls(mockEntity, "UpdateEntity")
+	mockEntity.On("UpdateEntity", mock.Anything, testAgentID, mock.Anything).
+		Return(&providers.Entity{}, nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, testRSID, testAgentName, "").
+		Return(&providers.ResourceServer{ID: testRSID, Name: testAgentName},
+			(*tidcommon.ServiceError)(nil))
+	mockRS.On("GetResourceServer", mock.Anything, testRSID).
+		Return(&providers.ResourceServer{ID: testRSID, Identifier: "aud"},
+			(*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	resp, svcErr := svc.UpdateAgent(context.Background(), testAgentID, &model.UpdateAgentRequest{
+		Name: testAgentName, Type: testAgentType,
+	})
+	suite.Require().Nil(svcErr)
+	mockRS.AssertCalled(suite.T(), "UpdateEntityOwnedResourceServer",
+		mock.Anything, testRSID, testAgentName, "")
+	suite.Require().NotNil(resp.InboundAccess)
+	assert.Equal(suite.T(), "aud", resp.InboundAccess.Identifier)
+}
+
+func (suite *AgentServiceTestSuite) TestUpdateAgent_RenameSyncFailureFailsUpdate() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+
+	agentEntity := buildAgentEntityFixture("old-name", "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+	clearMockCalls(mockEntity, "UpdateEntity")
+	mockEntity.On("UpdateEntity", mock.Anything, testAgentID, mock.Anything).
+		Return(&providers.Entity{}, nil).Maybe()
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, testRSID, testAgentName, "").
+		Return((*providers.ResourceServer)(nil), &resource.ErrorNameConflict)
+	svc.SetResourceService(mockRS)
+
+	resp, svcErr := svc.UpdateAgent(context.Background(), testAgentID, &model.UpdateAgentRequest{
+		Name: testAgentName, Type: testAgentType,
+	})
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), resource.ErrorNameConflict.Code, svcErr.Code)
+	// The sync runs before the entity write, so a conflict leaves nothing persisted.
+	mockEntity.AssertNotCalled(suite.T(), "UpdateEntity", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func (suite *AgentServiceTestSuite) TestUpdateAgent_FlowIDResolvedToDefault() {
@@ -3042,4 +3149,756 @@ func (suite *AgentServiceTestSuite) TestSeedClientSubTypeAttribute_NoOAuthConfig
 	seedClientSubTypeAttribute(configs)
 
 	assert.Empty(suite.T(), configs)
+}
+
+// --- SetResourceService ---
+
+func (suite *AgentServiceTestSuite) TestSetResourceService() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	svc.SetResourceService(mockRS)
+	assert.Equal(suite.T(), mockRS, svc.resourceService)
+}
+
+// --- validateAgentExists ---
+
+func (suite *AgentServiceTestSuite) TestValidateAgentExists_NotFound() {
+	svc, _, _, _, _ := suite.setupService()
+	svcErr := svc.validateAgentExists(context.Background(), "missing-agent")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentNotFound.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestValidateAgentExists_WrongCategory() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(&providers.Entity{ID: testAgentID, Category: providers.EntityCategoryUser}, nil)
+
+	svcErr := svc.validateAgentExists(context.Background(), testAgentID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentNotFound.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestValidateAgentExists_StoreError() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return((*providers.Entity)(nil), errors.New("db error"))
+
+	svcErr := svc.validateAgentExists(context.Background(), testAgentID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), tidcommon.InternalServerError.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestValidateAgentExists_Success() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+
+	svcErr := svc.validateAgentExists(context.Background(), testAgentID)
+	assert.Nil(suite.T(), svcErr)
+}
+
+// --- Inbound access survives an agent update ---
+
+// A rename is the likely real-world trigger for losing the resource server reference: the update
+// payload carries no ResourceServerID, and the entity update statement does not write that column.
+// This walks the whole sequence against an entity mock that persists exactly what the real store
+// persists, so inbound access must still resolve afterwards and the agent delete must still take
+// the owned resource server with it.
+func (suite *AgentServiceTestSuite) TestInboundAccessSurvivesAgentRename() {
+	svc, mockEntity, mockInbound, _, _ := suite.setupService()
+
+	// The stored agent already exposes inbound access.
+	persisted := buildAgentEntityFixture("old-name", "", "", "")
+	persisted.ResourceServerID = testRSID
+
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(persisted, nil)
+
+	// The entity update writes the identity columns only; RESOURCE_SERVER_ID is left untouched,
+	// exactly as QueryUpdateEntity behaves.
+	clearMockCalls(mockEntity, "UpdateEntity")
+	mockEntity.On("UpdateEntity", mock.Anything, testAgentID, mock.Anything).
+		Run(func(args mock.Arguments) {
+			updated, ok := args.Get(2).(*providers.Entity)
+			suite.Require().True(ok)
+			persisted.Type = updated.Type
+			persisted.OUID = updated.OUID
+			persisted.Attributes = updated.Attributes
+			persisted.SystemAttributes = updated.SystemAttributes
+		}).Return(&providers.Entity{}, nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, testRSID, testAgentName, "").
+		Return(&providers.ResourceServer{ID: testRSID, Name: testAgentName},
+			(*tidcommon.ServiceError)(nil))
+	mockRS.On("GetResourceServer", mock.Anything, testRSID).Return(&providers.ResourceServer{
+		ID: testRSID, Identifier: "https://api.example.com", Type: providers.ResourceServerTypeAgent,
+	}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	// Rename the agent.
+	updateResp, svcErr := svc.UpdateAgent(context.Background(), testAgentID, &model.UpdateAgentRequest{
+		Name: testAgentName, Type: testAgentType,
+	})
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(updateResp.InboundAccess)
+	assert.Equal(suite.T(), testRSID, updateResp.InboundAccess.ResourceServerID)
+
+	// Inbound access must still be readable after the rename.
+	access, svcErr := svc.GetAgentInboundAccess(context.Background(), testAgentID)
+	suite.Require().Nil(svcErr)
+	assert.Equal(suite.T(), testRSID, access.ResourceServerID)
+	assert.Equal(suite.T(), "https://api.example.com", access.Identifier)
+
+	// And the agent's detail response must still carry it.
+	getResp, svcErr := svc.GetAgent(context.Background(), testAgentID, false)
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(getResp.InboundAccess)
+	assert.Equal(suite.T(), testRSID, getResp.InboundAccess.ResourceServerID)
+
+	// Deleting the agent must still take the owned resource server with it.
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, testRSID).
+		Return((*tidcommon.ServiceError)(nil))
+	mockEntity.On("UpdateEntityResourceServerID", mock.Anything, testAgentID, (*string)(nil)).
+		Return(nil)
+	clearMockCalls(mockInbound, "DeleteInboundClient")
+	mockInbound.On("DeleteInboundClient", mock.Anything, testAgentID).Return(nil)
+	clearMockCalls(mockEntity, "DeleteEntity")
+	mockEntity.On("DeleteEntity", mock.Anything, testAgentID).Return(nil)
+
+	suite.Require().Nil(svc.DeleteAgent(context.Background(), testAgentID))
+	mockRS.AssertCalled(suite.T(), "DeleteEntityOwnedResourceServer", mock.Anything, testRSID)
+}
+
+// Resource server names are unique deployment-wide and are shared with standalone resource servers,
+// so the rename sync can conflict with a name that validateNameUnique (agents only) cannot see. The
+// sync therefore runs before the entity write: the conflict must abort the update with nothing
+// persisted, so that a retry still sees a name change and can succeed once the conflict clears.
+// Renaming the entity first left the agent renamed, its resource server not, and the retry a no-op.
+func (suite *AgentServiceTestSuite) TestAgentRenameAbortsWhenResourceServerNameConflicts() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+
+	persisted := buildAgentEntityFixture("Billing", "", "", "")
+	persisted.ResourceServerID = testRSID
+
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(persisted, nil)
+	clearMockCalls(mockEntity, "UpdateEntity")
+	mockEntity.On("UpdateEntity", mock.Anything, testAgentID, mock.Anything).
+		Run(func(args mock.Arguments) {
+			updated, ok := args.Get(2).(*providers.Entity)
+			suite.Require().True(ok)
+			persisted.SystemAttributes = updated.SystemAttributes
+		}).Return(&providers.Entity{}, nil).Maybe()
+
+	// A standalone resource server already holds the name "Payments".
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	conflict := mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, testRSID, "Payments", "").
+		Return((*providers.ResourceServer)(nil), &resource.ErrorNameConflict)
+	mockRS.On("GetResourceServer", mock.Anything, testRSID).Return(&providers.ResourceServer{
+		ID: testRSID, Identifier: "https://api.example.com", Type: providers.ResourceServerTypeAgent,
+	}, (*tidcommon.ServiceError)(nil)).Maybe()
+	svc.SetResourceService(mockRS)
+
+	_, svcErr := svc.UpdateAgent(context.Background(), testAgentID, &model.UpdateAgentRequest{
+		Name: "Payments", Type: testAgentType,
+	})
+
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), resource.ErrorNameConflict.Code, svcErr.Code)
+	// Nothing was persisted: the entity still carries the old name.
+	mockEntity.AssertNotCalled(suite.T(), "UpdateEntity", mock.Anything, mock.Anything, mock.Anything)
+	currentName, _, _, _ := readSystemAttributes(persisted.SystemAttributes)
+	assert.Equal(suite.T(), "Billing", currentName)
+
+	// The retry is not a no-op: the agent is still named "Billing", so the rename is attempted
+	// again and succeeds once the conflicting name is freed.
+	conflict.Unset()
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, testRSID, "Payments", "").
+		Return(&providers.ResourceServer{ID: testRSID, Name: "Payments"}, (*tidcommon.ServiceError)(nil))
+
+	_, svcErr = svc.UpdateAgent(context.Background(), testAgentID, &model.UpdateAgentRequest{
+		Name: "Payments", Type: testAgentType,
+	})
+
+	suite.Require().Nil(svcErr)
+	mockEntity.AssertCalled(suite.T(), "UpdateEntity", mock.Anything, testAgentID, mock.Anything)
+	renamed, _, _, _ := readSystemAttributes(persisted.SystemAttributes)
+	assert.Equal(suite.T(), "Payments", renamed)
+}
+
+// The same sequence without a rename: a plain update must not disturb inbound access either.
+func (suite *AgentServiceTestSuite) TestInboundAccessSurvivesAgentUpdateWithoutRename() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+
+	persisted := buildAgentEntityFixture(testAgentName, "", "", "")
+	persisted.ResourceServerID = testRSID
+
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(persisted, nil)
+	clearMockCalls(mockEntity, "UpdateEntity")
+	mockEntity.On("UpdateEntity", mock.Anything, testAgentID, mock.Anything).
+		Return(&providers.Entity{}, nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServer", mock.Anything, testRSID).Return(&providers.ResourceServer{
+		ID: testRSID, Identifier: "https://api.example.com", Type: providers.ResourceServerTypeAgent,
+	}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	_, svcErr := svc.UpdateAgent(context.Background(), testAgentID, &model.UpdateAgentRequest{
+		Name: testAgentName, Type: testAgentType, Description: "edited",
+	})
+	suite.Require().Nil(svcErr)
+
+	// The name did not change, so no resource server rename is issued.
+	mockRS.AssertNotCalled(suite.T(), "UpdateEntityOwnedResourceServer",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
+	access, svcErr := svc.GetAgentInboundAccess(context.Background(), testAgentID)
+	suite.Require().Nil(svcErr)
+	assert.Equal(suite.T(), testRSID, access.ResourceServerID)
+}
+
+// --- Inbound access ---
+
+func (suite *AgentServiceTestSuite) TestGetAgentInboundAccess_EmptyID() {
+	svc, _, _, _, _ := suite.setupService()
+	resp, svcErr := svc.GetAgentInboundAccess(context.Background(), "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorMissingAgentID.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestGetAgentInboundAccess_AgentNotFound() {
+	svc, _, _, _, _ := suite.setupService()
+	resp, svcErr := svc.GetAgentInboundAccess(context.Background(), "missing-agent")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentNotFound.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestGetAgentInboundAccess_WrongCategory() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(&providers.Entity{ID: testAgentID, Category: providers.EntityCategoryApp}, nil)
+
+	resp, svcErr := svc.GetAgentInboundAccess(context.Background(), testAgentID)
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentNotFound.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestGetAgentInboundAccess_NotEnabled() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(buildAgentEntityFixture(testAgentName, "", "", ""), nil)
+
+	resp, svcErr := svc.GetAgentInboundAccess(context.Background(), testAgentID)
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentInboundAccessNotEnabled.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestGetAgentInboundAccess_Success() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServer", mock.Anything, testRSID).Return(&providers.ResourceServer{
+		ID: testRSID, Identifier: "https://api.example.com", Type: providers.ResourceServerTypeAgent,
+	}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	resp, svcErr := svc.GetAgentInboundAccess(context.Background(), testAgentID)
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(resp)
+	assert.Equal(suite.T(), testRSID, resp.ResourceServerID)
+	assert.Equal(suite.T(), "https://api.example.com", resp.Identifier)
+	assert.Equal(suite.T(), providers.ResourceServerTypeAgent, resp.Type)
+}
+
+func (suite *AgentServiceTestSuite) TestEnableAgentInboundAccess_BlankIdentifierDefaultsToAgentID() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(buildAgentEntityFixture(testAgentName, "", "", ""), nil)
+	mockEntity.On("UpdateEntityResourceServerID", mock.Anything, testAgentID, &testRSIDVar).Return(nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateEntityOwnedResourceServer", mock.Anything, providers.ResourceServer{
+		Name:       testAgentName,
+		Identifier: testAgentID,
+		Type:       providers.ResourceServerTypeAgent,
+		OUID:       testOUID,
+	}).Return(&providers.ResourceServer{
+		ID: testRSID, Identifier: testAgentID, Type: providers.ResourceServerTypeAgent,
+	}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	resp, svcErr := svc.EnableAgentInboundAccess(context.Background(), testAgentID, "")
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(resp)
+	assert.Equal(suite.T(), testAgentID, resp.Identifier)
+}
+
+func (suite *AgentServiceTestSuite) TestEnableAgentInboundAccess_ExplicitIdentifierUsed() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(buildAgentEntityFixture(testAgentName, "", "", ""), nil)
+	mockEntity.On("UpdateEntityResourceServerID", mock.Anything, testAgentID, &testRSIDVar).Return(nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateEntityOwnedResourceServer", mock.Anything, providers.ResourceServer{
+		Name:       testAgentName,
+		Identifier: "https://api.example.com",
+		Type:       providers.ResourceServerTypeAgent,
+		OUID:       testOUID,
+	}).Return(&providers.ResourceServer{
+		ID: testRSID, Identifier: "https://api.example.com", Type: providers.ResourceServerTypeAgent,
+	}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	resp, svcErr := svc.EnableAgentInboundAccess(
+		context.Background(), testAgentID, "https://api.example.com")
+	suite.Require().Nil(svcErr)
+	assert.Equal(suite.T(), "https://api.example.com", resp.Identifier)
+}
+
+func (suite *AgentServiceTestSuite) TestEnableAgentInboundAccess_AlreadyEnabled() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+
+	resp, svcErr := svc.EnableAgentInboundAccess(context.Background(), testAgentID, "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentInboundAccessAlreadyEnabled.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestEnableAgentInboundAccess_AgentNotFound() {
+	svc, _, _, _, _ := suite.setupService()
+	resp, svcErr := svc.EnableAgentInboundAccess(context.Background(), "missing-agent", "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentNotFound.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestEnableAgentInboundAccess_RemovesRSWhenReferenceUpdateFails() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(buildAgentEntityFixture(testAgentName, "", "", ""), nil)
+	mockEntity.On("UpdateEntityResourceServerID", mock.Anything, testAgentID, &testRSIDVar).
+		Return(errors.New("db error"))
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateEntityOwnedResourceServer", mock.Anything, mock.Anything).
+		Return(&providers.ResourceServer{ID: testRSID}, (*tidcommon.ServiceError)(nil))
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, testRSID).
+		Return((*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	resp, svcErr := svc.EnableAgentInboundAccess(context.Background(), testAgentID, "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), tidcommon.InternalServerError.Code, svcErr.Code)
+	mockRS.AssertCalled(suite.T(), "DeleteEntityOwnedResourceServer", mock.Anything, testRSID)
+}
+
+func (suite *AgentServiceTestSuite) TestUpdateAgentInboundAccess_MissingIdentifier() {
+	svc, _, _, _, _ := suite.setupService()
+	resp, svcErr := svc.UpdateAgentInboundAccess(context.Background(), testAgentID, "")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorMissingInboundAccessIdentifier.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestUpdateAgentInboundAccess_AgentNotFound() {
+	svc, _, _, _, _ := suite.setupService()
+	resp, svcErr := svc.UpdateAgentInboundAccess(context.Background(), "missing-agent", "https://x")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentNotFound.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestUpdateAgentInboundAccess_NotEnabled() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(buildAgentEntityFixture(testAgentName, "", "", ""), nil)
+
+	resp, svcErr := svc.UpdateAgentInboundAccess(context.Background(), testAgentID, "https://x")
+	assert.Nil(suite.T(), resp)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentInboundAccessNotEnabled.Code, svcErr.Code)
+}
+
+func (suite *AgentServiceTestSuite) TestUpdateAgentInboundAccess_Success() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, testRSID, "", "https://new.example.com").
+		Return(&providers.ResourceServer{
+			ID: testRSID, Identifier: "https://new.example.com", Type: providers.ResourceServerTypeAgent,
+		}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	resp, svcErr := svc.UpdateAgentInboundAccess(
+		context.Background(), testAgentID, "https://new.example.com")
+	suite.Require().Nil(svcErr)
+	assert.Equal(suite.T(), "https://new.example.com", resp.Identifier)
+}
+
+func (suite *AgentServiceTestSuite) TestDisableAgentInboundAccess_NotEnabled() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(buildAgentEntityFixture(testAgentName, "", "", ""), nil)
+
+	svcErr := svc.DisableAgentInboundAccess(context.Background(), testAgentID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorAgentInboundAccessNotEnabled.Code, svcErr.Code)
+}
+
+// The resource server must go first: clearing the reference first would strand an orphan that
+// nothing can delete once the agent has defined permissions on it.
+func (suite *AgentServiceTestSuite) TestDisableAgentInboundAccess_DeletesRSBeforeClearingReference() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+
+	var order []string
+	mockEntity.On("UpdateEntityResourceServerID", mock.Anything, testAgentID, (*string)(nil)).
+		Run(func(mock.Arguments) { order = append(order, "clearReference") }).Return(nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, testRSID).
+		Run(func(mock.Arguments) { order = append(order, "deleteRS") }).
+		Return((*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	svcErr := svc.DisableAgentInboundAccess(context.Background(), testAgentID)
+	assert.Nil(suite.T(), svcErr)
+	assert.Equal(suite.T(), []string{"deleteRS", "clearReference"}, order)
+}
+
+// A failed resource server delete must leave the agent still owning it, so the disable is
+// retriable and no orphan is created.
+func (suite *AgentServiceTestSuite) TestDisableAgentInboundAccess_RSDeleteFailureKeepsReference() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, testRSID).
+		Return(&resource.ErrorCannotDelete)
+	svc.SetResourceService(mockRS)
+
+	svcErr := svc.DisableAgentInboundAccess(context.Background(), testAgentID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), tidcommon.InternalServerError.Code, svcErr.Code)
+	mockEntity.AssertNotCalled(suite.T(), "UpdateEntityResourceServerID",
+		mock.Anything, testAgentID, (*string)(nil))
+}
+
+// --- inboundAccessFor ---
+
+func (suite *AgentServiceTestSuite) TestInboundAccessFor_EmptyRSID() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	svc.SetResourceService(mockRS)
+	assert.Nil(suite.T(), svc.inboundAccessFor(context.Background(), ""))
+}
+
+func (suite *AgentServiceTestSuite) TestInboundAccessFor_Success() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServer", mock.Anything, testRSID).Return(&providers.ResourceServer{
+		ID: testRSID, Identifier: "https://api.example.com",
+	}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	access := svc.inboundAccessFor(context.Background(), testRSID)
+	suite.Require().NotNil(access)
+	assert.True(suite.T(), access.Enabled)
+	assert.Equal(suite.T(), "https://api.example.com", access.Identifier)
+	assert.Equal(suite.T(), testRSID, access.ResourceServerID)
+}
+
+// --- populateInboundAccessForList ---
+
+func (suite *AgentServiceTestSuite) TestPopulateInboundAccessForList_NoOwnedResourceServers() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	svc.SetResourceService(mockRS)
+
+	agents := []model.BasicAgentResponse{{ID: testAgentID}}
+	svc.populateInboundAccessForList(context.Background(), agents,
+		[]providers.Entity{{ID: testAgentID}})
+	assert.Nil(suite.T(), agents[0].InboundAccess)
+	mockRS.AssertNotCalled(suite.T(), "GetResourceServersByIDs", mock.Anything, mock.Anything)
+}
+
+func (suite *AgentServiceTestSuite) TestPopulateInboundAccessForList_BatchesOneLookup() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServersByIDs", mock.Anything, []string{testRSID}).
+		Return(map[string]providers.ResourceServer{
+			testRSID: {ID: testRSID, Identifier: "https://api.example.com"},
+		}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	agents := []model.BasicAgentResponse{{ID: "agent-1"}, {ID: "agent-2"}}
+	svc.populateInboundAccessForList(context.Background(), agents, []providers.Entity{
+		{ID: "agent-1", ResourceServerID: testRSID},
+		{ID: "agent-2"},
+	})
+
+	suite.Require().NotNil(agents[0].InboundAccess)
+	assert.Equal(suite.T(), "https://api.example.com", agents[0].InboundAccess.Identifier)
+	assert.Nil(suite.T(), agents[1].InboundAccess)
+	mockRS.AssertNumberOfCalls(suite.T(), "GetResourceServersByIDs", 1)
+}
+
+// --- syncOwnedResourceServerName ---
+
+func (suite *AgentServiceTestSuite) TestSyncOwnedResourceServerName_NoOwnedResourceServer() {
+	svc, _, _, _, _ := suite.setupService()
+	assert.Nil(suite.T(), svc.syncOwnedResourceServerName(context.Background(), "", "New Name"))
+}
+
+func (suite *AgentServiceTestSuite) TestSyncOwnedResourceServerName_Success() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, testRSID, "New Name", "").
+		Return(&providers.ResourceServer{ID: testRSID, Name: "New Name"}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	assert.Nil(suite.T(), svc.syncOwnedResourceServerName(context.Background(), testRSID, "New Name"))
+}
+
+func (suite *AgentServiceTestSuite) TestSyncOwnedResourceServerName_FailurePropagates() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("UpdateEntityOwnedResourceServer", mock.Anything, testRSID, "New Name", "").
+		Return((*providers.ResourceServer)(nil), &resource.ErrorNameConflict)
+	svc.SetResourceService(mockRS)
+
+	svcErr := svc.syncOwnedResourceServerName(context.Background(), testRSID, "New Name")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), resource.ErrorNameConflict.Code, svcErr.Code)
+}
+
+// --- deleteOwnedResourceServer ---
+
+func (suite *AgentServiceTestSuite) TestDeleteOwnedResourceServer_NoOwnedResourceServer() {
+	svc, _, _, _, _ := suite.setupService()
+	assert.Nil(suite.T(), svc.deleteOwnedResourceServer(context.Background(), testAgentID, ""))
+}
+
+func (suite *AgentServiceTestSuite) TestDeleteOwnedResourceServer_DeleteFailure() {
+	svc, _, _, _, _ := suite.setupService()
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, testRSID).
+		Return(&resource.ErrorCannotDelete)
+	svc.SetResourceService(mockRS)
+
+	svcErr := svc.deleteOwnedResourceServer(context.Background(), testAgentID, testRSID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), tidcommon.InternalServerError.Code, svcErr.Code)
+}
+
+// An interrupted disable must be retriable: the entity-owned delete reports an already-deleted
+// resource server as success, and the reference is still cleared.
+func (suite *AgentServiceTestSuite) TestDeleteOwnedResourceServer_RetryAfterRSAlreadyDeleted() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	mockEntity.On("UpdateEntityResourceServerID", mock.Anything, testAgentID, (*string)(nil)).Return(nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("DeleteEntityOwnedResourceServer", mock.Anything, testRSID).
+		Return((*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	svcErr := svc.deleteOwnedResourceServer(context.Background(), testAgentID, testRSID)
+	assert.Nil(suite.T(), svcErr)
+	mockEntity.AssertCalled(suite.T(), "UpdateEntityResourceServerID",
+		mock.Anything, testAgentID, (*string)(nil))
+}
+
+func (suite *AgentServiceTestSuite) TestLoadDeclarativeInboundAccess_DefaultsIdentifierToAgentID() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateDeclarativeEntityOwnedResourceServer", mock.Anything, providers.ResourceServer{
+		ID:         testAgentID,
+		Name:       testAgentName,
+		Identifier: testAgentID,
+		Type:       providers.ResourceServerTypeAgent,
+		OUID:       testOUID,
+		Resources:  []providers.Resource{{Name: "Orders", Handle: "orders"}},
+	}).Return(nil)
+	svc.SetResourceService(mockRS)
+
+	rsID, err := svc.LoadDeclarativeInboundAccess(context.Background(), testAgentID, testOUID, testAgentName,
+		&providers.DeclarativeInboundAccess{
+			Resources: []providers.Resource{{Name: "Orders", Handle: "orders"}},
+		})
+
+	suite.Require().NoError(err)
+	assert.Equal(suite.T(), testAgentID, rsID)
+}
+
+func (suite *AgentServiceTestSuite) TestLoadDeclarativeInboundAccess_ExplicitIdentifierUsed() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateDeclarativeEntityOwnedResourceServer", mock.Anything, providers.ResourceServer{
+		ID:         testAgentID,
+		Name:       testAgentName,
+		Identifier: "https://api.example.com/orders",
+		Type:       providers.ResourceServerTypeAgent,
+		OUID:       testOUID,
+	}).Return(nil)
+	svc.SetResourceService(mockRS)
+
+	rsID, err := svc.LoadDeclarativeInboundAccess(context.Background(), testAgentID, testOUID, testAgentName,
+		&providers.DeclarativeInboundAccess{Identifier: "https://api.example.com/orders"})
+
+	suite.Require().NoError(err)
+	assert.Equal(suite.T(), testAgentID, rsID)
+}
+
+func (suite *AgentServiceTestSuite) TestLoadDeclarativeInboundAccess_NilBlockIsNoOp() {
+	svc, _, _, _, _ := suite.setupService()
+
+	rsID, err := svc.LoadDeclarativeInboundAccess(
+		context.Background(), testAgentID, testOUID, testAgentName, nil)
+
+	suite.Require().NoError(err)
+	assert.Empty(suite.T(), rsID)
+}
+
+func (suite *AgentServiceTestSuite) TestLoadDeclarativeInboundAccess_PropagatesCollision() {
+	svc, _, _, _, _ := suite.setupService()
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("CreateDeclarativeEntityOwnedResourceServer", mock.Anything, mock.Anything).
+		Return(errors.New("duplicate resource server identifier"))
+	svc.SetResourceService(mockRS)
+
+	rsID, err := svc.LoadDeclarativeInboundAccess(context.Background(), testAgentID, testOUID, testAgentName,
+		&providers.DeclarativeInboundAccess{Identifier: "https://api.example.com/orders"})
+
+	suite.Require().Error(err)
+	assert.Empty(suite.T(), rsID)
+}
+
+func (suite *AgentServiceTestSuite) TestGetAgentDeclarativeInboundAccess_NotEnabled() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).
+		Return(buildAgentEntityFixture(testAgentName, "", "", ""), nil)
+
+	access, svcErr := svc.GetAgentDeclarativeInboundAccess(context.Background(), testAgentID)
+
+	suite.Require().Nil(svcErr)
+	assert.Nil(suite.T(), access)
+}
+
+func (suite *AgentServiceTestSuite) TestGetAgentDeclarativeInboundAccess_ReturnsPermissionTree() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	agentEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	agentEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(agentEntity, nil)
+
+	ordersID := "res-orders"
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServer", mock.Anything, testRSID).Return(&providers.ResourceServer{
+		ID: testRSID, Name: testAgentName, Identifier: "https://api.example.com/orders",
+		Type: providers.ResourceServerTypeAgent, Delimiter: ":",
+	}, (*tidcommon.ServiceError)(nil))
+	mockRS.On("GetAllResourceList", mock.Anything, testRSID).Return([]providers.Resource{
+		{ID: ordersID, Name: "Orders", Handle: "orders"},
+	}, (*tidcommon.ServiceError)(nil))
+	mockRS.On("GetActionList", mock.Anything, testRSID, &ordersID, providers.ActionKind(""), mock.Anything, 0).
+		Return(&resource.ActionList{
+			TotalResults: 1,
+			Actions:      []providers.Action{{Name: "Read", Handle: "read"}},
+		}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	access, svcErr := svc.GetAgentDeclarativeInboundAccess(context.Background(), testAgentID)
+
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(access)
+	assert.Equal(suite.T(), "https://api.example.com/orders", access.Identifier)
+	suite.Require().Len(access.Resources, 1)
+	assert.Equal(suite.T(), "orders", access.Resources[0].Handle)
+	suite.Require().Len(access.Resources[0].Actions, 1)
+	assert.Equal(suite.T(), "read", access.Resources[0].Actions[0].Handle)
+}
+
+// A declarative agent's inbound access is defined by its YAML file. Mutating it at runtime would
+// let the database diverge from the file and be silently overwritten on the next reload.
+func (suite *AgentServiceTestSuite) TestInboundAccessMutationsRejectedForDeclarativeAgent() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	declarativeEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	declarativeEntity.IsReadOnly = true
+	declarativeEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(declarativeEntity, nil)
+
+	_, svcErr := svc.EnableAgentInboundAccess(context.Background(), testAgentID, "")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorCannotModifyDeclarativeResource.Code, svcErr.Code)
+
+	_, svcErr = svc.UpdateAgentInboundAccess(context.Background(), testAgentID, "https://api.example.com/new")
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorCannotModifyDeclarativeResource.Code, svcErr.Code)
+
+	svcErr = svc.DisableAgentInboundAccess(context.Background(), testAgentID)
+	suite.Require().NotNil(svcErr)
+	assert.Equal(suite.T(), ErrorCannotModifyDeclarativeResource.Code, svcErr.Code)
+}
+
+// Reading the inbound access of a declarative agent stays allowed.
+func (suite *AgentServiceTestSuite) TestInboundAccessReadAllowedForDeclarativeAgent() {
+	svc, mockEntity, _, _, _ := suite.setupService()
+	declarativeEntity := buildAgentEntityFixture(testAgentName, "", "", "")
+	declarativeEntity.IsReadOnly = true
+	declarativeEntity.ResourceServerID = testRSID
+	clearMockCalls(mockEntity, "GetEntity")
+	mockEntity.On("GetEntity", mock.Anything, testAgentID).Return(declarativeEntity, nil)
+
+	mockRS := resourcemock.NewResourceServiceInterfaceMock(suite.T())
+	mockRS.On("GetResourceServer", mock.Anything, testRSID).Return(&providers.ResourceServer{
+		ID: testRSID, Identifier: "https://api.example.com/orders", Type: providers.ResourceServerTypeAgent,
+	}, (*tidcommon.ServiceError)(nil))
+	svc.SetResourceService(mockRS)
+
+	resp, svcErr := svc.GetAgentInboundAccess(context.Background(), testAgentID)
+
+	suite.Require().Nil(svcErr)
+	suite.Require().NotNil(resp)
+	assert.Equal(suite.T(), "https://api.example.com/orders", resp.Identifier)
 }

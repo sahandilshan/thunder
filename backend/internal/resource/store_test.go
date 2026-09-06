@@ -398,6 +398,104 @@ func (suite *ResourceStoreTestSuite) TestGetResourceServerList() {
 	}
 }
 
+func (suite *ResourceStoreTestSuite) TestDeleteActionsByResourceServer_Success() {
+	suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
+	suite.mockDBClient.On("ExecuteContext", context.Background(),
+		queryDeleteActionsByResourceServer, "rs1", "test-deployment").Return(int64(3), nil)
+
+	suite.NoError(suite.store.DeleteActionsByResourceServer(context.Background(), "rs1"))
+}
+
+func (suite *ResourceStoreTestSuite) TestDeleteActionsByResourceServer_Error() {
+	suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
+	suite.mockDBClient.On("ExecuteContext", context.Background(),
+		queryDeleteActionsByResourceServer, "rs1", "test-deployment").
+		Return(int64(0), errors.New("db error"))
+
+	suite.Error(suite.store.DeleteActionsByResourceServer(context.Background(), "rs1"))
+}
+
+// The parent-child foreign key restricts deletion, so a nested resource tree is removed one leaf
+// layer at a time; the loop stops when a pass deletes nothing.
+func (suite *ResourceStoreTestSuite) TestDeleteResourcesByResourceServer_DeletesLeavesUntilEmpty() {
+	suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
+	call := suite.mockDBClient.On("ExecuteContext", context.Background(),
+		queryDeleteLeafResourcesByResourceServer, "rs1", "test-deployment")
+	call.Return(int64(2), nil).Once()
+	suite.mockDBClient.On("ExecuteContext", context.Background(),
+		queryDeleteLeafResourcesByResourceServer, "rs1", "test-deployment").
+		Return(int64(1), nil).Once()
+	suite.mockDBClient.On("ExecuteContext", context.Background(),
+		queryDeleteLeafResourcesByResourceServer, "rs1", "test-deployment").
+		Return(int64(0), nil).Once()
+
+	suite.NoError(suite.store.DeleteResourcesByResourceServer(context.Background(), "rs1"))
+	suite.mockDBClient.AssertNumberOfCalls(suite.T(), "ExecuteContext", 3)
+}
+
+func (suite *ResourceStoreTestSuite) TestDeleteResourcesByResourceServer_NoResources() {
+	suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
+	suite.mockDBClient.On("ExecuteContext", context.Background(),
+		queryDeleteLeafResourcesByResourceServer, "rs1", "test-deployment").Return(int64(0), nil)
+
+	suite.NoError(suite.store.DeleteResourcesByResourceServer(context.Background(), "rs1"))
+	suite.mockDBClient.AssertNumberOfCalls(suite.T(), "ExecuteContext", 1)
+}
+
+func (suite *ResourceStoreTestSuite) TestDeleteResourcesByResourceServer_Error() {
+	suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
+	suite.mockDBClient.On("ExecuteContext", context.Background(),
+		queryDeleteLeafResourcesByResourceServer, "rs1", "test-deployment").
+		Return(int64(0), errors.New("db error"))
+
+	suite.Error(suite.store.DeleteResourcesByResourceServer(context.Background(), "rs1"))
+}
+
+func (suite *ResourceStoreTestSuite) TestGetResourceServersByIDs_EmptyIDsSkipsQuery() {
+	servers, err := suite.store.GetResourceServersByIDs(context.Background(), nil)
+
+	suite.NoError(err)
+	suite.Empty(servers)
+	suite.mockDBProvider.AssertNotCalled(suite.T(), "GetConfigDBClient")
+}
+
+func (suite *ResourceStoreTestSuite) TestGetResourceServersByIDs_Success() {
+	query, args := buildGetResourceServersByIDsQuery([]string{"rs1", "rs2"}, "test-deployment")
+	suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
+	suite.mockDBClient.On("QueryContext", context.Background(), query, args[0], args[1], args[2]).
+		Return([]map[string]interface{}{
+			{"id": "rs1", "ou_id": "ou1", "name": "Server 1", "identifier": "identifier-1"},
+			{"id": "rs2", "ou_id": "ou1", "name": "Server 2", "identifier": "identifier-2"},
+		}, nil)
+
+	servers, err := suite.store.GetResourceServersByIDs(context.Background(), []string{"rs1", "rs2"})
+
+	suite.NoError(err)
+	suite.Len(servers, 2)
+	suite.Equal("rs1", servers[0].ID)
+	suite.Equal("identifier-2", servers[1].Identifier)
+}
+
+func (suite *ResourceStoreTestSuite) TestGetResourceServersByIDs_QueryError() {
+	query, args := buildGetResourceServersByIDsQuery([]string{"rs1"}, "test-deployment")
+	suite.mockDBProvider.On("GetConfigDBClient").Return(suite.mockDBClient, nil)
+	suite.mockDBClient.On("QueryContext", context.Background(), query, args[0], args[1]).
+		Return(nil, errors.New("query error"))
+
+	servers, err := suite.store.GetResourceServersByIDs(context.Background(), []string{"rs1"})
+
+	suite.Error(err)
+	suite.Nil(servers)
+}
+
+func (suite *ResourceStoreTestSuite) TestBuildGetResourceServersByIDsQuery_Placeholders() {
+	query, args := buildGetResourceServersByIDsQuery([]string{"rs1", "rs2"}, "test-deployment")
+
+	suite.Contains(query.PostgresQuery, "ID IN ($1,$2) AND DEPLOYMENT_ID = $3")
+	suite.Contains(query.SQLiteQuery, "ID IN (?,?) AND DEPLOYMENT_ID = ?")
+	suite.Equal([]interface{}{"rs1", "rs2", "test-deployment"}, args)
+}
+
 func (suite *ResourceStoreTestSuite) TestGetResourceServerListCount() {
 	testCases := []struct {
 		name          string

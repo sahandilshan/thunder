@@ -626,3 +626,29 @@ func (suite *CIBAGrantHandlerTestSuite) TestValidateGrant_InvalidPollingResource
 	suite.NotNil(errResp)
 	suite.Equal(constants.ErrorInvalidTarget, errResp.Error)
 }
+
+// The CIBA token endpoint resolves the identifier recorded on the request by identifier, so a
+// default bare-entity-ID identifier round-trips. This mirrors the authorization_code path.
+func (suite *CIBAGrantHandlerTestSuite) TestHandleGrant_RecordedBareEntityIDIdentifierIsAccepted() {
+	const bareIdentifier = "01997c1e-0f5a-7a3c-9b2e-9f1c4c2d5e60"
+	record := suite.pendingRecord()
+	record.State = ciba.CIBAStateAuthenticated
+	record.AuthorizedScopes = testScopeRead
+	record.Resources = []string{bareIdentifier}
+	suite.mockCIBAService.EXPECT().GetByAuthReqID(mock.Anything, "auth-req-1").Return(record, nil)
+	suite.mockResource.EXPECT().GetResourceServerByIdentifier(mock.Anything, bareIdentifier).
+		Return(&providers.ResourceServer{ID: "rs-1", Identifier: bareIdentifier}, nil)
+	suite.mockResource.EXPECT().ValidatePermissions(mock.Anything, "rs-1", mock.Anything).
+		Return([]string{}, nil)
+	suite.mockTokenBuilder.EXPECT().BuildAccessToken(mock.Anything, mock.MatchedBy(
+		func(ctx *tokenservice.AccessTokenBuildContext) bool {
+			return len(ctx.Audiences) == 1 && ctx.Audiences[0] == bareIdentifier
+		})).Return(&model.TokenDTO{Token: "access-token", TokenType: "Bearer", ExpiresIn: 3600}, nil)
+	suite.mockCIBAService.EXPECT().MarkConsumed(mock.Anything, "auth-req-1").Return(true, nil)
+
+	resp, errResp := suite.handler.HandleGrant(context.Background(), suite.tokenReq, suite.oauthApp)
+
+	suite.Nil(errResp)
+	suite.Require().NotNil(resp)
+	suite.Equal("access-token", resp.AccessToken.Token)
+}

@@ -102,8 +102,69 @@ type ResourceServiceInterface interface {
 	) *tidcommon.ServiceError
 
 	SetDependencyRegistry(r resourcedependency.Registry)
+	SetEntityOwnerLookup(l EntityOwnerLookup)
 	GetResourceDependencies(
 		ctx context.Context, resourceType, id string) ([]resourcedependency.ResourceDependency, error)
+
+	// GetResourceServersByIDs resolves the given resource server IDs in a single read. Missing IDs
+	// are absent from the returned map. Used by callers rendering many rows that each reference a
+	// resource server, so they do not fan out one read per row.
+	GetResourceServersByIDs(
+		ctx context.Context, ids []string,
+	) (map[string]providers.ResourceServer, *tidcommon.ServiceError)
+
+	// CreateEntityOwnedResourceServer creates a resource server owned by an entity. Only the agent
+	// and application services call it: the public create path rejects entity-owned types.
+	CreateEntityOwnedResourceServer(
+		ctx context.Context, rs providers.ResourceServer,
+	) (*providers.ResourceServer, *tidcommon.ServiceError)
+
+	// UpdateEntityOwnedResourceServer updates the name and identifier of an entity-owned resource
+	// server. An empty value leaves the corresponding field unchanged. Only the agent and
+	// application services call it: the public update path locks an owned resource server's
+	// identifier.
+	UpdateEntityOwnedResourceServer(
+		ctx context.Context, id, name, identifier string,
+	) (*providers.ResourceServer, *tidcommon.ServiceError)
+
+	// CreateDeclarativeEntityOwnedResourceServer registers the resource server owned by a
+	// declaratively defined agent or application in the declarative (read-only) resource store,
+	// together with the permission tree declared inline on that entity. Only the agent and
+	// application declarative loaders call it, at startup: the public create path rejects
+	// entity-owned types, and the declarative resource server file format rejects them too so that
+	// an admin cannot hand-declare an owned-looking resource server that nothing owns.
+	//
+	// The resulting resource server is read-only for the same reason every other declarative
+	// resource is: a file-declared permission tree that could be edited at runtime would let the
+	// database diverge from the file and be silently overwritten on the next reload.
+	CreateDeclarativeEntityOwnedResourceServer(ctx context.Context, rs providers.ResourceServer) error
+
+	// DeleteEntityOwnedResourceServer deletes a resource server together with its own resources and
+	// actions, bypassing the dependency check that guards the public delete path. Only the agent and
+	// application services call it, when the owning entity disables inbound access or is deleted:
+	// the owning entity is itself a blocking dependency, and so are the permissions the entity is
+	// meant to define, so the public path can never delete an owned resource server. Deleting an
+	// already-deleted resource server succeeds, so an interrupted disable can be retried.
+	DeleteEntityOwnedResourceServer(ctx context.Context, id string) *tidcommon.ServiceError
+}
+
+// ResourceServerOwner identifies the entity that owns a resource server.
+type ResourceServerOwner struct {
+	// Type is the owning entity's resource type, e.g. resourcedependency.ResourceTypeAgent.
+	Type string
+	// ID is the owning entity's ID.
+	ID string
+	// Name is the owning entity's display name; empty when the entity has none.
+	Name string
+}
+
+// EntityOwnerLookup resolves whether a resource server is owned by an entity. Implemented outside
+// this package (the entity package) and injected by servicemanager, so the resource package does
+// not depend on the entity package.
+type EntityOwnerLookup interface {
+	// GetResourceServerOwner returns the entity that owns the resource server, or nil when the
+	// resource server is standalone.
+	GetResourceServerOwner(ctx context.Context, resourceServerID string) (*ResourceServerOwner, error)
 }
 
 // resourceService is the default implementation of ResourceServiceInterface.
@@ -114,12 +175,73 @@ type resourceService struct {
 	defaultDelimiter   string
 	transactioner      providers.Transactioner
 	dependencyRegistry resourcedependency.Registry
+	entityOwnerLookup  EntityOwnerLookup
 }
 
 // SetDependencyRegistry injects the dependency registry. Called by servicemanager after the
 // provider services are initialized to avoid a cyclic import.
 func (rs *resourceService) SetDependencyRegistry(r resourcedependency.Registry) {
 	rs.dependencyRegistry = r
+}
+
+// SetEntityOwnerLookup injects the lookup used to determine whether a resource server is owned by
+// an entity. Called by servicemanager after the entity service is constructed.
+func (rs *resourceService) SetEntityOwnerLookup(l EntityOwnerLookup) {
+	rs.entityOwnerLookup = l
+}
+
+// ensureOwnerManagedFieldsUnchanged refuses a change to the identifier or the name of a resource
+// server owned by an entity. Both mirror the owning entity, so changing them from the resource
+// server API would break that link permanently. The owner is resolved only when one of the two
+// actually changes, so unrelated updates do not pay for the lookup.
+func (rs *resourceService) ensureOwnerManagedFieldsUnchanged(
+	ctx context.Context, id string,
+	updated, existing providers.ResourceServer, enforceOwnerLocks bool,
+) *tidcommon.ServiceError {
+	identifierChanged := updated.Identifier != "" && updated.Identifier != existing.Identifier
+	nameChanged := updated.Name != existing.Name
+	if !enforceOwnerLocks || (!identifierChanged && !nameChanged) {
+		return nil
+	}
+
+	owner, svcErr := rs.resolveOwner(ctx, id)
+	if svcErr != nil {
+		return svcErr
+	}
+	if owner == nil {
+		return nil
+	}
+
+	params := map[string]string{"ownerType": owner.Type, "ownerName": owner.Name}
+	if identifierChanged {
+		rs.logger.Debug(ctx, "Refusing identifier change on entity-owned resource server",
+			log.String("id", id), log.String("ownerID", owner.ID))
+		return ErrorOwnedResourceServerIdentifierLocked.WithParams(params)
+	}
+	rs.logger.Debug(ctx, "Refusing name change on entity-owned resource server",
+		log.String("id", id), log.String("ownerID", owner.ID))
+	return ErrorOwnedResourceServerNameLocked.WithParams(params)
+}
+
+// resolveOwner returns the entity that owns the resource server, or nil when it is standalone.
+// It fails closed: an unset or failing lookup yields an error so callers refuse the operation
+// rather than treating an owned resource server as standalone.
+func (rs *resourceService) resolveOwner(
+	ctx context.Context, id string,
+) (*ResourceServerOwner, *tidcommon.ServiceError) {
+	if rs.entityOwnerLookup == nil {
+		rs.logger.Error(ctx, "Entity owner lookup not set; cannot resolve resource server ownership",
+			log.String("id", id))
+		return nil, &tidcommon.InternalServerError
+	}
+
+	owner, err := rs.entityOwnerLookup.GetResourceServerOwner(ctx, id)
+	if err != nil {
+		rs.logger.Error(ctx, "Failed to resolve resource server owner",
+			log.String("id", id), log.Error(err))
+		return nil, &tidcommon.InternalServerError
+	}
+	return owner, nil
 }
 
 // ensureNoBlockingDependencies refuses deletion when other resources depend on the target
@@ -239,6 +361,110 @@ func (rs *resourceService) CreateResourceServer(
 		return nil, err
 	}
 
+	return rs.createResourceServer(ctx, resourceServer)
+}
+
+// CreateEntityOwnedResourceServer creates a resource server owned by an entity, bypassing the
+// public path's rejection of entity-owned types. Only the agent and application services call it.
+func (rs *resourceService) CreateEntityOwnedResourceServer(
+	ctx context.Context,
+	resourceServer providers.ResourceServer,
+) (*providers.ResourceServer, *tidcommon.ServiceError) {
+	if !resourceServer.Type.IsEntityOwned() {
+		return nil, &ErrorInvalidRequestFormat
+	}
+	if resourceServer.Name == "" || resourceServer.OUID == "" || resourceServer.Identifier == "" {
+		return nil, &ErrorInvalidRequestFormat
+	}
+
+	return rs.createResourceServer(ctx, resourceServer)
+}
+
+// CreateDeclarativeEntityOwnedResourceServer registers an entity-owned resource server, with its
+// declared permission tree, in the file-based (read-only) resource store. Runs at startup from the
+// agent and application declarative loaders, so it reports plain errors that name the offending
+// entity rather than service errors: any failure aborts server start.
+//
+// Idempotency comes from the store it writes to. The declarative store is rebuilt from the YAML
+// files on every start, so restarting with the same file re-creates the same resource server rather
+// than adding a second one.
+func (rs *resourceService) CreateDeclarativeEntityOwnedResourceServer(
+	ctx context.Context, resourceServer providers.ResourceServer,
+) error {
+	if !resourceServer.Type.IsEntityOwned() {
+		return fmt.Errorf("resource server type %q is not an entity-owned type", resourceServer.Type)
+	}
+	if resourceServer.ID == "" || resourceServer.Name == "" ||
+		resourceServer.OUID == "" || resourceServer.Identifier == "" {
+		return fmt.Errorf("declarative inbound access for '%s' requires an id, name, identifier and "+
+			"organization unit", resourceServer.ID)
+	}
+
+	fileStore, ok := rs.declarativeStore()
+	if !ok {
+		return fmt.Errorf("declarative inbound access for '%s' requires the resource store to run in "+
+			"declarative or composite mode", resourceServer.ID)
+	}
+
+	if resourceServer.Delimiter == "" {
+		resourceServer.Delimiter = rs.defaultDelimiter
+	}
+	for i := range resourceServer.Resources {
+		for j := range resourceServer.Resources[i].Actions {
+			kind := resourceServer.Resources[i].Actions[j].Kind
+			if kind != "" && !kind.IsValid() {
+				return fmt.Errorf(
+					"action %q in the inbound access of '%s' has invalid kind %q (allowed: tool|resource)",
+					resourceServer.Resources[i].Actions[j].Handle, resourceServer.ID, kind)
+			}
+		}
+	}
+	if err := ProcessResourceServer(&resourceServer); err != nil {
+		return fmt.Errorf("failed to process the inbound access of '%s': %w", resourceServer.ID, err)
+	}
+
+	if _, err := rs.resourceStore.GetResourceServer(ctx, resourceServer.ID); err == nil {
+		return fmt.Errorf("duplicate resource server ID '%s': the inbound access of '%s' collides with "+
+			"an existing resource server", resourceServer.ID, resourceServer.ID)
+	} else if !errors.Is(err, errResourceServerNotFound) {
+		return fmt.Errorf("failed to check the resource server of '%s': %w", resourceServer.ID, err)
+	}
+
+	identifierExists, err := rs.resourceStore.CheckResourceServerIdentifierExists(ctx, resourceServer.Identifier)
+	if err != nil {
+		return fmt.Errorf("failed to check the inbound access identifier of '%s': %w", resourceServer.ID, err)
+	}
+	if identifierExists {
+		return fmt.Errorf("duplicate resource server identifier '%s' declared as the inbound access of '%s': "+
+			"an existing resource server already uses it", resourceServer.Identifier, resourceServer.ID)
+	}
+
+	resourceServer.IsReadOnly = true
+	if err := fileStore.Create(resourceServer.ID, &resourceServer); err != nil {
+		return fmt.Errorf("failed to store the inbound access of '%s': %w", resourceServer.ID, err)
+	}
+	return nil
+}
+
+// declarativeStore returns the file-based resource store backing declarative resource servers, or
+// false when the resource store runs in mutable mode and has none.
+func (rs *resourceService) declarativeStore() (*fileBasedResourceStore, bool) {
+	switch store := rs.resourceStore.(type) {
+	case *fileBasedResourceStore:
+		return store, true
+	case *compositeResourceStore:
+		fileStore, ok := store.fileStore.(*fileBasedResourceStore)
+		return fileStore, ok
+	default:
+		return nil, false
+	}
+}
+
+// createResourceServer persists a validated resource server.
+func (rs *resourceService) createResourceServer(
+	ctx context.Context,
+	resourceServer providers.ResourceServer,
+) (*providers.ResourceServer, *tidcommon.ServiceError) {
 	// Validate organization unit exists
 	_, svcErr := rs.ouService.GetOrganizationUnit(ctx, resourceServer.OUID)
 	if svcErr != nil {
@@ -372,6 +598,40 @@ func (rs *resourceService) GetResourceServerByIdentifier(
 	return &resourceServer, nil
 }
 
+// GetResourceServersByIDs resolves the given resource server IDs in a single store read, keyed by
+// ID. Duplicate IDs are collapsed and unresolved IDs are absent from the result.
+func (rs *resourceService) GetResourceServersByIDs(
+	ctx context.Context, ids []string,
+) (map[string]providers.ResourceServer, *tidcommon.ServiceError) {
+	unique := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return map[string]providers.ResourceServer{}, nil
+	}
+
+	resourceServers, err := rs.resourceStore.GetResourceServersByIDs(ctx, unique)
+	if err != nil {
+		rs.logger.Error(ctx, "Failed to get resource servers by IDs", log.Error(err))
+		return nil, &tidcommon.InternalServerError
+	}
+
+	byID := make(map[string]providers.ResourceServer, len(resourceServers))
+	for _, resourceServer := range resourceServers {
+		byID[resourceServer.ID] = resourceServer
+	}
+	return byID, nil
+}
+
 // GetResourceServerList retrieves a paginated list of resource servers.
 func (rs *resourceService) GetResourceServerList(
 	ctx context.Context, limit, offset int,
@@ -422,6 +682,42 @@ func (rs *resourceService) UpdateResourceServer(
 		return nil, err
 	}
 
+	return rs.updateResourceServer(ctx, id, resourceServer, true)
+}
+
+// UpdateEntityOwnedResourceServer updates the name and identifier of an entity-owned resource
+// server without applying the owner identifier lock, which exists to stop admins from renaming the
+// audience behind the owning entity's back. Only the agent and application services call it.
+func (rs *resourceService) UpdateEntityOwnedResourceServer(
+	ctx context.Context, id, name, identifier string,
+) (*providers.ResourceServer, *tidcommon.ServiceError) {
+	if id == "" {
+		return nil, &ErrorMissingID
+	}
+
+	existing, svcErr := rs.GetResourceServer(ctx, id)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	update := *existing
+	if name != "" {
+		update.Name = name
+	}
+	if identifier != "" {
+		update.Identifier = identifier
+	}
+
+	return rs.updateResourceServer(ctx, id, update, false)
+}
+
+// updateResourceServer persists a validated resource server update. When enforceOwnerLocks is set,
+// a change to the identifier or the name is refused for a resource server owned by an entity: both
+// are derived from the owning entity and are maintained through it.
+func (rs *resourceService) updateResourceServer(
+	ctx context.Context,
+	id string, resourceServer providers.ResourceServer, enforceOwnerLocks bool,
+) (*providers.ResourceServer, *tidcommon.ServiceError) {
 	existingResServer, err := rs.resourceStore.GetResourceServer(ctx, id)
 	if err != nil {
 		if errors.Is(err, errResourceServerNotFound) {
@@ -443,6 +739,11 @@ func (rs *resourceService) UpdateResourceServer(
 
 	// Type is immutable and always preserved from the existing record
 	resourceServer.Type = existingResServer.Type
+
+	if svcErr := rs.ensureOwnerManagedFieldsUnchanged(
+		ctx, id, resourceServer, existingResServer, enforceOwnerLocks); svcErr != nil {
+		return nil, svcErr
+	}
 
 	// Identifier: preserve existing if not provided; check uniqueness if changed
 	if resourceServer.Identifier == "" {
@@ -537,6 +838,56 @@ func (rs *resourceService) DeleteResourceServer(ctx context.Context, id string) 
 	if err := rs.transactioner.Transact(ctx, func(txCtx context.Context) error {
 		if err := rs.resourceStore.DeleteResourceServer(txCtx, id); err != nil {
 			rs.logger.Error(ctx, "Failed to delete resource server", log.Error(err))
+			return err
+		}
+		return rs.cascadeDeleteDependents(txCtx, resourcedependency.ResourceTypeResourceServer, id)
+	}); err != nil {
+		return &tidcommon.InternalServerError
+	}
+
+	return nil
+}
+
+// DeleteEntityOwnedResourceServer deletes an entity-owned resource server along with its resources
+// and actions, then cascades so that role permissions referencing them are cleaned up. It
+// deliberately skips the blocking-dependency check: the owning entity and the resource server's own
+// permissions both register as blocking usages, which is correct for the public delete path but
+// would make an owned resource server undeletable.
+func (rs *resourceService) DeleteEntityOwnedResourceServer(
+	ctx context.Context, id string) *tidcommon.ServiceError {
+	if id == "" {
+		return &ErrorMissingID
+	}
+
+	if rs.IsResourceServerDeclarative(id) {
+		rs.logger.Debug(ctx, "Cannot delete declarative resource server", log.String("id", id))
+		return ErrorImmutableResourceServer.WithParams(map[string]string{"id": id})
+	}
+
+	if _, err := rs.resourceStore.GetResourceServer(ctx, id); err != nil {
+		if errors.Is(err, errResourceServerNotFound) {
+			// Already gone: a previous attempt that failed part-way can be retried safely.
+			return nil
+		}
+		rs.logger.Error(ctx, "Failed to check resource server existence", log.Error(err))
+		return &tidcommon.InternalServerError
+	}
+
+	if err := rs.transactioner.Transact(ctx, func(txCtx context.Context) error {
+		// Actions first: they reference both the resource server and its resources.
+		if err := rs.resourceStore.DeleteActionsByResourceServer(txCtx, id); err != nil {
+			rs.logger.Error(ctx, "Failed to delete actions of the entity-owned resource server",
+				log.String("id", id), log.Error(err))
+			return err
+		}
+		if err := rs.resourceStore.DeleteResourcesByResourceServer(txCtx, id); err != nil {
+			rs.logger.Error(ctx, "Failed to delete resources of the entity-owned resource server",
+				log.String("id", id), log.Error(err))
+			return err
+		}
+		if err := rs.resourceStore.DeleteResourceServer(txCtx, id); err != nil {
+			rs.logger.Error(ctx, "Failed to delete the entity-owned resource server",
+				log.String("id", id), log.Error(err))
 			return err
 		}
 		return rs.cascadeDeleteDependents(txCtx, resourcedependency.ResourceTypeResourceServer, id)
@@ -1363,6 +1714,9 @@ func (rs *resourceService) validateResourceServerCreate(
 	}
 	if resourceServer.Type != "" && !resourceServer.Type.IsValid() {
 		return &ErrorInvalidRequestFormat
+	}
+	if resourceServer.Type.IsEntityOwned() {
+		return &ErrorEntityOwnedResourceServerType
 	}
 	if resourceServer.Delimiter != "" {
 		if err := validateDelimiter(resourceServer.Delimiter); err != nil {

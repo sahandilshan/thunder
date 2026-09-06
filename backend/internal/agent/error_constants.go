@@ -515,4 +515,50 @@ var (
 				"and string-typed in an allowed agent type",
 		},
 	}
+
+	// ErrorAgentInboundAccessAlreadyEnabled is returned when enabling inbound access on an agent
+	// that already exposes it.
+	ErrorAgentInboundAccessAlreadyEnabled = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "AGT-1043",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.agentservice.inbound_access_already_enabled",
+			DefaultValue: "Inbound access is already enabled",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key: "error.agentservice.inbound_access_already_enabled_description",
+			DefaultValue: "The agent already exposes inbound access. " +
+				"Disable it first to expose a different audience identifier",
+		},
+	}
+
+	// ErrorAgentInboundAccessNotEnabled is returned when reading, updating or disabling inbound
+	// access on an agent that does not expose it.
+	ErrorAgentInboundAccessNotEnabled = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "AGT-1044",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.agentservice.inbound_access_not_enabled",
+			DefaultValue: "Inbound access is not enabled",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.agentservice.inbound_access_not_enabled_description",
+			DefaultValue: "The agent does not expose inbound access",
+		},
+	}
+
+	// ErrorMissingInboundAccessIdentifier is returned when an inbound access update omits the
+	// audience identifier.
+	ErrorMissingInboundAccessIdentifier = tidcommon.ServiceError{
+		Type: tidcommon.ClientErrorType,
+		Code: "AGT-1045",
+		Error: tidcommon.I18nMessage{
+			Key:          "error.agentservice.missing_inbound_access_identifier",
+			DefaultValue: "Missing identifier",
+		},
+		ErrorDescription: tidcommon.I18nMessage{
+			Key:          "error.agentservice.missing_inbound_access_identifier_description",
+			DefaultValue: "The identifier is required when updating inbound access",
+		},
+	}
 )

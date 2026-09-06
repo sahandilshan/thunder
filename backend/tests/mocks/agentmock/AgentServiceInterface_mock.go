@@ -10,8 +10,10 @@ import (
 	mock "github.com/stretchr/testify/mock"
 	"github.com/thunder-id/thunderid/internal/agent/model"
 	model0 "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/common"
+	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
 
 // NewAgentServiceInterfaceMock creates a new instance of AgentServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -170,6 +172,141 @@ func (_c *AgentServiceInterfaceMock_DeleteAgent_Call) RunAndReturn(run func(ctx 
 	return _c
 }
 
+// DisableAgentInboundAccess provides a mock function for the type AgentServiceInterfaceMock
+func (_mock *AgentServiceInterfaceMock) DisableAgentInboundAccess(ctx context.Context, agentID string) *common.ServiceError {
+	ret := _mock.Called(ctx, agentID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DisableAgentInboundAccess")
+	}
+
+	var r0 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *common.ServiceError); ok {
+		r0 = returnFunc(ctx, agentID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*common.ServiceError)
+		}
+	}
+	return r0
+}
+
+// AgentServiceInterfaceMock_DisableAgentInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DisableAgentInboundAccess'
+type AgentServiceInterfaceMock_DisableAgentInboundAccess_Call struct {
+	*mock.Call
+}
+
+// DisableAgentInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - agentID string
+func (_e *AgentServiceInterfaceMock_Expecter) DisableAgentInboundAccess(ctx interface{}, agentID interface{}) *AgentServiceInterfaceMock_DisableAgentInboundAccess_Call {
+	return &AgentServiceInterfaceMock_DisableAgentInboundAccess_Call{Call: _e.mock.On("DisableAgentInboundAccess", ctx, agentID)}
+}
+
+func (_c *AgentServiceInterfaceMock_DisableAgentInboundAccess_Call) Run(run func(ctx context.Context, agentID string)) *AgentServiceInterfaceMock_DisableAgentInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_DisableAgentInboundAccess_Call) Return(serviceError *common.ServiceError) *AgentServiceInterfaceMock_DisableAgentInboundAccess_Call {
+	_c.Call.Return(serviceError)
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_DisableAgentInboundAccess_Call) RunAndReturn(run func(ctx context.Context, agentID string) *common.ServiceError) *AgentServiceInterfaceMock_DisableAgentInboundAccess_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// EnableAgentInboundAccess provides a mock function for the type AgentServiceInterfaceMock
+func (_mock *AgentServiceInterfaceMock) EnableAgentInboundAccess(ctx context.Context, agentID string, identifier string) (*model.AgentInboundAccessResponse, *common.ServiceError) {
+	ret := _mock.Called(ctx, agentID, identifier)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EnableAgentInboundAccess")
+	}
+
+	var r0 *model.AgentInboundAccessResponse
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*model.AgentInboundAccessResponse, *common.ServiceError)); ok {
+		return returnFunc(ctx, agentID, identifier)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *model.AgentInboundAccessResponse); ok {
+		r0 = returnFunc(ctx, agentID, identifier)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.AgentInboundAccessResponse)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, agentID, identifier)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// AgentServiceInterfaceMock_EnableAgentInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EnableAgentInboundAccess'
+type AgentServiceInterfaceMock_EnableAgentInboundAccess_Call struct {
+	*mock.Call
+}
+
+// EnableAgentInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - agentID string
+//   - identifier string
+func (_e *AgentServiceInterfaceMock_Expecter) EnableAgentInboundAccess(ctx interface{}, agentID interface{}, identifier interface{}) *AgentServiceInterfaceMock_EnableAgentInboundAccess_Call {
+	return &AgentServiceInterfaceMock_EnableAgentInboundAccess_Call{Call: _e.mock.On("EnableAgentInboundAccess", ctx, agentID, identifier)}
+}
+
+func (_c *AgentServiceInterfaceMock_EnableAgentInboundAccess_Call) Run(run func(ctx context.Context, agentID string, identifier string)) *AgentServiceInterfaceMock_EnableAgentInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_EnableAgentInboundAccess_Call) Return(agentInboundAccessResponse *model.AgentInboundAccessResponse, serviceError *common.ServiceError) *AgentServiceInterfaceMock_EnableAgentInboundAccess_Call {
+	_c.Call.Return(agentInboundAccessResponse, serviceError)
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_EnableAgentInboundAccess_Call) RunAndReturn(run func(ctx context.Context, agentID string, identifier string) (*model.AgentInboundAccessResponse, *common.ServiceError)) *AgentServiceInterfaceMock_EnableAgentInboundAccess_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetAgent provides a mock function for the type AgentServiceInterfaceMock
 func (_mock *AgentServiceInterfaceMock) GetAgent(ctx context.Context, agentID string, includeDisplay bool) (*model.AgentGetResponse, *common.ServiceError) {
 	ret := _mock.Called(ctx, agentID, includeDisplay)
@@ -242,6 +379,76 @@ func (_c *AgentServiceInterfaceMock_GetAgent_Call) Return(agentGetResponse *mode
 }
 
 func (_c *AgentServiceInterfaceMock_GetAgent_Call) RunAndReturn(run func(ctx context.Context, agentID string, includeDisplay bool) (*model.AgentGetResponse, *common.ServiceError)) *AgentServiceInterfaceMock_GetAgent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetAgentDeclarativeInboundAccess provides a mock function for the type AgentServiceInterfaceMock
+func (_mock *AgentServiceInterfaceMock) GetAgentDeclarativeInboundAccess(ctx context.Context, agentID string) (*providers.DeclarativeInboundAccess, *common.ServiceError) {
+	ret := _mock.Called(ctx, agentID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAgentDeclarativeInboundAccess")
+	}
+
+	var r0 *providers.DeclarativeInboundAccess
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*providers.DeclarativeInboundAccess, *common.ServiceError)); ok {
+		return returnFunc(ctx, agentID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *providers.DeclarativeInboundAccess); ok {
+		r0 = returnFunc(ctx, agentID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*providers.DeclarativeInboundAccess)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, agentID)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAgentDeclarativeInboundAccess'
+type AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call struct {
+	*mock.Call
+}
+
+// GetAgentDeclarativeInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - agentID string
+func (_e *AgentServiceInterfaceMock_Expecter) GetAgentDeclarativeInboundAccess(ctx interface{}, agentID interface{}) *AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call {
+	return &AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call{Call: _e.mock.On("GetAgentDeclarativeInboundAccess", ctx, agentID)}
+}
+
+func (_c *AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call) Run(run func(ctx context.Context, agentID string)) *AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call) Return(declarativeInboundAccess *providers.DeclarativeInboundAccess, serviceError *common.ServiceError) *AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call {
+	_c.Call.Return(declarativeInboundAccess, serviceError)
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call) RunAndReturn(run func(ctx context.Context, agentID string) (*providers.DeclarativeInboundAccess, *common.ServiceError)) *AgentServiceInterfaceMock_GetAgentDeclarativeInboundAccess_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -324,6 +531,76 @@ func (_c *AgentServiceInterfaceMock_GetAgentGroups_Call) Return(agentGroupListRe
 }
 
 func (_c *AgentServiceInterfaceMock_GetAgentGroups_Call) RunAndReturn(run func(ctx context.Context, agentID string, limit int, offset int) (*model.AgentGroupListResponse, *common.ServiceError)) *AgentServiceInterfaceMock_GetAgentGroups_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetAgentInboundAccess provides a mock function for the type AgentServiceInterfaceMock
+func (_mock *AgentServiceInterfaceMock) GetAgentInboundAccess(ctx context.Context, agentID string) (*model.AgentInboundAccessResponse, *common.ServiceError) {
+	ret := _mock.Called(ctx, agentID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAgentInboundAccess")
+	}
+
+	var r0 *model.AgentInboundAccessResponse
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*model.AgentInboundAccessResponse, *common.ServiceError)); ok {
+		return returnFunc(ctx, agentID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *model.AgentInboundAccessResponse); ok {
+		r0 = returnFunc(ctx, agentID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.AgentInboundAccessResponse)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, agentID)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// AgentServiceInterfaceMock_GetAgentInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAgentInboundAccess'
+type AgentServiceInterfaceMock_GetAgentInboundAccess_Call struct {
+	*mock.Call
+}
+
+// GetAgentInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - agentID string
+func (_e *AgentServiceInterfaceMock_Expecter) GetAgentInboundAccess(ctx interface{}, agentID interface{}) *AgentServiceInterfaceMock_GetAgentInboundAccess_Call {
+	return &AgentServiceInterfaceMock_GetAgentInboundAccess_Call{Call: _e.mock.On("GetAgentInboundAccess", ctx, agentID)}
+}
+
+func (_c *AgentServiceInterfaceMock_GetAgentInboundAccess_Call) Run(run func(ctx context.Context, agentID string)) *AgentServiceInterfaceMock_GetAgentInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_GetAgentInboundAccess_Call) Return(agentInboundAccessResponse *model.AgentInboundAccessResponse, serviceError *common.ServiceError) *AgentServiceInterfaceMock_GetAgentInboundAccess_Call {
+	_c.Call.Return(agentInboundAccessResponse, serviceError)
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_GetAgentInboundAccess_Call) RunAndReturn(run func(ctx context.Context, agentID string) (*model.AgentInboundAccessResponse, *common.ServiceError)) *AgentServiceInterfaceMock_GetAgentInboundAccess_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -572,6 +849,90 @@ func (_c *AgentServiceInterfaceMock_GetResourceDependencies_Call) RunAndReturn(r
 	return _c
 }
 
+// LoadDeclarativeInboundAccess provides a mock function for the type AgentServiceInterfaceMock
+func (_mock *AgentServiceInterfaceMock) LoadDeclarativeInboundAccess(ctx context.Context, agentID string, ouID string, name string, access *providers.DeclarativeInboundAccess) (string, error) {
+	ret := _mock.Called(ctx, agentID, ouID, name, access)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoadDeclarativeInboundAccess")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, *providers.DeclarativeInboundAccess) (string, error)); ok {
+		return returnFunc(ctx, agentID, ouID, name, access)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, *providers.DeclarativeInboundAccess) string); ok {
+		r0 = returnFunc(ctx, agentID, ouID, name, access)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string, *providers.DeclarativeInboundAccess) error); ok {
+		r1 = returnFunc(ctx, agentID, ouID, name, access)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LoadDeclarativeInboundAccess'
+type AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call struct {
+	*mock.Call
+}
+
+// LoadDeclarativeInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - agentID string
+//   - ouID string
+//   - name string
+//   - access *providers.DeclarativeInboundAccess
+func (_e *AgentServiceInterfaceMock_Expecter) LoadDeclarativeInboundAccess(ctx interface{}, agentID interface{}, ouID interface{}, name interface{}, access interface{}) *AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call {
+	return &AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call{Call: _e.mock.On("LoadDeclarativeInboundAccess", ctx, agentID, ouID, name, access)}
+}
+
+func (_c *AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call) Run(run func(ctx context.Context, agentID string, ouID string, name string, access *providers.DeclarativeInboundAccess)) *AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		var arg4 *providers.DeclarativeInboundAccess
+		if args[4] != nil {
+			arg4 = args[4].(*providers.DeclarativeInboundAccess)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+		)
+	})
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call) Return(s string, err error) *AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call) RunAndReturn(run func(ctx context.Context, agentID string, ouID string, name string, access *providers.DeclarativeInboundAccess) (string, error)) *AgentServiceInterfaceMock_LoadDeclarativeInboundAccess_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetDependencyRegistry provides a mock function for the type AgentServiceInterfaceMock
 func (_mock *AgentServiceInterfaceMock) SetDependencyRegistry(r resourcedependency.Registry) {
 	_mock.Called(r)
@@ -608,6 +969,46 @@ func (_c *AgentServiceInterfaceMock_SetDependencyRegistry_Call) Return() *AgentS
 }
 
 func (_c *AgentServiceInterfaceMock_SetDependencyRegistry_Call) RunAndReturn(run func(r resourcedependency.Registry)) *AgentServiceInterfaceMock_SetDependencyRegistry_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetResourceService provides a mock function for the type AgentServiceInterfaceMock
+func (_mock *AgentServiceInterfaceMock) SetResourceService(rs resource.ResourceServiceInterface) {
+	_mock.Called(rs)
+	return
+}
+
+// AgentServiceInterfaceMock_SetResourceService_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetResourceService'
+type AgentServiceInterfaceMock_SetResourceService_Call struct {
+	*mock.Call
+}
+
+// SetResourceService is a helper method to define mock.On call
+//   - rs resource.ResourceServiceInterface
+func (_e *AgentServiceInterfaceMock_Expecter) SetResourceService(rs interface{}) *AgentServiceInterfaceMock_SetResourceService_Call {
+	return &AgentServiceInterfaceMock_SetResourceService_Call{Call: _e.mock.On("SetResourceService", rs)}
+}
+
+func (_c *AgentServiceInterfaceMock_SetResourceService_Call) Run(run func(rs resource.ResourceServiceInterface)) *AgentServiceInterfaceMock_SetResourceService_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 resource.ResourceServiceInterface
+		if args[0] != nil {
+			arg0 = args[0].(resource.ResourceServiceInterface)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_SetResourceService_Call) Return() *AgentServiceInterfaceMock_SetResourceService_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_SetResourceService_Call) RunAndReturn(run func(rs resource.ResourceServiceInterface)) *AgentServiceInterfaceMock_SetResourceService_Call {
 	_c.Run(run)
 	return _c
 }
@@ -684,6 +1085,82 @@ func (_c *AgentServiceInterfaceMock_UpdateAgent_Call) Return(agentCompleteRespon
 }
 
 func (_c *AgentServiceInterfaceMock_UpdateAgent_Call) RunAndReturn(run func(ctx context.Context, agentID string, req *model.UpdateAgentRequest) (*model.AgentCompleteResponse, *common.ServiceError)) *AgentServiceInterfaceMock_UpdateAgent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateAgentInboundAccess provides a mock function for the type AgentServiceInterfaceMock
+func (_mock *AgentServiceInterfaceMock) UpdateAgentInboundAccess(ctx context.Context, agentID string, identifier string) (*model.AgentInboundAccessResponse, *common.ServiceError) {
+	ret := _mock.Called(ctx, agentID, identifier)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateAgentInboundAccess")
+	}
+
+	var r0 *model.AgentInboundAccessResponse
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*model.AgentInboundAccessResponse, *common.ServiceError)); ok {
+		return returnFunc(ctx, agentID, identifier)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *model.AgentInboundAccessResponse); ok {
+		r0 = returnFunc(ctx, agentID, identifier)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.AgentInboundAccessResponse)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, agentID, identifier)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateAgentInboundAccess'
+type AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call struct {
+	*mock.Call
+}
+
+// UpdateAgentInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - agentID string
+//   - identifier string
+func (_e *AgentServiceInterfaceMock_Expecter) UpdateAgentInboundAccess(ctx interface{}, agentID interface{}, identifier interface{}) *AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call {
+	return &AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call{Call: _e.mock.On("UpdateAgentInboundAccess", ctx, agentID, identifier)}
+}
+
+func (_c *AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call) Run(run func(ctx context.Context, agentID string, identifier string)) *AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call) Return(agentInboundAccessResponse *model.AgentInboundAccessResponse, serviceError *common.ServiceError) *AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call {
+	_c.Call.Return(agentInboundAccessResponse, serviceError)
+	return _c
+}
+
+func (_c *AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call) RunAndReturn(run func(ctx context.Context, agentID string, identifier string) (*model.AgentInboundAccessResponse, *common.ServiceError)) *AgentServiceInterfaceMock_UpdateAgentInboundAccess_Call {
 	_c.Call.Return(run)
 	return _c
 }

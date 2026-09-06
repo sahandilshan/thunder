@@ -712,6 +712,333 @@ paths:
                   key: "error.internal_server_error_description"
                   defaultValue: "An unexpected error occurred while processing the request"
 
+  /applications/{id}/resource-server:
+    get:
+      tags:
+        - Applications
+      summary: Get the inbound access exposed by the application
+      description: |
+        Returns the resource server the application owns and exposes as its inbound access. An
+        application exposes at most one resource server, auto-created by `POST` on this
+        endpoint. There is no way to bind a pre-existing resource server to an application.
+        Permissions on the resource server are managed through the resource server API
+        (`/resource-servers/{id}`), not here.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Application ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        "200":
+          description: Inbound access details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationInboundAccessResponse'
+              example:
+                resourceServerId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                identifier: "550e8400-e29b-41d4-a716-446655440000"
+                type: "APPLICATION"
+        "404":
+          description: Inbound access is not enabled, or the application does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not-enabled:
+                  summary: Inbound access not enabled
+                  value:
+                    code: "APP-1047"
+                    message:
+                      key: "error.applicationservice.inbound_access_not_enabled"
+                      defaultValue: "Inbound access is not enabled"
+                    description:
+                      key: "error.applicationservice.inbound_access_not_enabled_description"
+                      defaultValue: "The application does not expose inbound access"
+                application-not-found:
+                  summary: Application not found
+                  value:
+                    code: "APP-1001"
+                    message:
+                      key: "error.applicationservice.application_not_found"
+                      defaultValue: "Application not found"
+                    description:
+                      key: "error.applicationservice.application_not_found_description"
+                      defaultValue: "The requested application could not be found"
+        "500":
+          description: Internal server error
+
+    post:
+      tags:
+        - Applications
+      summary: Enable inbound access for the application
+      description: |
+        Creates a resource server owned by the application and points the application at it.
+        This always creates a new resource server. It is not a binding of an existing one, and
+        there is no way to bind a pre-existing resource server to an application. The request
+        body is entirely optional; a bodyless `POST` enables inbound access with defaults.
+
+        `identifier` is the audience a caller supplies via the OAuth `resource` parameter when
+        requesting a token for this application. When omitted or blank, it defaults to the
+        application's own ID.
+
+        Enabling inbound access changes the `aud` of tokens ThunderID issues to this
+        application's callers, not just tokens that explicitly request it. For grants other than
+        `client_credentials`, this identifier becomes the resolved audience ahead of the
+        deployment default resource server, `defaultAudience`, and the `client_id`, even for a
+        plain OIDC login that supplies no `resource` parameter. It also downscopes non-OIDC
+        scopes to the permissions defined on this resource server. See the aud resolution order
+        under `POST /oauth2/token` for the full precedence and its consequences.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Application ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnableInboundAccessRequest'
+            example:
+              identifier: "my-web-app-api"
+      responses:
+        "201":
+          description: Inbound access enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationInboundAccessResponse'
+              example:
+                resourceServerId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                identifier: "my-web-app-api"
+                type: "APPLICATION"
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "APP-1018"
+                message:
+                  key: "error.applicationservice.invalid_request_format"
+                  defaultValue: "Invalid request format"
+                description:
+                  key: "error.applicationservice.invalid_request_format_description"
+                  defaultValue: "The request body is malformed or contains invalid data"
+        "404":
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "APP-1001"
+                message:
+                  key: "error.applicationservice.application_not_found"
+                  defaultValue: "Application not found"
+                description:
+                  key: "error.applicationservice.application_not_found_description"
+                  defaultValue: "The requested application could not be found"
+        "409":
+          description: >-
+            Inbound access is already enabled, or the requested identifier or the entity's
+            derived resource server name conflicts with an existing resource server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                already-enabled:
+                  summary: Inbound access already enabled
+                  value:
+                    code: "APP-1046"
+                    message:
+                      key: "error.applicationservice.inbound_access_already_enabled"
+                      defaultValue: "Inbound access is already enabled"
+                    description:
+                      key: "error.applicationservice.inbound_access_already_enabled_description"
+                      defaultValue: "The application already exposes inbound access. Disable it first to expose a different audience identifier"
+                identifier-conflict:
+                  summary: Identifier already used by another resource server
+                  value:
+                    code: "RES-1013"
+                    message:
+                      key: "error.resourceservice.identifier_conflict"
+                      defaultValue: "Identifier conflict"
+                    description:
+                      key: "error.resourceservice.identifier_conflict_description"
+                      defaultValue: "A resource server with the same identifier already exists"
+                name-conflict:
+                  summary: Derived resource server name already in use
+                  value:
+                    code: "RES-1004"
+                    message:
+                      key: "error.resourceservice.name_conflict"
+                      defaultValue: "Name conflict"
+                    description:
+                      key: "error.resourceservice.name_conflict_description"
+                      defaultValue: "A resource server with the same name already exists"
+        "500":
+          description: Internal server error
+
+    put:
+      tags:
+        - Applications
+      summary: Change the audience identifier of the application's inbound access
+      description: |
+        Changes the `identifier` of the resource server the application owns. This is the only
+        supported way to change it, since the resource server API (`PUT /resource-servers/{id}`)
+        locks the identifier of an entity-owned resource server and rejects the change with
+        `RES-1025`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Application ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInboundAccessRequest'
+            example:
+              identifier: "my-web-app-api-v2"
+      responses:
+        "200":
+          description: Inbound access updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationInboundAccessResponse'
+              example:
+                resourceServerId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                identifier: "my-web-app-api-v2"
+                type: "APPLICATION"
+        "400":
+          description: Missing identifier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "APP-1048"
+                message:
+                  key: "error.applicationservice.missing_inbound_access_identifier"
+                  defaultValue: "Missing identifier"
+                description:
+                  key: "error.applicationservice.missing_inbound_access_identifier_description"
+                  defaultValue: "The identifier is required when updating inbound access"
+        "404":
+          description: Inbound access is not enabled, or the application does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not-enabled:
+                  summary: Inbound access not enabled
+                  value:
+                    code: "APP-1047"
+                    message:
+                      key: "error.applicationservice.inbound_access_not_enabled"
+                      defaultValue: "Inbound access is not enabled"
+                    description:
+                      key: "error.applicationservice.inbound_access_not_enabled_description"
+                      defaultValue: "The application does not expose inbound access"
+                application-not-found:
+                  summary: Application not found
+                  value:
+                    code: "APP-1001"
+                    message:
+                      key: "error.applicationservice.application_not_found"
+                      defaultValue: "Application not found"
+                    description:
+                      key: "error.applicationservice.application_not_found_description"
+                      defaultValue: "The requested application could not be found"
+        "409":
+          description: The requested identifier is already used by another resource server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: "RES-1013"
+                message:
+                  key: "error.resourceservice.identifier_conflict"
+                  defaultValue: "Identifier conflict"
+                description:
+                  key: "error.resourceservice.identifier_conflict_description"
+                  defaultValue: "A resource server with the same identifier already exists"
+        "500":
+          description: Internal server error
+
+    delete:
+      tags:
+        - Applications
+      summary: Disable inbound access for the application
+      description: |
+        Deletes the resource server the application owns and clears the application's reference
+        to it. This deletes the resource server; it does not merely remove a reference.
+        Permissions defined on it are removed from any role that granted them (cascade delete).
+        Access tokens issued before the deletion remain valid until they expire. There is no
+        revocation. Deleting the application itself also deletes its owned resource server.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Application ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        "204":
+          description: Inbound access disabled
+        "404":
+          description: Inbound access is not enabled, or the application does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not-enabled:
+                  summary: Inbound access not enabled
+                  value:
+                    code: "APP-1047"
+                    message:
+                      key: "error.applicationservice.inbound_access_not_enabled"
+                      defaultValue: "Inbound access is not enabled"
+                    description:
+                      key: "error.applicationservice.inbound_access_not_enabled_description"
+                      defaultValue: "The application does not expose inbound access"
+                application-not-found:
+                  summary: Application not found
+                  value:
+                    code: "APP-1001"
+                    message:
+                      key: "error.applicationservice.application_not_found"
+                      defaultValue: "Application not found"
+                    description:
+                      key: "error.applicationservice.application_not_found_description"
+                      defaultValue: "The requested application could not be found"
+        "500":
+          description: Internal server error
+
 components:
   securitySchemes:
     OAuth2:
@@ -1020,6 +1347,8 @@ components:
           example:
             env: "production"
             team: "platform"
+        inboundAccess:
+          $ref: '#/components/schemas/InboundAccess'
 
     ApplicationGetResponse:
       type: object
@@ -1147,6 +1476,8 @@ components:
           example:
             env: "production"
             team: "platform"
+        inboundAccess:
+          $ref: '#/components/schemas/InboundAccess'
 
     BasicApplicationResponse:
       type: object
@@ -1217,6 +1548,8 @@ components:
           type: boolean
           description: Indicates if the application is read-only (declarative/immutable).
           example: false
+        inboundAccess:
+          $ref: '#/components/schemas/InboundAccess'
 
     ApplicationListResponse:
       type: object
@@ -1233,6 +1566,86 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BasicApplicationResponse'
+
+    InboundAccess:
+      type: object
+      readOnly: true
+      description: |
+        Inbound access exposed by the application, backed by the single resource server the
+        application owns. Omitted entirely from the response when the application has not
+        enabled inbound access (there is no `"inboundAccess": null` or `"enabled": false` form).
+        Managed exclusively through `/applications/{id}/resource-server`; ignored on create and
+        update.
+      properties:
+        enabled:
+          type: boolean
+          description: Always `true` when this object is present.
+          example: true
+        identifier:
+          type: string
+          description: The audience identifier callers supply via the OAuth `resource` parameter.
+          example: "my-web-app-api"
+        resourceServerId:
+          type: string
+          format: uuid
+          description: ID of the resource server the application owns.
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
+    EnableInboundAccessRequest:
+      type: object
+      description: |
+        Request body for enabling inbound access on an application. Entirely optional, a
+        bodyless `POST` is valid and enables inbound access with defaults.
+      properties:
+        identifier:
+          type: string
+          description: |
+            Audience identifier for the resource server that will be created. When omitted or
+            blank, defaults to the application's own ID. Becomes the default `aud` for tokens
+            issued to this application's callers once inbound access is enabled, ahead of
+            `defaultAudience`; see `POST /oauth2/token` for the resolution order.
+          example: "my-web-app-api"
+
+    UpdateInboundAccessRequest:
+      type: object
+      required: [identifier]
+      description: |
+        Request body for changing the audience identifier of an application's inbound access.
+      properties:
+        identifier:
+          type: string
+          description: |
+            The new audience identifier. Required. Replaces the value used to resolve the `aud`
+            of tokens issued to this application's callers; see `POST /oauth2/token` for the
+            resolution order.
+          example: "my-web-app-api-v2"
+
+    ApplicationInboundAccessResponse:
+      type: object
+      required: [resourceServerId, identifier, type]
+      description: |
+        Describes the inbound access exposed by an application. Permissions are read and
+        managed through the resource server API (`/resource-servers/{resourceServerId}`) and
+        are deliberately not repeated here.
+      properties:
+        resourceServerId:
+          type: string
+          format: uuid
+          description: ID of the resource server the application owns.
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        identifier:
+          type: string
+          description: |
+            The audience identifier callers supply via the OAuth `resource` parameter. Also the
+            default `aud` for most tokens issued to this application's callers while inbound
+            access is enabled, even without a `resource` parameter; see `POST /oauth2/token` for
+            the resolution order.
+          example: "my-web-app-api"
+        type:
+          type: string
+          enum: [APPLICATION]
+          description: Always `APPLICATION` for a resource server owned by an application.
+          example: "APPLICATION"
 
     AssertionConfig:
       type: object
@@ -1269,10 +1682,13 @@ components:
           type: string
           maxLength: 2048
           description: >
-            The aud claim for access tokens that are not bound to a resource server, that is,
-            OIDC-only or scopeless requests. Falls back to the client_id when empty. A request
-            that targets a resource server (via the resource parameter or API scopes) uses that
-            resource server as the audience instead.
+            The aud claim for client_credentials access tokens that are not bound to a resource
+            server via API scopes. Falls back to the client_id when empty. For every other grant
+            (authorization_code, token exchange, jwt-bearer, CIBA), this is used only when the
+            application has no inbound access identifier enabled and no resource server is
+            otherwise targeted; once inbound access is enabled, the inbound access identifier
+            takes precedence over defaultAudience for those grants. See the aud resolution order
+            under `POST /oauth2/token` for the full precedence.
           example: https://api.example.com
 
     AccessTokenSubConfig:

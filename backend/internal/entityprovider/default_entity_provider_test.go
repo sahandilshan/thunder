@@ -6,6 +6,7 @@ package entityprovider
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -450,4 +451,61 @@ func (suite *DefaultEntityProviderTestSuite) TestGetEntitiesByIDs() {
 	suite.Nil(result)
 	suite.NotNil(err)
 	suite.Equal(ErrorCodeSystemError, err.Code)
+}
+
+// populateAllFields sets every field of the struct behind v to a distinctive non-zero value, so a
+// field that a mapping function forgets to copy shows up as a zero value in the result.
+func populateAllFields(t *testing.T, v reflect.Value) {
+	t.Helper()
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		name := v.Type().Field(i).Name
+		if !field.CanSet() {
+			t.Fatalf("field %s is unexported; extend populateAllFields to cover it", name)
+		}
+		switch field.Kind() {
+		case reflect.String:
+			field.SetString("value-" + name)
+		case reflect.Bool:
+			field.SetBool(true)
+		case reflect.Slice:
+			if field.Type() == reflect.TypeOf(json.RawMessage(nil)) {
+				field.Set(reflect.ValueOf(json.RawMessage(`{"` + name + `":1}`)))
+				continue
+			}
+			t.Fatalf("field %s has unhandled slice type %s; extend populateAllFields", name, field.Type())
+		default:
+			t.Fatalf("field %s has unhandled kind %s; extend populateAllFields", name, field.Kind())
+		}
+	}
+}
+
+// toProviderEntity and toServiceEntity map providers.Entity onto itself, so they must preserve
+// every field. They previously enumerated fields by hand and silently dropped ResourceServerID,
+// making application inbound access write-only. This test fails if any field stops round-tripping,
+// including one added to providers.Entity in the future.
+func (suite *DefaultEntityProviderTestSuite) TestEntityMappingPreservesEveryField() {
+	var populated providers.Entity
+	populateAllFields(suite.T(), reflect.ValueOf(&populated).Elem())
+
+	suite.Equal(populated, *toProviderEntity(&populated),
+		"toProviderEntity dropped a field of providers.Entity")
+	suite.Equal(populated, *toServiceEntity(&populated),
+		"toServiceEntity dropped a field of providers.Entity")
+}
+
+// The mapping must copy rather than alias, so a caller mutating the result cannot reach back into
+// the entity the service still holds.
+func (suite *DefaultEntityProviderTestSuite) TestEntityMappingReturnsIndependentCopy() {
+	original := providers.Entity{ID: "entity-1", ResourceServerID: "rs-1"}
+
+	mapped := toProviderEntity(&original)
+	mapped.ResourceServerID = "rs-2"
+
+	suite.Equal("rs-1", original.ResourceServerID)
+}
+
+func (suite *DefaultEntityProviderTestSuite) TestEntityMappingHandlesNil() {
+	suite.Nil(toProviderEntity(nil))
+	suite.Nil(toServiceEntity(nil))
 }

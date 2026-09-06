@@ -58,6 +58,10 @@ type EntityServiceInterface interface {
 	GetEntitiesByIDs(ctx context.Context, entityIDs []string) ([]providers.Entity, error)
 	ValidateEntityIDsInOUs(ctx context.Context, entityIDs []string, ouIDs []string) ([]string, error)
 
+	// Resource server reference
+	UpdateEntityResourceServerID(ctx context.Context, entityID string, resourceServerID *string) error
+	GetEntitiesByResourceServerID(ctx context.Context, resourceServerID string) ([]providers.Entity, error)
+
 	// Groups
 	GetGroupCountForEntity(ctx context.Context, entityID string) (int, error)
 	GetEntityGroups(ctx context.Context, entityID string, limit, offset int) ([]providers.EntityGroup, error)
@@ -423,6 +427,20 @@ func (s *entityService) GetEntitiesByIDs(ctx context.Context, entityIDs []string
 func (s *entityService) ValidateEntityIDsInOUs(ctx context.Context,
 	entityIDs []string, ouIDs []string) ([]string, error) {
 	return s.store.ValidateEntityIDsInOUs(ctx, entityIDs, ouIDs)
+}
+
+// UpdateEntityResourceServerID updates the RESOURCE_SERVER_ID of an entity.
+func (s *entityService) UpdateEntityResourceServerID(
+	ctx context.Context, entityID string, resourceServerID *string,
+) error {
+	return s.store.UpdateEntityResourceServerID(ctx, entityID, resourceServerID)
+}
+
+// GetEntitiesByResourceServerID retrieves all entities that reference the given resource server.
+func (s *entityService) GetEntitiesByResourceServerID(
+	ctx context.Context, resourceServerID string,
+) ([]providers.Entity, error) {
+	return s.store.GetEntitiesByResourceServerID(ctx, resourceServerID)
 }
 
 // GetGroupCountForEntity retrieves the total count of groups an entity belongs to.

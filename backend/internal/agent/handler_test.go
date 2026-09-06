@@ -16,8 +16,10 @@ import (
 
 	"github.com/thunder-id/thunderid/internal/agent/model"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	"github.com/thunder-id/thunderid/internal/system/utils"
+	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
 )
 
 type InlineStubAgentService struct {
@@ -40,6 +42,18 @@ type InlineStubAgentService struct {
 	OnGetAgentRoles func(
 		ctx context.Context, id string, limit, offset int,
 	) (*model.AgentRoleListResponse, *tidcommon.ServiceError)
+	OnGetAgentInboundAccess func(
+		ctx context.Context, id string,
+	) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError)
+	OnEnableAgentInboundAccess func(
+		ctx context.Context, id, identifier string,
+	) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError)
+	OnUpdateAgentInboundAccess func(
+		ctx context.Context, id, identifier string,
+	) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError)
+	OnDisableAgentInboundAccess func(
+		ctx context.Context, id string,
+	) *tidcommon.ServiceError
 }
 
 func (s *InlineStubAgentService) CreateAgent(
@@ -112,6 +126,56 @@ func (s *InlineStubAgentService) GetResourceDependencies(
 }
 
 func (s *InlineStubAgentService) SetDependencyRegistry(resourcedependency.Registry) {}
+
+func (s *InlineStubAgentService) SetResourceService(resource.ResourceServiceInterface) {}
+
+func (s *InlineStubAgentService) LoadDeclarativeInboundAccess(
+	context.Context, string, string, string, *providers.DeclarativeInboundAccess,
+) (string, error) {
+	return "", nil
+}
+
+func (s *InlineStubAgentService) GetAgentDeclarativeInboundAccess(
+	context.Context, string,
+) (*providers.DeclarativeInboundAccess, *tidcommon.ServiceError) {
+	return nil, nil
+}
+
+func (s *InlineStubAgentService) GetAgentInboundAccess(
+	ctx context.Context, id string,
+) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+	if s.OnGetAgentInboundAccess != nil {
+		return s.OnGetAgentInboundAccess(ctx, id)
+	}
+	return nil, &ErrorAgentNotFound
+}
+
+func (s *InlineStubAgentService) EnableAgentInboundAccess(
+	ctx context.Context, id, identifier string,
+) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+	if s.OnEnableAgentInboundAccess != nil {
+		return s.OnEnableAgentInboundAccess(ctx, id, identifier)
+	}
+	return nil, &ErrorAgentNotFound
+}
+
+func (s *InlineStubAgentService) UpdateAgentInboundAccess(
+	ctx context.Context, id, identifier string,
+) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+	if s.OnUpdateAgentInboundAccess != nil {
+		return s.OnUpdateAgentInboundAccess(ctx, id, identifier)
+	}
+	return nil, &ErrorAgentNotFound
+}
+
+func (s *InlineStubAgentService) DisableAgentInboundAccess(
+	ctx context.Context, id string,
+) *tidcommon.ServiceError {
+	if s.OnDisableAgentInboundAccess != nil {
+		return s.OnDisableAgentInboundAccess(ctx, id)
+	}
+	return &ErrorAgentNotFound
+}
 
 func TestHandleAgentPostRequest_Success(t *testing.T) {
 	stubService := &InlineStubAgentService{
@@ -399,4 +463,367 @@ func TestHandleAgentRolesRequest_ServiceError(t *testing.T) {
 	handler.HandleAgentRolesRequest(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.Contains(t, w.Body.String(), ErrorAgentNotFound.Code)
+}
+
+// --- Inbound Access Handler Tests ---
+
+func TestHandleAgentInboundAccessGetRequest_Success(t *testing.T) {
+	stubService := &InlineStubAgentService{
+		OnGetAgentInboundAccess: func(
+			ctx context.Context, id string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			return &model.AgentInboundAccessResponse{
+				ResourceServerID: "rs-1",
+				Identifier:       "agent-123",
+				Type:             providers.ResourceServerTypeAgent,
+			}, nil
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodGet, "/agents/agent-123/resource-server", nil)
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessGetRequest(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"identifier":"agent-123"`)
+	assert.Contains(t, w.Body.String(), `"type":"AGENT"`)
+}
+
+func TestHandleAgentInboundAccessGetRequest_MissingID(t *testing.T) {
+	stubService := &InlineStubAgentService{}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodGet, "/agents//resource-server", nil)
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessGetRequest(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), ErrorMissingAgentID.Code)
+}
+
+func TestHandleAgentInboundAccessGetRequest_NotFound(t *testing.T) {
+	stubService := &InlineStubAgentService{}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodGet, "/agents/agent-123/resource-server", nil)
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessGetRequest(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestHandleAgentInboundAccessGetRequest_NotEnabledReturns404(t *testing.T) {
+	stubService := &InlineStubAgentService{
+		OnGetAgentInboundAccess: func(
+			ctx context.Context, id string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			return nil, &ErrorAgentInboundAccessNotEnabled
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodGet, "/agents/agent-123/resource-server", nil)
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessGetRequest(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), ErrorAgentInboundAccessNotEnabled.Code)
+}
+
+func TestHandleAgentInboundAccessPostRequest_Success(t *testing.T) {
+	var receivedIdentifier string
+	stubService := &InlineStubAgentService{
+		OnEnableAgentInboundAccess: func(
+			ctx context.Context, id, identifier string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			receivedIdentifier = identifier
+			return &model.AgentInboundAccessResponse{
+				ResourceServerID: "rs-1",
+				Identifier:       identifier,
+				Type:             providers.ResourceServerTypeAgent,
+			}, nil
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPost, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{"identifier": "https://api.example.com"}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPostRequest(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, "https://api.example.com", receivedIdentifier)
+}
+
+func TestHandleAgentInboundAccessPostRequest_EmptyBodyPassesBlankIdentifier(t *testing.T) {
+	identifierSet := true
+	stubService := &InlineStubAgentService{
+		OnEnableAgentInboundAccess: func(
+			ctx context.Context, id, identifier string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			identifierSet = identifier != ""
+			return &model.AgentInboundAccessResponse{ResourceServerID: "rs-1", Identifier: id}, nil
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPost, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPostRequest(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.False(t, identifierSet)
+}
+
+func TestHandleAgentInboundAccessPostRequest_BodylessEnablesWithDefaults(t *testing.T) {
+	identifierSet := true
+	stubService := &InlineStubAgentService{
+		OnEnableAgentInboundAccess: func(
+			ctx context.Context, id, identifier string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			identifierSet = identifier != ""
+			return &model.AgentInboundAccessResponse{ResourceServerID: "rs-1", Identifier: id}, nil
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPost, "/agents/agent-123/resource-server", nil)
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPostRequest(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.False(t, identifierSet)
+	assert.Contains(t, w.Body.String(), `"identifier":"agent-123"`)
+}
+
+func TestHandleAgentInboundAccessPostRequest_MissingID(t *testing.T) {
+	stubService := &InlineStubAgentService{}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPost, "/agents//resource-server",
+		bytes.NewBufferString(`{}`))
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPostRequest(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandleAgentInboundAccessPostRequest_InvalidJSON(t *testing.T) {
+	stubService := &InlineStubAgentService{}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPost, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{bad`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPostRequest(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandleAgentInboundAccessPostRequest_AlreadyEnabledReturns409(t *testing.T) {
+	stubService := &InlineStubAgentService{
+		OnEnableAgentInboundAccess: func(
+			ctx context.Context, id, identifier string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			return nil, &ErrorAgentInboundAccessAlreadyEnabled
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPost, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPostRequest(w, req)
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), ErrorAgentInboundAccessAlreadyEnabled.Code)
+}
+
+func TestHandleAgentInboundAccessPutRequest_Success(t *testing.T) {
+	stubService := &InlineStubAgentService{
+		OnUpdateAgentInboundAccess: func(
+			ctx context.Context, id, identifier string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			return &model.AgentInboundAccessResponse{
+				ResourceServerID: "rs-1",
+				Identifier:       identifier,
+				Type:             providers.ResourceServerTypeAgent,
+			}, nil
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPut, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{"identifier": "https://new.example.com"}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPutRequest(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "https://new.example.com")
+}
+
+// The identifier carries no native constraint, so decoding must not short-circuit: the request has
+// to reach the service, which returns the dedicated missing-identifier error.
+func TestHandleAgentInboundAccessPutRequest_MissingIdentifierReturnsDedicatedError(t *testing.T) {
+	reachedService := false
+	stubService := &InlineStubAgentService{
+		OnUpdateAgentInboundAccess: func(
+			ctx context.Context, id, identifier string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			reachedService = true
+			assert.Empty(t, identifier)
+			return nil, &ErrorMissingInboundAccessIdentifier
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPut, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPutRequest(w, req)
+	assert.True(t, reachedService)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), ErrorMissingInboundAccessIdentifier.Code)
+}
+
+func TestHandleAgentInboundAccessPutRequest_MissingID(t *testing.T) {
+	stubService := &InlineStubAgentService{}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPut, "/agents//resource-server",
+		bytes.NewBufferString(`{"identifier": "x"}`))
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPutRequest(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandleAgentInboundAccessDeleteRequest_Success(t *testing.T) {
+	stubService := &InlineStubAgentService{
+		OnDisableAgentInboundAccess: func(
+			ctx context.Context, id string,
+		) *tidcommon.ServiceError {
+			return nil
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodDelete, "/agents/agent-123/resource-server", nil)
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessDeleteRequest(w, req)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestHandleAgentInboundAccessDeleteRequest_MissingID(t *testing.T) {
+	stubService := &InlineStubAgentService{}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodDelete, "/agents//resource-server", nil)
+	req.SetPathValue("id", "")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessDeleteRequest(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandleAgentInboundAccessDeleteRequest_ServiceError(t *testing.T) {
+	stubService := &InlineStubAgentService{}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodDelete, "/agents/agent-123/resource-server", nil)
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessDeleteRequest(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// The inbound-access endpoints delegate to the resource service and return its errors unmapped, so
+// the handler must translate the resource service's conflict codes rather than defaulting to 400.
+func TestHandleAgentInboundAccessPostRequest_IdentifierConflictReturns409(t *testing.T) {
+	stubService := &InlineStubAgentService{
+		OnEnableAgentInboundAccess: func(
+			_ context.Context, _, _ string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			return nil, &resource.ErrorIdentifierConflict
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPost, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{"identifier": "https://taken.example.com"}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPostRequest(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), resource.ErrorIdentifierConflict.Code)
+}
+
+func TestHandleAgentInboundAccessPutRequest_NameConflictReturns409(t *testing.T) {
+	stubService := &InlineStubAgentService{
+		OnUpdateAgentInboundAccess: func(
+			_ context.Context, _, _ string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			return nil, &resource.ErrorNameConflict
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPut, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{"identifier": "https://api.example.com"}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPutRequest(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), resource.ErrorNameConflict.Code)
+}
+
+// The identifier reaches the service sanitized the same way POST /resource-servers sanitizes it:
+// surrounding whitespace trimmed and control characters stripped.
+func TestHandleAgentInboundAccessPostRequest_SanitizesIdentifier(t *testing.T) {
+	var receivedIdentifier string
+	stubService := &InlineStubAgentService{
+		OnEnableAgentInboundAccess: func(
+			_ context.Context, _, identifier string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			receivedIdentifier = identifier
+			return &model.AgentInboundAccessResponse{ResourceServerID: "rs-1", Identifier: identifier}, nil
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPost, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{"identifier": "  https://api.\u0000example.com  "}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPostRequest(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Equal(t, "https://api.example.com", receivedIdentifier)
+}
+
+func TestHandleAgentInboundAccessPutRequest_SanitizesIdentifier(t *testing.T) {
+	var receivedIdentifier string
+	stubService := &InlineStubAgentService{
+		OnUpdateAgentInboundAccess: func(
+			_ context.Context, _, identifier string,
+		) (*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+			receivedIdentifier = identifier
+			return &model.AgentInboundAccessResponse{ResourceServerID: "rs-1", Identifier: identifier}, nil
+		},
+	}
+	handler := newAgentHandler(stubService)
+	req := httptest.NewRequest(http.MethodPut, "/agents/agent-123/resource-server",
+		bytes.NewBufferString(`{"identifier": "\thttps://api.example.com  "}`))
+	req.SetPathValue("id", "agent-123")
+	w := httptest.NewRecorder()
+
+	handler.HandleAgentInboundAccessPutRequest(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "https://api.example.com", receivedIdentifier)
 }

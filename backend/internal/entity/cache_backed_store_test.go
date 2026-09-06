@@ -113,7 +113,11 @@ func (s *CacheBackedEntityStoreTestSuite) makeEntity(id, clientID string) provid
 	}
 }
 
-const testEntityID = "entity-1"
+const (
+	testEntityID = "entity-1"
+	// testCachedRSID is the resource server an entity owns in the cache round-trip tests.
+	testCachedRSID = "rs-1"
+)
 
 // GetEntity tests
 
@@ -428,7 +432,7 @@ func (s *CacheBackedEntityStoreTestSuite) TestCreateEntity_StoreError_DoesNotCac
 
 // UpdateEntity tests
 
-func (s *CacheBackedEntityStoreTestSuite) TestUpdateEntity_InvalidatesAndRecachesEntity() {
+func (s *CacheBackedEntityStoreTestSuite) TestUpdateEntity_InvalidatesEntityByID() {
 	entity := s.makeEntity(testEntityID, "client-1")
 	s.entityByIDData[entity.ID] = &entity
 
@@ -438,10 +442,121 @@ func (s *CacheBackedEntityStoreTestSuite) TestUpdateEntity_InvalidatesAndRecache
 	s.Nil(err)
 	s.mockStore.AssertExpectations(s.T())
 
-	// Updated entity must be present in the by-ID cache.
-	cached, ok := s.entityByIDCache.Get(context.Background(), cache.CacheKey{Key: entity.ID})
+	// The entry is dropped rather than re-seeded, so the next read reloads from the store.
+	_, ok := s.entityByIDCache.Get(context.Background(), cache.CacheKey{Key: entity.ID})
+	s.False(ok, "UpdateEntity must invalidate the by-ID cache, not re-seed it")
+}
+
+// The update statement writes only a subset of the entity's columns, so the caller's struct is not
+// a faithful image of the stored row. Re-seeding the cache from it published a partial entity: an
+// agent update omitting ResourceServerID made the owned resource server unreachable until the
+// process restarted. A read after an update must see the persisted value, not the caller's blank.
+func (s *CacheBackedEntityStoreTestSuite) TestUpdateEntity_ReadAfterUpdateSeesPersistedResourceServerID() {
+	stored := s.makeEntity(testEntityID, "client-1")
+	stored.ResourceServerID = testCachedRSID
+	s.entityByIDData[stored.ID] = &stored
+
+	// The caller supplies a partial entity, as the agent service does on update.
+	partial := s.makeEntity(testEntityID, "client-1")
+	partial.ResourceServerID = ""
+
+	s.mockStore.On("UpdateEntity", mock.Anything, &partial).Return(nil).Once()
+	// The store still holds the resource server reference: the update never writes that column.
+	s.mockStore.On("GetEntity", mock.Anything, testEntityID).Return(stored, nil).Once()
+
+	s.Nil(s.cachedStore.UpdateEntity(context.Background(), &partial))
+
+	result, err := s.cachedStore.GetEntity(context.Background(), testEntityID)
+	s.Nil(err)
+	s.Equal(testCachedRSID, result.ResourceServerID,
+		"read after update returned the caller's blank ResourceServerID instead of the stored one")
+}
+
+// The by-ID entry is invalidated on both sides of the write. Callers run UpdateEntity inside their
+// own transaction, so the post-write invalidation lands before commit and a concurrent reader can
+// repopulate the entry from uncommitted state; on rollback that entry would describe a row that
+// never existed. Evicting first bounds the exposure to the window around the write itself. The cost
+// is that a failed update also costs one cache miss, which this test pins down.
+func (s *CacheBackedEntityStoreTestSuite) TestUpdateEntity_EvictsBeforeTheWrite() {
+	entity := s.makeEntity(testEntityID, "client-1")
+	s.entityByIDData[entity.ID] = &entity
+
+	s.mockStore.On("UpdateEntity", mock.Anything, &entity).
+		Run(func(mock.Arguments) {
+			_, ok := s.entityByIDCache.Get(context.Background(), cache.CacheKey{Key: testEntityID})
+			s.False(ok, "the stale entry must be evicted before the write, not only after it")
+		}).Return(errors.New("db error")).Once()
+
+	s.Error(s.cachedStore.UpdateEntity(context.Background(), &entity))
+
+	// The pre-write eviction stands even though the write failed: the next read re-reads the row.
+	_, ok := s.entityByIDCache.Get(context.Background(), cache.CacheKey{Key: entity.ID})
+	s.False(ok)
+}
+
+func (s *CacheBackedEntityStoreTestSuite) TestUpdateEntityResourceServerID_InvalidatesAfterWrite() {
+	entity := s.makeEntity(testEntityID, "client-1")
+	s.entityByIDData[entity.ID] = &entity
+
+	rsID := testCachedRSID
+	s.mockStore.On("UpdateEntityResourceServerID", mock.Anything, testEntityID, &rsID).
+		Run(func(mock.Arguments) {
+			// The cached entry must still be present while the write is in flight, proving the
+			// invalidation happens afterwards rather than before.
+			_, ok := s.entityByIDCache.Get(context.Background(), cache.CacheKey{Key: testEntityID})
+			s.True(ok, "invalidation must happen after the write, not before")
+		}).Return(nil).Once()
+
+	s.Nil(s.cachedStore.UpdateEntityResourceServerID(context.Background(), testEntityID, &rsID))
+
+	_, ok := s.entityByIDCache.Get(context.Background(), cache.CacheKey{Key: testEntityID})
+	s.False(ok)
+}
+
+func (s *CacheBackedEntityStoreTestSuite) TestUpdateEntityResourceServerID_StoreFailureLeavesCacheIntact() {
+	entity := s.makeEntity(testEntityID, "client-1")
+	s.entityByIDData[entity.ID] = &entity
+
+	rsID := testCachedRSID
+	s.mockStore.On("UpdateEntityResourceServerID", mock.Anything, testEntityID, &rsID).
+		Return(errors.New("db error")).Once()
+
+	s.Error(s.cachedStore.UpdateEntityResourceServerID(context.Background(), testEntityID, &rsID))
+
+	_, ok := s.entityByIDCache.Get(context.Background(), cache.CacheKey{Key: testEntityID})
 	s.True(ok)
-	s.Equal(entity.ID, cached.ID)
+}
+
+// Walks the real sequence that broke inbound access: an agent owns a resource server, the agent is
+// renamed (an update that writes the identity columns but not RESOURCE_SERVER_ID), and the owner is
+// then read back. Every read after the update must still resolve the resource server.
+func (s *CacheBackedEntityStoreTestSuite) TestResourceServerReferenceSurvivesRenameThroughCache() {
+	stored := s.makeEntity(testEntityID, "client-1")
+	stored.ResourceServerID = testCachedRSID
+
+	// Warm the cache the way a read before the rename would.
+	s.mockStore.On("GetEntity", mock.Anything, testEntityID).Return(stored, nil)
+	warmed, err := s.cachedStore.GetEntity(context.Background(), testEntityID)
+	s.Nil(err)
+	s.Equal(testCachedRSID, warmed.ResourceServerID)
+
+	// Rename: the caller's struct carries the new name and no resource server reference, and the
+	// store leaves RESOURCE_SERVER_ID untouched.
+	renamed := s.makeEntity(testEntityID, "client-1")
+	renamed.Type = "renamed"
+	s.mockStore.On("UpdateEntity", mock.Anything, &renamed).Return(nil).Once()
+	s.Nil(s.cachedStore.UpdateEntity(context.Background(), &renamed))
+
+	// The store still holds the reference, so the reloaded entity must too.
+	afterRename, err := s.cachedStore.GetEntity(context.Background(), testEntityID)
+	s.Nil(err)
+	s.Equal(testCachedRSID, afterRename.ResourceServerID,
+		"the resource server reference was lost after a rename")
+
+	// A repeat read (now served from the refreshed cache) must agree.
+	repeat, err := s.cachedStore.GetEntity(context.Background(), testEntityID)
+	s.Nil(err)
+	s.Equal(testCachedRSID, repeat.ResourceServerID)
 }
 
 // IdentifyEntity cache tests

@@ -460,6 +460,74 @@ func (_c *EntityServiceInterfaceMock_GetEntitiesByIDs_Call) RunAndReturn(run fun
 	return _c
 }
 
+// GetEntitiesByResourceServerID provides a mock function for the type EntityServiceInterfaceMock
+func (_mock *EntityServiceInterfaceMock) GetEntitiesByResourceServerID(ctx context.Context, resourceServerID string) ([]providers.Entity, error) {
+	ret := _mock.Called(ctx, resourceServerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetEntitiesByResourceServerID")
+	}
+
+	var r0 []providers.Entity
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]providers.Entity, error)); ok {
+		return returnFunc(ctx, resourceServerID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []providers.Entity); ok {
+		r0 = returnFunc(ctx, resourceServerID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]providers.Entity)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, resourceServerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetEntitiesByResourceServerID'
+type EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call struct {
+	*mock.Call
+}
+
+// GetEntitiesByResourceServerID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - resourceServerID string
+func (_e *EntityServiceInterfaceMock_Expecter) GetEntitiesByResourceServerID(ctx interface{}, resourceServerID interface{}) *EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call {
+	return &EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call{Call: _e.mock.On("GetEntitiesByResourceServerID", ctx, resourceServerID)}
+}
+
+func (_c *EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call) Run(run func(ctx context.Context, resourceServerID string)) *EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call) Return(entitys []providers.Entity, err error) *EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call {
+	_c.Call.Return(entitys, err)
+	return _c
+}
+
+func (_c *EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call) RunAndReturn(run func(ctx context.Context, resourceServerID string) ([]providers.Entity, error)) *EntityServiceInterfaceMock_GetEntitiesByResourceServerID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetEntity provides a mock function for the type EntityServiceInterfaceMock
 func (_mock *EntityServiceInterfaceMock) GetEntity(ctx context.Context, entityID string) (*providers.Entity, error) {
 	ret := _mock.Called(ctx, entityID)
@@ -1610,6 +1678,69 @@ func (_c *EntityServiceInterfaceMock_UpdateEntity_Call) Return(entity1 *provider
 }
 
 func (_c *EntityServiceInterfaceMock_UpdateEntity_Call) RunAndReturn(run func(ctx context.Context, entityID string, entity *providers.Entity) (*providers.Entity, error)) *EntityServiceInterfaceMock_UpdateEntity_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateEntityResourceServerID provides a mock function for the type EntityServiceInterfaceMock
+func (_mock *EntityServiceInterfaceMock) UpdateEntityResourceServerID(ctx context.Context, entityID string, resourceServerID *string) error {
+	ret := _mock.Called(ctx, entityID, resourceServerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateEntityResourceServerID")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *string) error); ok {
+		r0 = returnFunc(ctx, entityID, resourceServerID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateEntityResourceServerID'
+type EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call struct {
+	*mock.Call
+}
+
+// UpdateEntityResourceServerID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - entityID string
+//   - resourceServerID *string
+func (_e *EntityServiceInterfaceMock_Expecter) UpdateEntityResourceServerID(ctx interface{}, entityID interface{}, resourceServerID interface{}) *EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call {
+	return &EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call{Call: _e.mock.On("UpdateEntityResourceServerID", ctx, entityID, resourceServerID)}
+}
+
+func (_c *EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call) Run(run func(ctx context.Context, entityID string, resourceServerID *string)) *EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 *string
+		if args[2] != nil {
+			arg2 = args[2].(*string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call) Return(err error) *EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call) RunAndReturn(run func(ctx context.Context, entityID string, resourceServerID *string) error) *EntityServiceInterfaceMock_UpdateEntityResourceServerID_Call {
 	_c.Call.Return(run)
 	return _c
 }

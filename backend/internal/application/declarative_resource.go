@@ -81,6 +81,14 @@ func (e *applicationExporter) GetResourceByID(ctx context.Context, id string) (
 	if err != nil {
 		return nil, "", err
 	}
+	// The resource server the application owns is exported inline here rather than by the resource
+	// server exporter, which skips entity-owned resource servers; otherwise an import would create
+	// it twice.
+	access, err := e.service.GetApplicationDeclarativeInboundAccess(ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+	app.InboundAccessYAML = access
 	return app, app.Name, nil
 }
 
@@ -224,6 +232,18 @@ func parseToApplicationDTO(data []byte) (*model.ApplicationDTO, error) {
 	return &appDTO, nil
 }
 
+// parseDeclarativeInboundAccess extracts the inbound access block from application YAML. It is read
+// separately from the application DTO because inbound access is declarative-only: the DTO is shared
+// with the REST create and update paths, which manage inbound access through the application's
+// resource-server endpoints instead.
+func parseDeclarativeInboundAccess(data []byte) (*providers.DeclarativeInboundAccess, error) {
+	var appRequest model.ApplicationRequestWithID
+	if err := yaml.Unmarshal(data, &appRequest); err != nil {
+		return nil, err
+	}
+	return appRequest.InboundAccess, nil
+}
+
 // GetResourceRules returns the parameterization rules for applications.
 func (e *applicationExporter) GetResourceRules() *declarativeresource.ResourceRules {
 	return &declarativeresource.ResourceRules{
@@ -317,6 +337,25 @@ func makeAppEntityParser(
 			State:            providers.EntityStateActive,
 			OUID:             appDTO.OUID,
 			SystemAttributes: sysAttrsJSON,
+		}
+
+		// Create the resource server the application owns from the inline inbound access block and
+		// point the application at it. Loading runs at startup, so any failure here aborts the
+		// server start and leaves no half-applied state behind.
+		access, err := parseDeclarativeInboundAccess(data)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to parse the inbound access of application '%s': %w",
+				appDTO.ID, err)
+		}
+		if access != nil {
+			resourceServerID, rsErr := appService.LoadDeclarativeInboundAccess(
+				security.WithRuntimeContext(context.Background()),
+				appDTO.ID, appDTO.OUID, appDTO.Name, access)
+			if rsErr != nil {
+				return nil, nil, nil, fmt.Errorf("failed to load the inbound access of application '%s': %w",
+					appDTO.ID, rsErr)
+			}
+			e.ResourceServerID = resourceServerID
 		}
 
 		return e, nil, sysCredsJSON, nil

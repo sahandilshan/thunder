@@ -21,6 +21,7 @@ import (
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 	oauthutils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
 	oupkg "github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -49,6 +50,23 @@ type AgentServiceInterface interface {
 	GetResourceDependencies(
 		ctx context.Context, resourceType, id string) ([]resourcedependency.ResourceDependency, error)
 	SetDependencyRegistry(r resourcedependency.Registry)
+	SetResourceService(rs resource.ResourceServiceInterface)
+	GetAgentInboundAccess(ctx context.Context, agentID string) (*model.AgentInboundAccessResponse,
+		*tidcommon.ServiceError)
+	EnableAgentInboundAccess(ctx context.Context, agentID, identifier string) (
+		*model.AgentInboundAccessResponse, *tidcommon.ServiceError)
+	UpdateAgentInboundAccess(ctx context.Context, agentID, identifier string) (
+		*model.AgentInboundAccessResponse, *tidcommon.ServiceError)
+	DisableAgentInboundAccess(ctx context.Context, agentID string) *tidcommon.ServiceError
+	// LoadDeclarativeInboundAccess registers the resource server a declaratively defined agent owns,
+	// with the permission tree declared inline on that agent, and returns its ID. Called by the
+	// declarative loader at startup only.
+	LoadDeclarativeInboundAccess(ctx context.Context, agentID, ouID, name string,
+		access *providers.DeclarativeInboundAccess) (string, error)
+	// GetAgentDeclarativeInboundAccess returns the agent's inbound access in declarative form,
+	// including the permission tree. Returns nil when the agent exposes none. Used by the exporter.
+	GetAgentDeclarativeInboundAccess(ctx context.Context, agentID string) (
+		*providers.DeclarativeInboundAccess, *tidcommon.ServiceError)
 }
 
 type agentService struct {
@@ -58,6 +76,7 @@ type agentService struct {
 	ouService            oupkg.OrganizationUnitServiceInterface
 	dependencyRegistry   resourcedependency.Registry
 	roleService          role.RoleServiceInterface
+	resourceService      resource.ResourceServiceInterface
 }
 
 func newAgentService(
@@ -182,6 +201,7 @@ func (s *agentService) GetAgent(ctx context.Context, agentID string, includeDisp
 	if includeDisplay {
 		s.populateOUHandleForGet(ctx, resp)
 	}
+	resp.InboundAccess = s.inboundAccessFor(ctx, e.ResourceServerID)
 
 	return resp, nil
 }
@@ -305,6 +325,16 @@ func (s *agentService) UpdateAgent(ctx context.Context, agentID string,
 	}
 	updatedEntity.SystemAttributes = sysAttrsJSON
 
+	// The owned resource server carries the agent's name, so a rename must propagate to it. This
+	// runs before the entity write: resource server names are unique deployment-wide, so the sync
+	// can conflict with a name the agent-level check does not see. Renaming the entity first would
+	// leave the two names permanently apart, because a retry no longer sees a name change.
+	if req.Name != currentName {
+		if svcErr := s.syncOwnedResourceServerName(ctx, existing.ResourceServerID, req.Name); svcErr != nil {
+			return nil, svcErr
+		}
+	}
+
 	if _, err := s.entityService.UpdateEntity(ctx, agentID, updatedEntity); err != nil {
 		if mapped := mapEntityError(err); mapped != nil {
 			return nil, mapped
@@ -343,15 +373,265 @@ func (s *agentService) UpdateAgent(ctx context.Context, agentID string,
 		req.AllowedUserTypes, inboundConfigs)
 	resp.OUID = ouID
 	s.populateOUHandleForComplete(ctx, resp)
+	resp.InboundAccess = s.inboundAccessFor(ctx, existing.ResourceServerID)
 	return resp, nil
 }
 
-// DeleteAgent removes the agent and its associated inbound client.
 // SetDependencyRegistry injects the dependency registry. Called by servicemanager after the
 // provider services are initialized to avoid a cyclic import.
 func (s *agentService) SetDependencyRegistry(r resourcedependency.Registry) {
 	s.dependencyRegistry = r
 }
+
+// SetResourceService injects the resource service for ownership operations.
+func (s *agentService) SetResourceService(rs resource.ResourceServiceInterface) {
+	s.resourceService = rs
+}
+
+// resolveAgentEntity loads the entity and verifies it is an agent.
+func (s *agentService) resolveAgentEntity(ctx context.Context, agentID string) (
+	*providers.Entity, *tidcommon.ServiceError) {
+	if agentID == "" {
+		return nil, &ErrorMissingAgentID
+	}
+	e, err := s.entityService.GetEntity(ctx, agentID)
+	if err != nil {
+		if errors.Is(err, entity.ErrEntityNotFound) {
+			return nil, &ErrorAgentNotFound
+		}
+		s.logger.Error(ctx, "Failed to retrieve agent entity",
+			log.String("agentID", agentID), log.Error(err))
+		return nil, &tidcommon.InternalServerError
+	}
+	if e.Category != providers.EntityCategoryAgent {
+		return nil, &ErrorAgentNotFound
+	}
+	return e, nil
+}
+
+// GetAgentInboundAccess returns the inbound access exposed by the given agent.
+func (s *agentService) GetAgentInboundAccess(ctx context.Context, agentID string) (
+	*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+	e, svcErr := s.resolveAgentEntity(ctx, agentID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e.ResourceServerID == "" {
+		return nil, &ErrorAgentInboundAccessNotEnabled
+	}
+
+	rs, svcErr := s.resourceService.GetResourceServer(ctx, e.ResourceServerID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	return inboundAccessResponse(rs), nil
+}
+
+// EnableAgentInboundAccess creates the resource server the agent owns and points the agent at it.
+// The identifier defaults to the agent ID when not supplied.
+func (s *agentService) EnableAgentInboundAccess(ctx context.Context, agentID, identifier string) (
+	*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+	e, svcErr := s.resolveAgentEntity(ctx, agentID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e.IsReadOnly {
+		return nil, &ErrorCannotModifyDeclarativeResource
+	}
+	if e.ResourceServerID != "" {
+		return nil, &ErrorAgentInboundAccessAlreadyEnabled
+	}
+	if identifier == "" {
+		identifier = agentID
+	}
+
+	name, _, _, _ := readSystemAttributes(e.SystemAttributes)
+	rs, svcErr := s.resourceService.CreateEntityOwnedResourceServer(ctx, providers.ResourceServer{
+		Name:       name,
+		Identifier: identifier,
+		Type:       providers.ResourceServerTypeAgent,
+		OUID:       e.OUID,
+	})
+	if svcErr != nil {
+		return nil, svcErr
+	}
+
+	if err := s.entityService.UpdateEntityResourceServerID(ctx, agentID, &rs.ID); err != nil {
+		s.logger.Error(ctx, "Failed to reference the created resource server from the agent",
+			log.String("agentID", agentID), log.Error(err))
+		// Remove the just-created resource server so a failed enable leaves no orphan behind. The
+		// entity-owned delete is used because the reference write may have landed before failing,
+		// which would make the entity a blocking dependency of the resource server.
+		if delErr := s.resourceService.DeleteEntityOwnedResourceServer(ctx, rs.ID); delErr != nil {
+			s.logger.Error(ctx, "Failed to remove orphaned resource server after enable failure",
+				log.String("agentID", agentID), log.String("resourceServerID", rs.ID),
+				log.String("error", delErr.Error.DefaultValue))
+		}
+		return nil, &tidcommon.InternalServerError
+	}
+
+	return inboundAccessResponse(rs), nil
+}
+
+// UpdateAgentInboundAccess changes the audience identifier of the resource server the agent owns.
+// This is the only supported way to change it: the public resource server API locks the identifier
+// of an owned resource server.
+func (s *agentService) UpdateAgentInboundAccess(ctx context.Context, agentID, identifier string) (
+	*model.AgentInboundAccessResponse, *tidcommon.ServiceError) {
+	if identifier == "" {
+		return nil, &ErrorMissingInboundAccessIdentifier
+	}
+	e, svcErr := s.resolveAgentEntity(ctx, agentID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e.IsReadOnly {
+		return nil, &ErrorCannotModifyDeclarativeResource
+	}
+	if e.ResourceServerID == "" {
+		return nil, &ErrorAgentInboundAccessNotEnabled
+	}
+
+	rs, svcErr := s.resourceService.UpdateEntityOwnedResourceServer(ctx, e.ResourceServerID, "", identifier)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	return inboundAccessResponse(rs), nil
+}
+
+// DisableAgentInboundAccess removes the resource server the agent owns, together with the
+// permissions defined on it.
+func (s *agentService) DisableAgentInboundAccess(ctx context.Context, agentID string) *tidcommon.ServiceError {
+	e, svcErr := s.resolveAgentEntity(ctx, agentID)
+	if svcErr != nil {
+		return svcErr
+	}
+	if e.IsReadOnly {
+		return &ErrorCannotModifyDeclarativeResource
+	}
+	if e.ResourceServerID == "" {
+		return &ErrorAgentInboundAccessNotEnabled
+	}
+
+	return s.deleteOwnedResourceServer(ctx, agentID, e.ResourceServerID)
+}
+
+// deleteOwnedResourceServer removes the resource server owned by the agent and then clears the
+// agent's reference to it. A no-op when the agent owns none.
+//
+// The resource server is deleted first. It carries the permissions the agent exposes, and both
+// those permissions and the agent's own reference register as blocking dependencies, so the delete
+// goes through the entity-owned path that removes the resource server with its children instead of
+// refusing. Deleting first means a failure leaves the agent still owning a live resource server,
+// which is consistent and retriable; clearing the reference first would strand an orphan that
+// nothing can delete and whose identifier would block ever enabling inbound access again. The
+// entity-owned delete treats an already-deleted resource server as success, so a retry after a
+// failure between the two steps still clears the reference.
+func (s *agentService) deleteOwnedResourceServer(
+	ctx context.Context, agentID, resourceServerID string) *tidcommon.ServiceError {
+	if resourceServerID == "" {
+		return nil
+	}
+	if delErr := s.resourceService.DeleteEntityOwnedResourceServer(ctx, resourceServerID); delErr != nil {
+		s.logger.Error(ctx, "Failed to delete the resource server owned by the agent",
+			log.String("agentID", agentID), log.String("resourceServerID", resourceServerID),
+			log.String("error", delErr.Error.DefaultValue))
+		return &tidcommon.InternalServerError
+	}
+
+	if err := s.entityService.UpdateEntityResourceServerID(ctx, agentID, nil); err != nil {
+		s.logger.Error(ctx, "Failed to clear the agent resource server reference",
+			log.String("agentID", agentID), log.Error(err))
+		return &tidcommon.InternalServerError
+	}
+
+	return nil
+}
+
+// LoadDeclarativeInboundAccess registers the resource server a declaratively defined agent owns and
+// returns its ID for the agent's resource server reference. The identifier defaults to the agent ID
+// when the block does not declare one.
+//
+// The owned resource server reuses the agent's own ID. Resource server and entity IDs live in
+// separate key spaces, so this is unambiguous, and it is deterministic: reloading the same file
+// rebuilds the same resource server instead of adding a second one.
+func (s *agentService) LoadDeclarativeInboundAccess(ctx context.Context, agentID, ouID, name string,
+	access *providers.DeclarativeInboundAccess) (string, error) {
+	if access == nil {
+		return "", nil
+	}
+	if s.resourceService == nil {
+		return "", fmt.Errorf("resource service is required to load the inbound access of agent '%s'", agentID)
+	}
+
+	identifier := access.Identifier
+	if identifier == "" {
+		identifier = agentID
+	}
+
+	if err := s.resourceService.CreateDeclarativeEntityOwnedResourceServer(ctx, providers.ResourceServer{
+		ID:         agentID,
+		Name:       name,
+		Identifier: identifier,
+		Type:       providers.ResourceServerTypeAgent,
+		OUID:       ouID,
+		Resources:  access.Resources,
+	}); err != nil {
+		return "", err
+	}
+
+	return agentID, nil
+}
+
+// GetAgentDeclarativeInboundAccess returns the agent's inbound access in declarative form. Returns
+// nil when the agent exposes none, so the exporter simply omits the block.
+func (s *agentService) GetAgentDeclarativeInboundAccess(ctx context.Context, agentID string) (
+	*providers.DeclarativeInboundAccess, *tidcommon.ServiceError) {
+	e, svcErr := s.resolveAgentEntity(ctx, agentID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	if e.ResourceServerID == "" || s.resourceService == nil {
+		return nil, nil
+	}
+
+	rs, svcErr := resource.BuildDeclarativeResourceServer(ctx, s.resourceService, e.ResourceServerID)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	return &providers.DeclarativeInboundAccess{
+		Identifier: rs.Identifier,
+		Resources:  rs.Resources,
+	}, nil
+}
+
+// inboundAccessResponse renders the inbound access view of an owned resource server.
+func inboundAccessResponse(rs *providers.ResourceServer) *model.AgentInboundAccessResponse {
+	return &model.AgentInboundAccessResponse{
+		ResourceServerID: rs.ID,
+		Identifier:       rs.Identifier,
+		Type:             rs.Type,
+	}
+}
+
+// validateAgentExists checks that the entity exists and is an agent.
+func (s *agentService) validateAgentExists(ctx context.Context, agentID string) *tidcommon.ServiceError {
+	e, err := s.entityService.GetEntity(ctx, agentID)
+	if err != nil {
+		if errors.Is(err, entity.ErrEntityNotFound) {
+			return &ErrorAgentNotFound
+		}
+		s.logger.Error(ctx, "Failed to retrieve agent entity",
+			log.String("agentID", agentID), log.Error(err))
+		return &tidcommon.InternalServerError
+	}
+	if e.Category != providers.EntityCategoryAgent {
+		return &ErrorAgentNotFound
+	}
+	return nil
+}
+
+// DeleteAgent removes the agent and its associated inbound client.
 
 func (s *agentService) DeleteAgent(ctx context.Context, agentID string) *tidcommon.ServiceError {
 	if agentID == "" {
@@ -372,6 +652,12 @@ func (s *agentService) DeleteAgent(ctx context.Context, agentID string) *tidcomm
 	}
 	if existing.IsReadOnly {
 		return &ErrorCannotModifyDeclarativeResource
+	}
+
+	// The resource server the agent owns follows the agent's lifecycle. Run before the deletes so a
+	// cleanup failure aborts and leaves the agent retriable.
+	if svcErr := s.deleteOwnedResourceServer(ctx, agentID, existing.ResourceServerID); svcErr != nil {
+		return svcErr
 	}
 
 	// Remove dependents that must be deleted with the agent (e.g. its role assignments and group
@@ -419,6 +705,10 @@ func (s *agentService) GetResourceDependencies(
 	ctx context.Context, resourceType, id string) ([]resourcedependency.ResourceDependency, error) {
 	if resourceType == resourcedependency.ResourceTypeUser {
 		return s.getAgentsByOwner(ctx, id)
+	}
+
+	if resourceType == resourcedependency.ResourceTypeResourceServer {
+		return s.getAgentsByResourceServer(ctx, id)
 	}
 
 	ids, _, err := s.inboundClientService.GetEntityIDsByReference(
@@ -477,6 +767,31 @@ func (s *agentService) getAgentsByOwner(
 			continue
 		}
 		// An agent cannot exist without its owner, so ownership blocks the owner's deletion.
+		usages = append(usages, resourcedependency.ResourceDependency{
+			ResourceType:     resourcedependency.ResourceTypeAgent,
+			ID:               e.ID,
+			DisplayName:      name,
+			BehaviorOnDelete: resourcedependency.BehaviorRestrict,
+		})
+	}
+	return usages, nil
+}
+
+// getAgentsByResourceServer returns the agents that reference the given resource server.
+func (s *agentService) getAgentsByResourceServer(
+	ctx context.Context, resourceServerID string) ([]resourcedependency.ResourceDependency, error) {
+	entities, err := s.entityService.GetEntitiesByResourceServerID(ctx, resourceServerID)
+	if err != nil {
+		s.logger.Error(ctx, "Failed to get entities by resource server ID", log.Error(err))
+		return nil, err
+	}
+
+	usages := make([]resourcedependency.ResourceDependency, 0, len(entities))
+	for _, e := range entities {
+		if e.Category != providers.EntityCategoryAgent {
+			continue
+		}
+		name, _, _, _ := readSystemAttributes(e.SystemAttributes)
 		usages = append(usages, resourcedependency.ResourceDependency{
 			ResourceType:     resourcedependency.ResourceTypeAgent,
 			ID:               e.ID,
@@ -1087,6 +1402,7 @@ func (s *agentService) buildListResponse(ctx context.Context, entities []provide
 	if includeDisplay {
 		s.populateOUHandlesForList(ctx, agents)
 	}
+	s.populateInboundAccessForList(ctx, agents, entities)
 
 	displayQuery := sysutils.DisplayQueryParam(includeDisplay)
 	return &model.AgentListResponse{
@@ -1155,6 +1471,83 @@ func (s *agentService) populateOUHandlesForList(ctx context.Context, agents []mo
 			agents[i].OUHandle = h
 		}
 	}
+}
+
+// inboundAccessFor resolves the inbound access view for an entity's owned resource server. Returns
+// nil when the agent exposes none or the resource server cannot be resolved.
+func (s *agentService) inboundAccessFor(
+	ctx context.Context, resourceServerID string) *providers.InboundAccess {
+	if resourceServerID == "" {
+		return nil
+	}
+	rs, svcErr := s.resourceService.GetResourceServer(ctx, resourceServerID)
+	if svcErr != nil {
+		s.logger.Debug(ctx, "Failed to resolve the resource server owned by the agent",
+			log.String("resourceServerID", resourceServerID))
+		return nil
+	}
+	return &providers.InboundAccess{
+		Enabled:          true,
+		Identifier:       rs.Identifier,
+		ResourceServerID: rs.ID,
+	}
+}
+
+// populateInboundAccessForList resolves inbound access for a page of agents in a single batched
+// resource server read, so listing does not fan out one lookup per row.
+func (s *agentService) populateInboundAccessForList(
+	ctx context.Context, agents []model.BasicAgentResponse, entities []providers.Entity) {
+	if len(agents) == 0 {
+		return
+	}
+
+	rsIDByAgent := make(map[string]string, len(entities))
+	ids := make([]string, 0, len(entities))
+	for i := range entities {
+		if entities[i].ResourceServerID == "" {
+			continue
+		}
+		rsIDByAgent[entities[i].ID] = entities[i].ResourceServerID
+		ids = append(ids, entities[i].ResourceServerID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	byID, svcErr := s.resourceService.GetResourceServersByIDs(ctx, ids)
+	if svcErr != nil {
+		s.logger.Debug(ctx, "Failed to resolve resource servers for the agent list")
+		return
+	}
+
+	for i := range agents {
+		rs, ok := byID[rsIDByAgent[agents[i].ID]]
+		if !ok {
+			continue
+		}
+		agents[i].InboundAccess = &providers.InboundAccess{
+			Enabled:          true,
+			Identifier:       rs.Identifier,
+			ResourceServerID: rs.ID,
+		}
+	}
+}
+
+// syncOwnedResourceServerName keeps the name of the resource server the agent owns aligned with the
+// agent's name. A failure fails the update rather than letting the two names drift.
+func (s *agentService) syncOwnedResourceServerName(
+	ctx context.Context, resourceServerID, name string) *tidcommon.ServiceError {
+	if resourceServerID == "" {
+		return nil
+	}
+	if _, svcErr := s.resourceService.UpdateEntityOwnedResourceServer(
+		ctx, resourceServerID, name, ""); svcErr != nil {
+		s.logger.Error(ctx, "Failed to sync the owned resource server name",
+			log.String("resourceServerID", resourceServerID),
+			log.String("error", svcErr.Error.DefaultValue))
+		return svcErr
+	}
+	return nil
 }
 
 // needsInboundClient reports whether any inbound auth field in the create request requires an inbound client row.

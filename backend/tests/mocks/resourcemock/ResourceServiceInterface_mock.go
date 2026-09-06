@@ -123,6 +123,133 @@ func (_c *ResourceServiceInterfaceMock_CreateAction_Call) RunAndReturn(run func(
 	return _c
 }
 
+// CreateDeclarativeEntityOwnedResourceServer provides a mock function for the type ResourceServiceInterfaceMock
+func (_mock *ResourceServiceInterfaceMock) CreateDeclarativeEntityOwnedResourceServer(ctx context.Context, rs providers.ResourceServer) error {
+	ret := _mock.Called(ctx, rs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateDeclarativeEntityOwnedResourceServer")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, providers.ResourceServer) error); ok {
+		r0 = returnFunc(ctx, rs)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateDeclarativeEntityOwnedResourceServer'
+type ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call struct {
+	*mock.Call
+}
+
+// CreateDeclarativeEntityOwnedResourceServer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - rs providers.ResourceServer
+func (_e *ResourceServiceInterfaceMock_Expecter) CreateDeclarativeEntityOwnedResourceServer(ctx interface{}, rs interface{}) *ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call {
+	return &ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call{Call: _e.mock.On("CreateDeclarativeEntityOwnedResourceServer", ctx, rs)}
+}
+
+func (_c *ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call) Run(run func(ctx context.Context, rs providers.ResourceServer)) *ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 providers.ResourceServer
+		if args[1] != nil {
+			arg1 = args[1].(providers.ResourceServer)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call) Return(err error) *ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call) RunAndReturn(run func(ctx context.Context, rs providers.ResourceServer) error) *ResourceServiceInterfaceMock_CreateDeclarativeEntityOwnedResourceServer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateEntityOwnedResourceServer provides a mock function for the type ResourceServiceInterfaceMock
+func (_mock *ResourceServiceInterfaceMock) CreateEntityOwnedResourceServer(ctx context.Context, rs providers.ResourceServer) (*providers.ResourceServer, *common.ServiceError) {
+	ret := _mock.Called(ctx, rs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateEntityOwnedResourceServer")
+	}
+
+	var r0 *providers.ResourceServer
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, providers.ResourceServer) (*providers.ResourceServer, *common.ServiceError)); ok {
+		return returnFunc(ctx, rs)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, providers.ResourceServer) *providers.ResourceServer); ok {
+		r0 = returnFunc(ctx, rs)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*providers.ResourceServer)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, providers.ResourceServer) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, rs)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateEntityOwnedResourceServer'
+type ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call struct {
+	*mock.Call
+}
+
+// CreateEntityOwnedResourceServer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - rs providers.ResourceServer
+func (_e *ResourceServiceInterfaceMock_Expecter) CreateEntityOwnedResourceServer(ctx interface{}, rs interface{}) *ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call {
+	return &ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call{Call: _e.mock.On("CreateEntityOwnedResourceServer", ctx, rs)}
+}
+
+func (_c *ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call) Run(run func(ctx context.Context, rs providers.ResourceServer)) *ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 providers.ResourceServer
+		if args[1] != nil {
+			arg1 = args[1].(providers.ResourceServer)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call) Return(resourceServer *providers.ResourceServer, serviceError *common.ServiceError) *ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call {
+	_c.Call.Return(resourceServer, serviceError)
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call) RunAndReturn(run func(ctx context.Context, rs providers.ResourceServer) (*providers.ResourceServer, *common.ServiceError)) *ResourceServiceInterfaceMock_CreateEntityOwnedResourceServer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateResource provides a mock function for the type ResourceServiceInterfaceMock
 func (_mock *ResourceServiceInterfaceMock) CreateResource(ctx context.Context, resourceServerID string, res providers.Resource) (*providers.Resource, *common.ServiceError) {
 	ret := _mock.Called(ctx, resourceServerID, res)
@@ -336,6 +463,65 @@ func (_c *ResourceServiceInterfaceMock_DeleteAction_Call) Return(serviceError *c
 }
 
 func (_c *ResourceServiceInterfaceMock_DeleteAction_Call) RunAndReturn(run func(ctx context.Context, resourceServerID string, resourceID *string, id string) *common.ServiceError) *ResourceServiceInterfaceMock_DeleteAction_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteEntityOwnedResourceServer provides a mock function for the type ResourceServiceInterfaceMock
+func (_mock *ResourceServiceInterfaceMock) DeleteEntityOwnedResourceServer(ctx context.Context, id string) *common.ServiceError {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteEntityOwnedResourceServer")
+	}
+
+	var r0 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *common.ServiceError); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*common.ServiceError)
+		}
+	}
+	return r0
+}
+
+// ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteEntityOwnedResourceServer'
+type ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call struct {
+	*mock.Call
+}
+
+// DeleteEntityOwnedResourceServer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+func (_e *ResourceServiceInterfaceMock_Expecter) DeleteEntityOwnedResourceServer(ctx interface{}, id interface{}) *ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call {
+	return &ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call{Call: _e.mock.On("DeleteEntityOwnedResourceServer", ctx, id)}
+}
+
+func (_c *ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call) Run(run func(ctx context.Context, id string)) *ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call) Return(serviceError *common.ServiceError) *ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call {
+	_c.Call.Return(serviceError)
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call) RunAndReturn(run func(ctx context.Context, id string) *common.ServiceError) *ResourceServiceInterfaceMock_DeleteEntityOwnedResourceServer_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1164,6 +1350,76 @@ func (_c *ResourceServiceInterfaceMock_GetResourceServerList_Call) RunAndReturn(
 	return _c
 }
 
+// GetResourceServersByIDs provides a mock function for the type ResourceServiceInterfaceMock
+func (_mock *ResourceServiceInterfaceMock) GetResourceServersByIDs(ctx context.Context, ids []string) (map[string]providers.ResourceServer, *common.ServiceError) {
+	ret := _mock.Called(ctx, ids)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetResourceServersByIDs")
+	}
+
+	var r0 map[string]providers.ResourceServer
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []string) (map[string]providers.ResourceServer, *common.ServiceError)); ok {
+		return returnFunc(ctx, ids)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []string) map[string]providers.ResourceServer); ok {
+		r0 = returnFunc(ctx, ids)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]providers.ResourceServer)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, ids)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ResourceServiceInterfaceMock_GetResourceServersByIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetResourceServersByIDs'
+type ResourceServiceInterfaceMock_GetResourceServersByIDs_Call struct {
+	*mock.Call
+}
+
+// GetResourceServersByIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ids []string
+func (_e *ResourceServiceInterfaceMock_Expecter) GetResourceServersByIDs(ctx interface{}, ids interface{}) *ResourceServiceInterfaceMock_GetResourceServersByIDs_Call {
+	return &ResourceServiceInterfaceMock_GetResourceServersByIDs_Call{Call: _e.mock.On("GetResourceServersByIDs", ctx, ids)}
+}
+
+func (_c *ResourceServiceInterfaceMock_GetResourceServersByIDs_Call) Run(run func(ctx context.Context, ids []string)) *ResourceServiceInterfaceMock_GetResourceServersByIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []string
+		if args[1] != nil {
+			arg1 = args[1].([]string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_GetResourceServersByIDs_Call) Return(stringToResourceServer map[string]providers.ResourceServer, serviceError *common.ServiceError) *ResourceServiceInterfaceMock_GetResourceServersByIDs_Call {
+	_c.Call.Return(stringToResourceServer, serviceError)
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_GetResourceServersByIDs_Call) RunAndReturn(run func(ctx context.Context, ids []string) (map[string]providers.ResourceServer, *common.ServiceError)) *ResourceServiceInterfaceMock_GetResourceServersByIDs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // IsResourceServerDeclarative provides a mock function for the type ResourceServiceInterfaceMock
 func (_mock *ResourceServiceInterfaceMock) IsResourceServerDeclarative(id string) bool {
 	ret := _mock.Called(id)
@@ -1314,6 +1570,46 @@ func (_c *ResourceServiceInterfaceMock_SetDependencyRegistry_Call) RunAndReturn(
 	return _c
 }
 
+// SetEntityOwnerLookup provides a mock function for the type ResourceServiceInterfaceMock
+func (_mock *ResourceServiceInterfaceMock) SetEntityOwnerLookup(l resource.EntityOwnerLookup) {
+	_mock.Called(l)
+	return
+}
+
+// ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetEntityOwnerLookup'
+type ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call struct {
+	*mock.Call
+}
+
+// SetEntityOwnerLookup is a helper method to define mock.On call
+//   - l resource.EntityOwnerLookup
+func (_e *ResourceServiceInterfaceMock_Expecter) SetEntityOwnerLookup(l interface{}) *ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call {
+	return &ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call{Call: _e.mock.On("SetEntityOwnerLookup", l)}
+}
+
+func (_c *ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call) Run(run func(l resource.EntityOwnerLookup)) *ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 resource.EntityOwnerLookup
+		if args[0] != nil {
+			arg0 = args[0].(resource.EntityOwnerLookup)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call) Return() *ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call) RunAndReturn(run func(l resource.EntityOwnerLookup)) *ResourceServiceInterfaceMock_SetEntityOwnerLookup_Call {
+	_c.Run(run)
+	return _c
+}
+
 // UpdateAction provides a mock function for the type ResourceServiceInterfaceMock
 func (_mock *ResourceServiceInterfaceMock) UpdateAction(ctx context.Context, resourceServerID string, resourceID *string, id string, action providers.Action) (*providers.Action, *common.ServiceError) {
 	ret := _mock.Called(ctx, resourceServerID, resourceID, id, action)
@@ -1398,6 +1694,88 @@ func (_c *ResourceServiceInterfaceMock_UpdateAction_Call) Return(action1 *provid
 }
 
 func (_c *ResourceServiceInterfaceMock_UpdateAction_Call) RunAndReturn(run func(ctx context.Context, resourceServerID string, resourceID *string, id string, action providers.Action) (*providers.Action, *common.ServiceError)) *ResourceServiceInterfaceMock_UpdateAction_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateEntityOwnedResourceServer provides a mock function for the type ResourceServiceInterfaceMock
+func (_mock *ResourceServiceInterfaceMock) UpdateEntityOwnedResourceServer(ctx context.Context, id string, name string, identifier string) (*providers.ResourceServer, *common.ServiceError) {
+	ret := _mock.Called(ctx, id, name, identifier)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateEntityOwnedResourceServer")
+	}
+
+	var r0 *providers.ResourceServer
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) (*providers.ResourceServer, *common.ServiceError)); ok {
+		return returnFunc(ctx, id, name, identifier)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) *providers.ResourceServer); ok {
+		r0 = returnFunc(ctx, id, name, identifier)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*providers.ResourceServer)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, id, name, identifier)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateEntityOwnedResourceServer'
+type ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call struct {
+	*mock.Call
+}
+
+// UpdateEntityOwnedResourceServer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - name string
+//   - identifier string
+func (_e *ResourceServiceInterfaceMock_Expecter) UpdateEntityOwnedResourceServer(ctx interface{}, id interface{}, name interface{}, identifier interface{}) *ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call {
+	return &ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call{Call: _e.mock.On("UpdateEntityOwnedResourceServer", ctx, id, name, identifier)}
+}
+
+func (_c *ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call) Run(run func(ctx context.Context, id string, name string, identifier string)) *ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call) Return(resourceServer *providers.ResourceServer, serviceError *common.ServiceError) *ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call {
+	_c.Call.Return(resourceServer, serviceError)
+	return _c
+}
+
+func (_c *ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call) RunAndReturn(run func(ctx context.Context, id string, name string, identifier string) (*providers.ResourceServer, *common.ServiceError)) *ResourceServiceInterfaceMock_UpdateEntityOwnedResourceServer_Call {
 	_c.Call.Return(run)
 	return _c
 }

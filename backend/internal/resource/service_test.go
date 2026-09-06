@@ -150,6 +150,20 @@ func (suite *ResourceServiceTestSuite) SetupTest() {
 	// The resource service is its own dependency provider: deletion consults the registry, which
 	// resolves resource/action dependents back through the service.
 	suite.service.SetDependencyRegistry(resourcedependency.Initialize(suite.service))
+	// Default: every resource server is standalone. Ownership tests override this.
+	suite.service.SetEntityOwnerLookup(&stubEntityOwnerLookup{})
+}
+
+// stubEntityOwnerLookup is a test double for EntityOwnerLookup. The zero value reports every
+// resource server as standalone.
+type stubEntityOwnerLookup struct {
+	owner *ResourceServerOwner
+	err   error
+}
+
+func (s *stubEntityOwnerLookup) GetResourceServerOwner(
+	_ context.Context, _ string) (*ResourceServerOwner, error) {
+	return s.owner, s.err
 }
 
 func (suite *ResourceServiceTestSuite) TearDownTest() {
@@ -815,6 +829,485 @@ func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_GetResourceServe
 	suite.NotNil(err)
 	suite.Equal(tidcommon.InternalServerError.Code, err.Code)
 	suite.mockStore.AssertExpectations(suite.T())
+}
+
+// --- Entity-owned resource server guards ---
+
+func (suite *ResourceServiceTestSuite) TestCreateResourceServer_RejectsAgentType() {
+	_, err := suite.service.CreateResourceServer(context.Background(), providers.ResourceServer{
+		Name:       "test-rs",
+		Identifier: "test-identifier",
+		Type:       providers.ResourceServerTypeAgent,
+		OUID:       "ou-123",
+	})
+
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorEntityOwnedResourceServerType.Code, err.Code)
+}
+
+func (suite *ResourceServiceTestSuite) TestCreateResourceServer_RejectsApplicationType() {
+	_, err := suite.service.CreateResourceServer(context.Background(), providers.ResourceServer{
+		Name:       "test-rs",
+		Identifier: "test-identifier",
+		Type:       providers.ResourceServerTypeApplication,
+		OUID:       "ou-123",
+	})
+
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorEntityOwnedResourceServerType.Code, err.Code)
+}
+
+// An admin editing an owned resource server reads it and writes it back, so the request echoes the
+// stored AGENT type. The type is system assigned and immutable on update, so the round-trip must
+// succeed and leave the stored type untouched.
+func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_EchoedEntityOwnedTypeRoundTrips() {
+	suite.service.SetEntityOwnerLookup(&stubEntityOwnerLookup{owner: &ResourceServerOwner{
+		Type: resourcedependency.ResourceTypeAgent, ID: "agent-1", Name: "My Agent",
+	}})
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "old-name", Identifier: "original-identifier",
+			Type: providers.ResourceServerTypeAgent, OUID: "ou-123", Delimiter: ":",
+		}, nil)
+	suite.mockOU.On("GetOrganizationUnit", mock.Anything, "ou-123").
+		Return(providers.OrganizationUnit{ID: "ou-123"}, nil)
+	suite.mockStore.On("UpdateResourceServer", mock.Anything, "rs-123",
+		mock.MatchedBy(func(r providers.ResourceServer) bool {
+			return r.Type == providers.ResourceServerTypeAgent
+		})).Return(nil)
+
+	result, err := suite.service.UpdateResourceServer(context.Background(), "rs-123",
+		providers.ResourceServer{
+			Name: "old-name", Identifier: "original-identifier", OUID: "ou-123",
+			Description: "edited", Type: providers.ResourceServerTypeAgent,
+		})
+
+	suite.Nil(err)
+	suite.Require().NotNil(result)
+	suite.Equal("edited", result.Description)
+	suite.Equal(providers.ResourceServerTypeAgent, result.Type)
+}
+
+// A request that tries to switch a standalone resource server to an entity-owned type must not take
+// effect: the type is preserved from the stored record rather than rejected.
+func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_EntityOwnedTypeIgnoredOnStandaloneRS() {
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "old-name", Identifier: "original-identifier",
+			Type: providers.ResourceServerTypeAPI, OUID: "ou-123", Delimiter: ":",
+		}, nil)
+	suite.mockOU.On("GetOrganizationUnit", mock.Anything, "ou-123").
+		Return(providers.OrganizationUnit{ID: "ou-123"}, nil)
+	suite.mockStore.On("CheckResourceServerNameExists", mock.Anything, "new-name").
+		Return(false, nil)
+	suite.mockStore.On("UpdateResourceServer", mock.Anything, "rs-123",
+		mock.MatchedBy(func(r providers.ResourceServer) bool {
+			return r.Type == providers.ResourceServerTypeAPI
+		})).Return(nil)
+
+	result, err := suite.service.UpdateResourceServer(context.Background(), "rs-123",
+		providers.ResourceServer{
+			Name: "new-name", Identifier: "original-identifier", OUID: "ou-123",
+			Type: providers.ResourceServerTypeApplication,
+		})
+
+	suite.Nil(err)
+	suite.Require().NotNil(result)
+	suite.Equal(providers.ResourceServerTypeAPI, result.Type)
+}
+
+func (suite *ResourceServiceTestSuite) TestCreateEntityOwnedResourceServer_Success() {
+	rs := providers.ResourceServer{
+		Name:       "My Agent",
+		Identifier: "agent-1",
+		Type:       providers.ResourceServerTypeAgent,
+		OUID:       "ou-123",
+	}
+
+	suite.mockOU.On("GetOrganizationUnit", mock.Anything, "ou-123").
+		Return(providers.OrganizationUnit{ID: "ou-123"}, nil)
+	suite.mockStore.On("CheckResourceServerNameExists", mock.Anything, "My Agent").
+		Return(false, nil)
+	suite.mockStore.On("CheckResourceServerIdentifierExists", mock.Anything, "agent-1").
+		Return(false, nil)
+	suite.mockStore.On("CreateResourceServer", mock.Anything,
+		mock.AnythingOfType("string"), matchResourceServer(rs)).Return(nil)
+
+	result, err := suite.service.CreateEntityOwnedResourceServer(context.Background(), rs)
+
+	suite.Nil(err)
+	suite.Require().NotNil(result)
+	suite.Equal(providers.ResourceServerTypeAgent, result.Type)
+}
+
+func (suite *ResourceServiceTestSuite) TestCreateEntityOwnedResourceServer_RejectsNonEntityType() {
+	_, err := suite.service.CreateEntityOwnedResourceServer(context.Background(),
+		providers.ResourceServer{
+			Name: "rs", Identifier: "id", Type: providers.ResourceServerTypeAPI, OUID: "ou-123",
+		})
+
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorInvalidRequestFormat.Code, err.Code)
+}
+
+func (suite *ResourceServiceTestSuite) TestCreateEntityOwnedResourceServer_RejectsMissingFields() {
+	_, err := suite.service.CreateEntityOwnedResourceServer(context.Background(),
+		providers.ResourceServer{Type: providers.ResourceServerTypeAgent, OUID: "ou-123"})
+
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorInvalidRequestFormat.Code, err.Code)
+}
+
+func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_IdentifierChangeBlockedForOwnedRS() {
+	suite.service.SetEntityOwnerLookup(&stubEntityOwnerLookup{owner: &ResourceServerOwner{
+		Type: resourcedependency.ResourceTypeAgent, ID: "agent-1", Name: "My Agent",
+	}})
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "old-name", Identifier: "original-identifier",
+			OUID: "ou-123", Delimiter: ":",
+		}, nil)
+
+	_, err := suite.service.UpdateResourceServer(context.Background(), "rs-123",
+		providers.ResourceServer{Name: "old-name", Identifier: "new-identifier", OUID: "ou-123"})
+
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorOwnedResourceServerIdentifierLocked.Code, err.Code)
+	suite.Contains(err.ErrorDescription.String(), "My Agent")
+	suite.mockStore.AssertNotCalled(suite.T(), "UpdateResourceServer",
+		mock.Anything, mock.Anything, mock.Anything)
+}
+
+// The name mirrors the owning entity and is resynced on entity rename, so allowing a rename here
+// would break that link permanently.
+func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_NameChangeBlockedForOwnedRS() {
+	suite.service.SetEntityOwnerLookup(&stubEntityOwnerLookup{owner: &ResourceServerOwner{
+		Type: resourcedependency.ResourceTypeAgent, ID: "agent-1", Name: "My Agent",
+	}})
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "old-name", Identifier: "original-identifier",
+			OUID: "ou-123", Delimiter: ":",
+		}, nil)
+
+	_, err := suite.service.UpdateResourceServer(context.Background(), "rs-123",
+		providers.ResourceServer{Name: "new-name", Identifier: "original-identifier", OUID: "ou-123"})
+
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorOwnedResourceServerNameLocked.Code, err.Code)
+	suite.Contains(err.ErrorDescription.String(), "My Agent")
+	suite.Contains(err.ErrorDescription.String(), resourcedependency.ResourceTypeAgent)
+	suite.mockStore.AssertNotCalled(suite.T(), "UpdateResourceServer",
+		mock.Anything, mock.Anything, mock.Anything)
+}
+
+// An update that touches neither the name nor the identifier stays allowed on an owned resource
+// server, and must not even consult the owner lookup.
+func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_UnchangedNameAllowedForOwnedRS() {
+	suite.service.SetEntityOwnerLookup(&stubEntityOwnerLookup{
+		err: errors.New("owner lookup must not be consulted"),
+	})
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "same-name", Identifier: "original-identifier",
+			Type: providers.ResourceServerTypeAgent, OUID: "ou-123", Delimiter: ":",
+		}, nil)
+	suite.mockOU.On("GetOrganizationUnit", mock.Anything, "ou-456").
+		Return(providers.OrganizationUnit{ID: "ou-456"}, nil)
+	suite.mockStore.On("UpdateResourceServer", mock.Anything, "rs-123", mock.Anything).Return(nil)
+
+	result, err := suite.service.UpdateResourceServer(context.Background(), "rs-123",
+		providers.ResourceServer{
+			Name: "same-name", Identifier: "original-identifier", OUID: "ou-456",
+			Description: "moved to another OU",
+		})
+
+	suite.Nil(err)
+	suite.Require().NotNil(result)
+	suite.Equal("ou-456", result.OUID)
+}
+
+// The entity-side rename path must still be able to set the name; only the public path is locked.
+func (suite *ResourceServiceTestSuite) TestUpdateEntityOwnedResourceServer_ChangesNameDespiteLock() {
+	suite.service.SetEntityOwnerLookup(&stubEntityOwnerLookup{owner: &ResourceServerOwner{
+		Type: resourcedependency.ResourceTypeAgent, ID: "agent-1", Name: "My Agent",
+	}})
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "old-name", Identifier: "original-identifier",
+			Type: providers.ResourceServerTypeAgent, OUID: "ou-123", Delimiter: ":",
+		}, nil)
+	suite.mockOU.On("GetOrganizationUnit", mock.Anything, "ou-123").
+		Return(providers.OrganizationUnit{ID: "ou-123"}, nil)
+	suite.mockStore.On("CheckResourceServerNameExists", mock.Anything, "My Agent Renamed").
+		Return(false, nil)
+	suite.mockStore.On("UpdateResourceServer", mock.Anything, "rs-123", mock.Anything).Return(nil)
+
+	result, err := suite.service.UpdateEntityOwnedResourceServer(
+		context.Background(), "rs-123", "My Agent Renamed", "")
+
+	suite.Nil(err)
+	suite.Require().NotNil(result)
+	suite.Equal("My Agent Renamed", result.Name)
+	suite.Equal("original-identifier", result.Identifier)
+}
+
+func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_IdentifierChangeAllowedForStandaloneRS() {
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "old-name", Identifier: "original-identifier",
+			OUID: "ou-123", Delimiter: ":",
+		}, nil)
+	suite.mockStore.On("CheckResourceServerIdentifierExists", mock.Anything, "new-identifier").
+		Return(false, nil)
+	suite.mockOU.On("GetOrganizationUnit", mock.Anything, "ou-123").
+		Return(providers.OrganizationUnit{ID: "ou-123"}, nil)
+	suite.mockStore.On("CheckResourceServerNameExists", mock.Anything, "new-name").
+		Return(false, nil)
+	suite.mockStore.On("UpdateResourceServer", mock.Anything, "rs-123", mock.Anything).Return(nil)
+
+	result, err := suite.service.UpdateResourceServer(context.Background(), "rs-123",
+		providers.ResourceServer{Name: "new-name", Identifier: "new-identifier", OUID: "ou-123"})
+
+	suite.Nil(err)
+	suite.Equal("new-identifier", result.Identifier)
+}
+
+func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_IdentifierChangeRefusedWhenLookupUnset() {
+	svc, ok := suite.service.(*resourceService)
+	suite.Require().True(ok)
+	svc.entityOwnerLookup = nil
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "old-name", Identifier: "original-identifier",
+			OUID: "ou-123", Delimiter: ":",
+		}, nil)
+
+	_, err := suite.service.UpdateResourceServer(context.Background(), "rs-123",
+		providers.ResourceServer{Name: "old-name", Identifier: "new-identifier", OUID: "ou-123"})
+
+	suite.Require().NotNil(err)
+	suite.Equal(tidcommon.InternalServerError.Code, err.Code)
+}
+
+func (suite *ResourceServiceTestSuite) TestUpdateResourceServer_IdentifierChangeRefusedWhenLookupFails() {
+	suite.service.SetEntityOwnerLookup(&stubEntityOwnerLookup{err: errors.New("db error")})
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "old-name", Identifier: "original-identifier",
+			OUID: "ou-123", Delimiter: ":",
+		}, nil)
+
+	_, err := suite.service.UpdateResourceServer(context.Background(), "rs-123",
+		providers.ResourceServer{Name: "old-name", Identifier: "new-identifier", OUID: "ou-123"})
+
+	suite.Require().NotNil(err)
+	suite.Equal(tidcommon.InternalServerError.Code, err.Code)
+}
+
+func (suite *ResourceServiceTestSuite) TestUpdateEntityOwnedResourceServer_ChangesIdentifierDespiteLock() {
+	suite.service.SetEntityOwnerLookup(&stubEntityOwnerLookup{owner: &ResourceServerOwner{
+		Type: resourcedependency.ResourceTypeAgent, ID: "agent-1", Name: "My Agent",
+	}})
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").Return(
+		providers.ResourceServer{
+			ID: "rs-123", Name: "My Agent", Identifier: "original-identifier",
+			Type: providers.ResourceServerTypeAgent, OUID: "ou-123", Delimiter: ":",
+		}, nil)
+	suite.mockStore.On("CheckResourceServerIdentifierExists", mock.Anything, "new-identifier").
+		Return(false, nil)
+	suite.mockOU.On("GetOrganizationUnit", mock.Anything, "ou-123").
+		Return(providers.OrganizationUnit{ID: "ou-123"}, nil)
+	suite.mockStore.On("UpdateResourceServer", mock.Anything, "rs-123", mock.Anything).Return(nil)
+
+	result, err := suite.service.UpdateEntityOwnedResourceServer(
+		context.Background(), "rs-123", "", "new-identifier")
+
+	suite.Nil(err)
+	suite.Require().NotNil(result)
+	suite.Equal("new-identifier", result.Identifier)
+	suite.Equal("My Agent", result.Name)
+}
+
+func (suite *ResourceServiceTestSuite) TestUpdateEntityOwnedResourceServer_MissingID() {
+	_, err := suite.service.UpdateEntityOwnedResourceServer(context.Background(), "", "n", "i")
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorMissingID.Code, err.Code)
+}
+
+func (suite *ResourceServiceTestSuite) TestDeleteResourceServer_BlockedWhenOwnedByEntity() {
+	// The owning entity reports a restrict usage through the dependency registry.
+	suite.service.SetDependencyRegistry(resourcedependency.Initialize(
+		suite.service, &stubOwnerDependencyProvider{}))
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").
+		Return(providers.ResourceServer{}, nil)
+	suite.mockStore.On("CheckResourceServerHasDependencies", mock.Anything, "rs-123").
+		Return(false, nil)
+
+	err := suite.service.DeleteResourceServer(context.Background(), "rs-123")
+
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorCannotDelete.Code, err.Code)
+	suite.mockStore.AssertNotCalled(suite.T(), "DeleteResourceServer", mock.Anything, "rs-123")
+}
+
+// stubOwnerDependencyProvider reports a restrict usage for every resource server, standing in for
+// the agent or application service that owns it.
+type stubOwnerDependencyProvider struct{}
+
+func (p *stubOwnerDependencyProvider) GetResourceDependencies(
+	_ context.Context, resourceType, id string) ([]resourcedependency.ResourceDependency, error) {
+	if resourceType != resourcedependency.ResourceTypeResourceServer {
+		return []resourcedependency.ResourceDependency{}, nil
+	}
+	return []resourcedependency.ResourceDependency{{
+		ResourceType:     resourcedependency.ResourceTypeAgent,
+		ID:               "agent-1",
+		DisplayName:      "My Agent",
+		BehaviorOnDelete: resourcedependency.BehaviorRestrict,
+	}}, nil
+}
+
+func (suite *ResourceServiceTestSuite) TestGetResourceServersByIDs_DeduplicatesAndKeysByID() {
+	suite.mockStore.On("GetResourceServersByIDs", mock.Anything, []string{"rs-1", "rs-2"}).
+		Return([]providers.ResourceServer{
+			{ID: "rs-1", Identifier: "id-1"},
+			{ID: "rs-2", Identifier: "id-2"},
+		}, nil)
+
+	result, err := suite.service.GetResourceServersByIDs(
+		context.Background(), []string{"rs-1", "rs-2", "rs-1", ""})
+
+	suite.Nil(err)
+	suite.Len(result, 2)
+	suite.Equal("id-1", result["rs-1"].Identifier)
+}
+
+func (suite *ResourceServiceTestSuite) TestGetResourceServersByIDs_EmptyInput() {
+	result, err := suite.service.GetResourceServersByIDs(context.Background(), []string{"", ""})
+
+	suite.Nil(err)
+	suite.Empty(result)
+	suite.mockStore.AssertNotCalled(suite.T(), "GetResourceServersByIDs", mock.Anything, mock.Anything)
+}
+
+func (suite *ResourceServiceTestSuite) TestGetResourceServersByIDs_StoreError() {
+	suite.mockStore.On("GetResourceServersByIDs", mock.Anything, []string{"rs-1"}).
+		Return([]providers.ResourceServer(nil), errors.New("db error"))
+
+	result, err := suite.service.GetResourceServersByIDs(context.Background(), []string{"rs-1"})
+
+	suite.Nil(result)
+	suite.Require().NotNil(err)
+	suite.Equal(tidcommon.InternalServerError.Code, err.Code)
+}
+
+// --- DeleteEntityOwnedResourceServer ---
+
+// The public delete refuses a resource server that still has resources or actions. The entity-owned
+// delete must remove them with it, otherwise disabling inbound access on an entity that has defined
+// any permission would strand an undeletable resource server.
+func (suite *ResourceServiceTestSuite) TestDeleteEntityOwnedResourceServer_RemovesChildrenAndCascades() {
+	order := []string{}
+	deleter := suite.registerCascadeDeleter(&recordingCascadeDeleter{order: &order})
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").
+		Return(providers.ResourceServer{ID: "rs-123"}, nil)
+	suite.mockStore.On("DeleteActionsByResourceServer", mock.Anything, "rs-123").Return(nil).
+		Run(func(_ mock.Arguments) { order = append(order, "deleteActions") })
+	suite.mockStore.On("DeleteResourcesByResourceServer", mock.Anything, "rs-123").Return(nil).
+		Run(func(_ mock.Arguments) { order = append(order, "deleteResources") })
+	suite.mockStore.On("DeleteResourceServer", mock.Anything, "rs-123").Return(nil).
+		Run(func(_ mock.Arguments) { order = append(order, "deleteResourceServer") })
+
+	err := suite.service.DeleteEntityOwnedResourceServer(context.Background(), "rs-123")
+
+	suite.Nil(err)
+	suite.Equal([]string{"deleteActions", "deleteResources", "deleteResourceServer", "cascade"}, order)
+	suite.Equal([]string{resourcedependency.ResourceTypeResourceServer + ":rs-123"}, deleter.calls)
+}
+
+// The owning entity registers a restrict usage that blocks the public delete. The entity-owned path
+// must skip that check entirely, or the entity could never disable inbound access.
+func (suite *ResourceServiceTestSuite) TestDeleteEntityOwnedResourceServer_IgnoresBlockingDependencies() {
+	suite.service.SetDependencyRegistry(resourcedependency.Initialize(
+		suite.service, &stubOwnerDependencyProvider{}))
+
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").
+		Return(providers.ResourceServer{ID: "rs-123"}, nil)
+	suite.mockStore.On("DeleteActionsByResourceServer", mock.Anything, "rs-123").Return(nil)
+	suite.mockStore.On("DeleteResourcesByResourceServer", mock.Anything, "rs-123").Return(nil)
+	suite.mockStore.On("DeleteResourceServer", mock.Anything, "rs-123").Return(nil)
+
+	err := suite.service.DeleteEntityOwnedResourceServer(context.Background(), "rs-123")
+
+	suite.Nil(err)
+	suite.mockStore.AssertNotCalled(suite.T(), "CheckResourceServerHasDependencies",
+		mock.Anything, mock.Anything)
+}
+
+// A disable interrupted between deleting the resource server and clearing the entity reference must
+// be retriable, so an already-deleted resource server is not an error.
+func (suite *ResourceServiceTestSuite) TestDeleteEntityOwnedResourceServer_AlreadyDeletedSucceeds() {
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").
+		Return(providers.ResourceServer{}, errResourceServerNotFound)
+
+	err := suite.service.DeleteEntityOwnedResourceServer(context.Background(), "rs-123")
+
+	suite.Nil(err)
+	suite.mockStore.AssertNotCalled(suite.T(), "DeleteResourceServer", mock.Anything, mock.Anything)
+}
+
+func (suite *ResourceServiceTestSuite) TestDeleteEntityOwnedResourceServer_MissingID() {
+	err := suite.service.DeleteEntityOwnedResourceServer(context.Background(), "")
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorMissingID.Code, err.Code)
+}
+
+func (suite *ResourceServiceTestSuite) TestDeleteEntityOwnedResourceServer_DeclarativeRefused() {
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(true)
+
+	err := suite.service.DeleteEntityOwnedResourceServer(context.Background(), "rs-123")
+
+	suite.Require().NotNil(err)
+	suite.Equal(ErrorImmutableResourceServer.Code, err.Code)
+}
+
+func (suite *ResourceServiceTestSuite) TestDeleteEntityOwnedResourceServer_ChildDeleteFailureAborts() {
+	suite.mockStore.On("IsResourceServerDeclarative", "rs-123").Return(false)
+	suite.mockStore.On("GetResourceServer", mock.Anything, "rs-123").
+		Return(providers.ResourceServer{ID: "rs-123"}, nil)
+	suite.mockStore.On("DeleteActionsByResourceServer", mock.Anything, "rs-123").
+		Return(errors.New("db error"))
+
+	err := suite.service.DeleteEntityOwnedResourceServer(context.Background(), "rs-123")
+
+	suite.Require().NotNil(err)
+	suite.Equal(tidcommon.InternalServerError.Code, err.Code)
+	suite.mockStore.AssertNotCalled(suite.T(), "DeleteResourceServer", mock.Anything, mock.Anything)
 }
 
 func (suite *ResourceServiceTestSuite) TestDeleteResourceServer_Success() {

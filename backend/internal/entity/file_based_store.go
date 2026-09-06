@@ -347,6 +347,28 @@ func (f *entityFileBasedStore) ValidateEntityIDsInOUs(
 	return outOfScope, nil
 }
 
+func (f *entityFileBasedStore) UpdateEntityResourceServerID(ctx context.Context,
+	entityID string, resourceServerID *string) error {
+	return errors.New("UpdateEntityResourceServerID is not supported in file-based store")
+}
+
+func (f *entityFileBasedStore) GetEntitiesByResourceServerID(ctx context.Context,
+	resourceServerID string) ([]providers.Entity, error) {
+	resources, err := f.listEntityResources()
+	if err != nil {
+		return nil, err
+	}
+
+	entities := make([]providers.Entity, 0)
+	for _, resource := range resources {
+		if resource.Entity.ResourceServerID == resourceServerID {
+			entities = append(entities, resource.Entity)
+		}
+	}
+
+	return entities, nil
+}
+
 // IsEntityDeclarative checks if an entity exists in the file store (all file entities are declarative).
 func (f *entityFileBasedStore) IsEntityDeclarative(ctx context.Context, id string) (bool, error) {
 	_, err := f.GetEntity(ctx, id)

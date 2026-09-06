@@ -547,3 +547,87 @@ func (s *ParseToApplicationDTOTestSuite) TestParseToApplicationDTO_PasskeyAllowe
 	assert.NoError(s.T(), err)
 	assert.Nil(s.T(), appDTO.PasskeyAllowedOrigins)
 }
+
+// MakeAppEntityParserInboundAccessTestSuite covers the declarative inbound access block, which
+// declares the resource server the application owns inline rather than referencing a separately
+// declared one.
+type MakeAppEntityParserInboundAccessTestSuite struct {
+	suite.Suite
+}
+
+func TestMakeAppEntityParserInboundAccessTestSuite(t *testing.T) {
+	suite.Run(t, new(MakeAppEntityParserInboundAccessTestSuite))
+}
+
+const appInboundAccessYAML = `
+id: orders-app
+ouId: ou-1
+name: Orders App
+inboundAccess:
+  identifier: https://api.example.com/orders
+  resources:
+    - name: Orders
+      handle: orders
+      actions:
+        - name: Read
+          handle: read
+    - name: Items
+      handle: items
+      parent: orders
+`
+
+func (s *MakeAppEntityParserInboundAccessTestSuite) TestParsesPermissionTreeAndLinksEntity() {
+	mockAppService := NewApplicationServiceInterfaceMock(s.T())
+	mockAppService.EXPECT().ValidateApplication(mock.Anything, mock.Anything).Return(
+		&model.ApplicationProcessedDTO{ID: "orders-app", Name: "Orders App"}, nil, nil)
+
+	var captured *providers.DeclarativeInboundAccess
+	mockAppService.EXPECT().LoadDeclarativeInboundAccess(
+		mock.Anything, "orders-app", "ou-1", "Orders App", mock.Anything).
+		RunAndReturn(func(_ context.Context, _, _, _ string,
+			access *providers.DeclarativeInboundAccess) (string, error) {
+			captured = access
+			return "orders-app", nil
+		}).Once()
+
+	parser := makeAppEntityParser(mockAppService)
+	entityObj, _, _, err := parser([]byte(appInboundAccessYAML))
+
+	s.Require().NoError(err)
+	s.Require().NotNil(entityObj)
+	assert.Equal(s.T(), "orders-app", entityObj.ResourceServerID)
+
+	s.Require().NotNil(captured)
+	assert.Equal(s.T(), "https://api.example.com/orders", captured.Identifier)
+	s.Require().Len(captured.Resources, 2)
+	assert.Equal(s.T(), "orders", captured.Resources[0].Handle)
+	assert.Equal(s.T(), "read", captured.Resources[0].Actions[0].Handle)
+	assert.Equal(s.T(), "orders", captured.Resources[1].ParentHandle)
+}
+
+func (s *MakeAppEntityParserInboundAccessTestSuite) TestWithoutInboundAccessLeavesNoReference() {
+	mockAppService := NewApplicationServiceInterfaceMock(s.T())
+	mockAppService.EXPECT().ValidateApplication(mock.Anything, mock.Anything).Return(
+		&model.ApplicationProcessedDTO{ID: "plain-app", Name: "Plain App"}, nil, nil)
+
+	parser := makeAppEntityParser(mockAppService)
+	entityObj, _, _, err := parser([]byte("id: plain-app\nouId: ou-1\nname: Plain App\n"))
+
+	s.Require().NoError(err)
+	assert.Empty(s.T(), entityObj.ResourceServerID)
+}
+
+func (s *MakeAppEntityParserInboundAccessTestSuite) TestLoadFailureAbortsParsing() {
+	mockAppService := NewApplicationServiceInterfaceMock(s.T())
+	mockAppService.EXPECT().ValidateApplication(mock.Anything, mock.Anything).Return(
+		&model.ApplicationProcessedDTO{ID: "orders-app", Name: "Orders App"}, nil, nil)
+	mockAppService.EXPECT().LoadDeclarativeInboundAccess(
+		mock.Anything, "orders-app", "ou-1", "Orders App", mock.Anything).
+		Return("", assert.AnError).Once()
+
+	parser := makeAppEntityParser(mockAppService)
+	_, _, _, err := parser([]byte(appInboundAccessYAML))
+
+	s.Require().Error(err)
+	assert.Contains(s.T(), err.Error(), "failed to load the inbound access of application 'orders-app'")
+}

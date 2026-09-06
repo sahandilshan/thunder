@@ -244,16 +244,8 @@ func toProviderEntity(e *providers.Entity) *providers.Entity {
 	if e == nil {
 		return nil
 	}
-	return &providers.Entity{
-		ID:               e.ID,
-		Category:         e.Category,
-		Type:             e.Type,
-		State:            e.State,
-		OUID:             e.OUID,
-		OUHandle:         e.OUHandle,
-		Attributes:       e.Attributes,
-		SystemAttributes: e.SystemAttributes,
-	}
+	clone := *e
+	return &clone
 }
 
 // toServiceEntity converts a provider Entity to an entity service Entity.
@@ -261,15 +253,8 @@ func toServiceEntity(e *providers.Entity) *providers.Entity {
 	if e == nil {
 		return nil
 	}
-	return &providers.Entity{
-		ID:               e.ID,
-		Category:         e.Category,
-		Type:             e.Type,
-		State:            e.State,
-		OUID:             e.OUID,
-		Attributes:       e.Attributes,
-		SystemAttributes: e.SystemAttributes,
-	}
+	clone := *e
+	return &clone
 }
 
 // mapEntityError converts an entity service error into an EntityProviderError,

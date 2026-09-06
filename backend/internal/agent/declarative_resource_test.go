@@ -124,12 +124,46 @@ func (s *AgentExporterTestSuite) TestGetAllResourceIDs_EmptyList() {
 func (s *AgentExporterTestSuite) TestGetResourceByID_Success() {
 	expected := &model.AgentGetResponse{ID: "agent1", Name: "My Agent"}
 	s.mockService.EXPECT().GetAgent(mock.Anything, "agent1", false).Return(expected, nil)
+	s.mockService.EXPECT().GetAgentDeclarativeInboundAccess(mock.Anything, "agent1").Return(nil, nil)
 
 	resource, name, err := s.exporter.GetResourceByID(context.Background(), "agent1")
 
 	assert.Nil(s.T(), err)
 	assert.Equal(s.T(), "My Agent", name)
 	assert.Equal(s.T(), expected, resource)
+	assert.Nil(s.T(), expected.InboundAccessYAML)
+}
+
+func (s *AgentExporterTestSuite) TestGetResourceByID_EmitsInboundAccess() {
+	agentResp := &model.AgentGetResponse{ID: "agent1", Name: "My Agent"}
+	access := &providers.DeclarativeInboundAccess{
+		Identifier: "https://api.example.com/orders",
+		Resources: []providers.Resource{
+			{Name: "Orders", Handle: "orders", Actions: []providers.Action{{Name: "Read", Handle: "read"}}},
+		},
+	}
+	s.mockService.EXPECT().GetAgent(mock.Anything, "agent1", false).Return(agentResp, nil)
+	s.mockService.EXPECT().GetAgentDeclarativeInboundAccess(mock.Anything, "agent1").Return(access, nil)
+
+	resource, _, err := s.exporter.GetResourceByID(context.Background(), "agent1")
+
+	assert.Nil(s.T(), err)
+	exported, ok := resource.(*model.AgentGetResponse)
+	s.Require().True(ok)
+	assert.Equal(s.T(), access, exported.InboundAccessYAML)
+}
+
+func (s *AgentExporterTestSuite) TestGetResourceByID_InboundAccessError() {
+	svcErr := &tidcommon.ServiceError{Code: "ERR_CODE", Error: tidcommon.I18nMessage{DefaultValue: "boom"}}
+	s.mockService.EXPECT().GetAgent(mock.Anything, "agent1", false).
+		Return(&model.AgentGetResponse{ID: "agent1", Name: "My Agent"}, nil)
+	s.mockService.EXPECT().GetAgentDeclarativeInboundAccess(mock.Anything, "agent1").Return(nil, svcErr)
+
+	resource, name, err := s.exporter.GetResourceByID(context.Background(), "agent1")
+
+	assert.Nil(s.T(), resource)
+	assert.Equal(s.T(), "", name)
+	assert.Equal(s.T(), svcErr, err)
 }
 
 func (s *AgentExporterTestSuite) TestGetResourceByID_Error() {

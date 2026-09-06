@@ -89,6 +89,17 @@ func (suite *ConstantsTestSuite) TestResourceServerType_IsValid() {
 	assert.True(suite.T(), ResourceServerTypeAPI.IsValid())
 	assert.True(suite.T(), ResourceServerTypeMCP.IsValid())
 	assert.True(suite.T(), ResourceServerTypeCustom.IsValid())
+	assert.True(suite.T(), ResourceServerTypeAgent.IsValid())
+	assert.True(suite.T(), ResourceServerTypeApplication.IsValid())
 	assert.False(suite.T(), ResourceServerType("UNKNOWN").IsValid())
 	assert.False(suite.T(), ResourceServerType("").IsValid())
+}
+
+func (suite *ConstantsTestSuite) TestResourceServerType_IsEntityOwned() {
+	assert.True(suite.T(), ResourceServerTypeAgent.IsEntityOwned())
+	assert.True(suite.T(), ResourceServerTypeApplication.IsEntityOwned())
+	assert.False(suite.T(), ResourceServerTypeAPI.IsEntityOwned())
+	assert.False(suite.T(), ResourceServerTypeMCP.IsEntityOwned())
+	assert.False(suite.T(), ResourceServerTypeCustom.IsEntityOwned())
+	assert.False(suite.T(), ResourceServerType("").IsEntityOwned())
 }

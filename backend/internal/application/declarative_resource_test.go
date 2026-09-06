@@ -104,12 +104,46 @@ func (s *ApplicationExporterTestSuite) TestGetResourceByID_Success() {
 	}
 
 	s.mockService.EXPECT().GetApplication(mock.Anything, "app1").Return(expectedApp, nil)
+	s.mockService.EXPECT().GetApplicationDeclarativeInboundAccess(mock.Anything, "app1").Return(nil, nil)
 
 	resource, name, err := s.exporter.GetResourceByID(context.Background(), "app1")
 
 	assert.Nil(s.T(), err)
 	assert.Equal(s.T(), "Test App", name)
 	assert.Equal(s.T(), expectedApp, resource)
+	assert.Nil(s.T(), expectedApp.InboundAccessYAML)
+}
+
+func (s *ApplicationExporterTestSuite) TestGetResourceByID_EmitsInboundAccess() {
+	app := &providers.Application{ID: "app1", Name: "Test App"}
+	access := &providers.DeclarativeInboundAccess{
+		Identifier: "https://api.example.com/orders",
+		Resources: []providers.Resource{
+			{Name: "Orders", Handle: "orders", Actions: []providers.Action{{Name: "Read", Handle: "read"}}},
+		},
+	}
+	s.mockService.EXPECT().GetApplication(mock.Anything, "app1").Return(app, nil)
+	s.mockService.EXPECT().GetApplicationDeclarativeInboundAccess(mock.Anything, "app1").Return(access, nil)
+
+	resource, _, err := s.exporter.GetResourceByID(context.Background(), "app1")
+
+	assert.Nil(s.T(), err)
+	exported, ok := resource.(*providers.Application)
+	s.Require().True(ok)
+	assert.Equal(s.T(), access, exported.InboundAccessYAML)
+}
+
+func (s *ApplicationExporterTestSuite) TestGetResourceByID_InboundAccessError() {
+	svcErr := &tidcommon.ServiceError{Code: "ERR_CODE", Error: tidcommon.I18nMessage{DefaultValue: "boom"}}
+	s.mockService.EXPECT().GetApplication(mock.Anything, "app1").
+		Return(&providers.Application{ID: "app1", Name: "Test App"}, nil)
+	s.mockService.EXPECT().GetApplicationDeclarativeInboundAccess(mock.Anything, "app1").Return(nil, svcErr)
+
+	resource, name, err := s.exporter.GetResourceByID(context.Background(), "app1")
+
+	assert.Nil(s.T(), resource)
+	assert.Equal(s.T(), "", name)
+	assert.Equal(s.T(), svcErr, err)
 }
 
 func (s *ApplicationExporterTestSuite) TestGetResourceByID_Error() {

@@ -52,15 +52,15 @@ func (s *DBStoreTestSuite) expectClientError() {
 	s.provider.On("GetEntityDBClient").Return(nil, s.testErr).Once()
 }
 
-// onExecAny registers an ExecuteContext expectation that matches any args (up to 14).
-// ExecuteContext is variadic; using 14 Anything matchers covers the widest call (CreateEntity).
+// onExecAny registers an ExecuteContext expectation that matches any args (up to 15).
+// ExecuteContext is variadic; using 15 Anything matchers covers the widest call (CreateEntity).
 // Extra Anything matchers silently pass when fewer actual args are provided.
 func (s *DBStoreTestSuite) onExecAny(ret int64, err error) *mock.Call {
 	return s.client.On("ExecuteContext",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Return(ret, err)
 }
 

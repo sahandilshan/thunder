@@ -555,7 +555,7 @@ func (s *inboundClientService) GetOAuthClientByClientID(ctx context.Context, cli
 		return nil, nil
 	}
 
-	client := BuildOAuthClient(entityID, clientID, ouID, e.Category, oauthProfile)
+	client := BuildOAuthClient(entityID, clientID, ouID, e.Category, e.ResourceServerID, oauthProfile)
 
 	certificate, opErr := s.GetCertificate(ctx, cert.CertificateReferenceTypeOAuthApp, clientID)
 	if opErr != nil {
@@ -567,14 +567,18 @@ func (s *inboundClientService) GetOAuthClientByClientID(ctx context.Context, cli
 }
 
 // BuildOAuthClient assembles an OAuthClient from a stored OAuthProfile and entity context.
+// resourceServerID is the entity's own inbound-access resource server id, empty when the entity
+// exposes no inbound access.
 func BuildOAuthClient(
-	entityID, clientID, ouID string, entityCategory providers.EntityCategory, p *providers.OAuthProfile,
+	entityID, clientID, ouID string, entityCategory providers.EntityCategory, resourceServerID string,
+	p *providers.OAuthProfile,
 ) *providers.OAuthClient {
 	client := &providers.OAuthClient{
 		ID:                                 entityID,
 		OUID:                               ouID,
 		ClientID:                           clientID,
 		EntityCategory:                     entityCategory,
+		InboundResourceServerID:            resourceServerID,
 		RedirectURIs:                       p.RedirectURIs,
 		PostLogoutRedirectURIs:             p.PostLogoutRedirectURIs,
 		TokenEndpointAuthMethod:            providers.TokenEndpointAuthMethod(p.TokenEndpointAuthMethod),

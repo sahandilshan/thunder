@@ -31,6 +31,7 @@ type ApplicationDTO struct {
 	providers.InboundAuthProfile
 	InboundAuthConfig []providers.InboundAuthConfigWithSecret `json:"inboundAuthConfig,omitempty" jsonschema:"OAuth/OIDC authentication configuration. Required for OAuth-enabled applications. Configure OAuth grant types, redirect URIs, and client authentication methods."`
 	Metadata          map[string]interface{}                  `json:"metadata,omitempty" jsonschema:"Generic metadata. Optional arbitrary key-value pairs for consumer use."`
+	InboundAccess     *providers.InboundAccess                `json:"inboundAccess,omitempty" jsonschema:"Read-only. Inbound access exposed by the application. Managed through the application's resource-server endpoints and ignored on create and update."`
 }
 
 // BasicApplicationDTO represents a simplified data transfer object for application service operations.
@@ -113,23 +114,29 @@ type ApplicationRequestWithID struct {
 
 	InboundAuthConfig []providers.InboundAuthConfigWithSecret `json:"inboundAuthConfig,omitempty" yaml:"inboundAuthConfig,omitempty"`
 	Metadata          map[string]interface{}                  `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+
+	// InboundAccess declares the inbound access the application exposes. It is self-contained: the
+	// loader creates the resource server the application owns from it, so it never references a
+	// separately declared resource server.
+	InboundAccess *providers.DeclarativeInboundAccess `json:"inboundAccess,omitempty" yaml:"inboundAccess,omitempty"`
 }
 
 // ApplicationCompleteResponse represents the complete response structure for an application.
 type ApplicationCompleteResponse struct {
-	ID          string          `json:"id,omitempty"`
-	OUID        string          `json:"ouId,omitempty"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	ClientID    string          `json:"clientId,omitempty"`
-	Type        ApplicationType `json:"type,omitempty"`
-	Template    string          `json:"template,omitempty"`
-	FlowSecret  string          `json:"flowSecret,omitempty"`
-	URL         string          `json:"url,omitempty"`
-	LogoURL     string          `json:"logoUrl,omitempty"`
-	TosURI      string          `json:"tosUri,omitempty"`
-	PolicyURI   string          `json:"policyUri,omitempty"`
-	Contacts    []string        `json:"contacts,omitempty"`
+	ID            string                   `json:"id,omitempty"`
+	OUID          string                   `json:"ouId,omitempty"`
+	Name          string                   `json:"name"`
+	Description   string                   `json:"description,omitempty"`
+	ClientID      string                   `json:"clientId,omitempty"`
+	Type          ApplicationType          `json:"type,omitempty"`
+	Template      string                   `json:"template,omitempty"`
+	FlowSecret    string                   `json:"flowSecret,omitempty"`
+	URL           string                   `json:"url,omitempty"`
+	LogoURL       string                   `json:"logoUrl,omitempty"`
+	TosURI        string                   `json:"tosUri,omitempty"`
+	PolicyURI     string                   `json:"policyUri,omitempty"`
+	Contacts      []string                 `json:"contacts,omitempty"`
+	InboundAccess *providers.InboundAccess `json:"inboundAccess,omitempty"`
 
 	inboundmodel.InboundAuthProfileReq
 
@@ -139,18 +146,19 @@ type ApplicationCompleteResponse struct {
 
 // ApplicationGetResponse represents the response structure for getting an application.
 type ApplicationGetResponse struct {
-	ID          string          `json:"id,omitempty"`
-	OUID        string          `json:"ouId,omitempty"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	ClientID    string          `json:"clientId,omitempty"`
-	Type        ApplicationType `json:"type,omitempty"`
-	Template    string          `json:"template,omitempty"`
-	URL         string          `json:"url,omitempty"`
-	LogoURL     string          `json:"logoUrl,omitempty"`
-	TosURI      string          `json:"tosUri,omitempty"`
-	PolicyURI   string          `json:"policyUri,omitempty"`
-	Contacts    []string        `json:"contacts,omitempty"`
+	ID            string                   `json:"id,omitempty"`
+	OUID          string                   `json:"ouId,omitempty"`
+	Name          string                   `json:"name"`
+	Description   string                   `json:"description,omitempty"`
+	ClientID      string                   `json:"clientId,omitempty"`
+	Type          ApplicationType          `json:"type,omitempty"`
+	Template      string                   `json:"template,omitempty"`
+	URL           string                   `json:"url,omitempty"`
+	LogoURL       string                   `json:"logoUrl,omitempty"`
+	TosURI        string                   `json:"tosUri,omitempty"`
+	PolicyURI     string                   `json:"policyUri,omitempty"`
+	Contacts      []string                 `json:"contacts,omitempty"`
+	InboundAccess *providers.InboundAccess `json:"inboundAccess,omitempty"`
 
 	inboundmodel.InboundAuthProfileReq
 
@@ -162,23 +170,46 @@ type ApplicationGetResponse struct {
 // Only carries the subset of inbound-profile fields that make sense in the list view, so it
 // does not embed InboundAuthProfile (which carries Assertion/LoginConsent/etc.).
 type BasicApplicationResponse struct {
-	ID                        string          `json:"id,omitempty" jsonschema:"Application ID."`
-	Name                      string          `json:"name" jsonschema:"Application name."`
-	Description               string          `json:"description,omitempty" jsonschema:"Application description."`
-	ClientID                  string          `json:"clientId,omitempty" jsonschema:"OAuth Client ID."`
-	LogoURL                   string          `json:"logoUrl,omitempty" jsonschema:"Logo URL."`
-	AuthFlowID                string          `json:"authFlowId,omitempty" jsonschema:"Authentication Flow ID."`
-	RegistrationFlowID        string          `json:"registrationFlowId,omitempty" jsonschema:"Registration Flow ID."`
-	IsRegistrationFlowEnabled bool            `json:"isRegistrationFlowEnabled" jsonschema:"Registration enabled status."`
-	RecoveryFlowID            string          `json:"recoveryFlowId,omitempty" jsonschema:"Recovery Flow ID."`
-	IsRecoveryFlowEnabled     bool            `json:"isRecoveryFlowEnabled" jsonschema:"Recovery enabled status."`
-	SignOutFlowID             string          `json:"signOutFlowId,omitempty" jsonschema:"Sign-out flow ID."`
-	IsSignOutFlowEnabled      bool            `json:"isSignOutFlowEnabled" jsonschema:"Sign-out enabled status."`
-	ThemeID                   string          `json:"themeId,omitempty" jsonschema:"Theme ID."`
-	LayoutID                  string          `json:"layoutId,omitempty" jsonschema:"Layout ID."`
-	Type                      ApplicationType `json:"type,omitempty" jsonschema:"Application type (browser, fullstack, mobile, m2m, mcp, custom)."`
-	Template                  string          `json:"template,omitempty" jsonschema:"Application Template."`
-	IsReadOnly                bool            `json:"isReadOnly" jsonschema:"Indicates if the application is read-only (declarative/immutable)."`
+	ID                        string                   `json:"id,omitempty" jsonschema:"Application ID."`
+	Name                      string                   `json:"name" jsonschema:"Application name."`
+	Description               string                   `json:"description,omitempty" jsonschema:"Application description."`
+	ClientID                  string                   `json:"clientId,omitempty" jsonschema:"OAuth Client ID."`
+	LogoURL                   string                   `json:"logoUrl,omitempty" jsonschema:"Logo URL."`
+	AuthFlowID                string                   `json:"authFlowId,omitempty" jsonschema:"Authentication Flow ID."`
+	RegistrationFlowID        string                   `json:"registrationFlowId,omitempty" jsonschema:"Registration Flow ID."`
+	IsRegistrationFlowEnabled bool                     `json:"isRegistrationFlowEnabled" jsonschema:"Registration enabled status."`
+	RecoveryFlowID            string                   `json:"recoveryFlowId,omitempty" jsonschema:"Recovery Flow ID."`
+	IsRecoveryFlowEnabled     bool                     `json:"isRecoveryFlowEnabled" jsonschema:"Recovery enabled status."`
+	SignOutFlowID             string                   `json:"signOutFlowId,omitempty" jsonschema:"Sign-out flow ID."`
+	IsSignOutFlowEnabled      bool                     `json:"isSignOutFlowEnabled" jsonschema:"Sign-out enabled status."`
+	ThemeID                   string                   `json:"themeId,omitempty" jsonschema:"Theme ID."`
+	LayoutID                  string                   `json:"layoutId,omitempty" jsonschema:"Layout ID."`
+	Type                      ApplicationType          `json:"type,omitempty" jsonschema:"Application type (browser, fullstack, mobile, m2m, mcp, custom)."`
+	Template                  string                   `json:"template,omitempty" jsonschema:"Application Template."`
+	InboundAccess             *providers.InboundAccess `json:"inboundAccess,omitempty" jsonschema:"Inbound access exposed by the application, when enabled."`
+	IsReadOnly                bool                     `json:"isReadOnly" jsonschema:"Indicates if the application is read-only (declarative/immutable)."`
+}
+
+// EnableInboundAccessRequest is the HTTP request body for enabling inbound access on an
+// application. Identifier is optional and defaults to the application's ID.
+type EnableInboundAccessRequest struct {
+	Identifier string `json:"identifier,omitempty"`
+}
+
+// UpdateInboundAccessRequest is the HTTP request body for changing the audience identifier of an
+// application's inbound access.
+type UpdateInboundAccessRequest struct {
+	// Identifier is required, but deliberately carries no native constraint: the service returns a
+	// dedicated missing-identifier error, which is clearer than the generic decode failure.
+	Identifier string `json:"identifier"`
+}
+
+// ApplicationInboundAccessResponse describes the inbound access exposed by an application.
+// Permissions are read through the resource server endpoints and are deliberately not repeated here.
+type ApplicationInboundAccessResponse struct {
+	ResourceServerID string                       `json:"resourceServerId"`
+	Identifier       string                       `json:"identifier"`
+	Type             providers.ResourceServerType `json:"type"`
 }
 
 // ApplicationListResponse represents the response structure for listing applications.

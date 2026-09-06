@@ -68,6 +68,23 @@ func (f *fileBasedResourceStore) GetResourceServer(ctx context.Context, id strin
 	return *rs, nil
 }
 
+// GetResourceServersByIDs returns the declarative resource servers matching the given IDs.
+func (f *fileBasedResourceStore) GetResourceServersByIDs(
+	ctx context.Context, ids []string) ([]providers.ResourceServer, error) {
+	servers := make([]providers.ResourceServer, 0, len(ids))
+	for _, id := range ids {
+		rs, err := f.GetResourceServer(ctx, id)
+		if err != nil {
+			if errors.Is(err, errResourceServerNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		servers = append(servers, rs)
+	}
+	return servers, nil
+}
+
 func (f *fileBasedResourceStore) GetResourceServerList(
 	ctx context.Context, limit, offset int) ([]providers.ResourceServer, error) {
 	list, err := f.GenericFileBasedStore.List()
@@ -114,6 +131,16 @@ func (f *fileBasedResourceStore) UpdateResourceServer(
 }
 
 func (f *fileBasedResourceStore) DeleteResourceServer(ctx context.Context, id string) error {
+	return errImmutableStore
+}
+
+func (f *fileBasedResourceStore) DeleteActionsByResourceServer(
+	ctx context.Context, resServerID string) error {
+	return errImmutableStore
+}
+
+func (f *fileBasedResourceStore) DeleteResourcesByResourceServer(
+	ctx context.Context, resServerID string) error {
 	return errImmutableStore
 }
 

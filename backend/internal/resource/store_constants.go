@@ -4,11 +4,41 @@
 package resource
 
 import (
+	"fmt"
+	"strings"
+
 	dbmodel "github.com/thunder-id/thunderid/internal/system/database/model"
 )
 
+// buildGetResourceServersByIDsQuery builds the query that fetches resource servers by a list of IDs.
+// Callers must pass a non-empty ID list.
+func buildGetResourceServersByIDsQuery(ids []string, deploymentID string) (dbmodel.DBQuery, []interface{}) {
+	args := make([]interface{}, 0, len(ids)+1)
+	postgresPlaceholders := make([]string, len(ids))
+	sqlitePlaceholders := make([]string, len(ids))
+	for i, id := range ids {
+		postgresPlaceholders[i] = fmt.Sprintf("$%d", i+1)
+		sqlitePlaceholders[i] = "?"
+		args = append(args, id)
+	}
+	args = append(args, deploymentID)
+
+	baseQueryTpl := `SELECT ID, OU_ID, NAME, DESCRIPTION, IDENTIFIER, TYPE, PROPERTIES ` +
+		`FROM "RESOURCE_SERVER" WHERE ID IN (%s) AND DEPLOYMENT_ID = %s`
+	postgresQuery := fmt.Sprintf(baseQueryTpl,
+		strings.Join(postgresPlaceholders, ","), fmt.Sprintf("$%d", len(ids)+1))
+	sqliteQuery := fmt.Sprintf(baseQueryTpl, strings.Join(sqlitePlaceholders, ","), "?")
+
+	return dbmodel.DBQuery{
+		ID:            "RSQ-RES_MGT-41",
+		Query:         postgresQuery,
+		PostgresQuery: postgresQuery,
+		SQLiteQuery:   sqliteQuery,
+	}, args
+}
+
 // Resource Server Queries
-var (
+var ( //nolint:dupl // Query constant blocks share structural patterns but are distinct queries.
 	// queryCreateResourceServer creates a new resource server.
 	queryCreateResourceServer = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-01",
@@ -47,6 +77,29 @@ var (
 		Query: `UPDATE "RESOURCE_SERVER"
 			SET OU_ID = $1, NAME = $2, DESCRIPTION = $3, IDENTIFIER = $4, TYPE = $5, PROPERTIES = $6
 			WHERE ID = $7 AND DEPLOYMENT_ID = $8`,
+	}
+
+	// queryDeleteActionsByResourceServer deletes every action belonging to a resource server. Used
+	// only when deleting an entity-owned resource server, whose children are removed with it.
+	queryDeleteActionsByResourceServer = dbmodel.DBQuery{
+		ID:    "RSQ-RES_MGT-42",
+		Query: `DELETE FROM "ACTION" WHERE RESOURCE_SERVER_ID = $1 AND DEPLOYMENT_ID = $2`,
+	}
+
+	// queryDeleteLeafResourcesByResourceServer deletes the resources of a resource server that are
+	// not themselves a parent. PARENT_RESOURCE_ID is ON DELETE RESTRICT, so a nested tree has to be
+	// removed leaf by leaf; callers repeat this until it affects no rows.
+	queryDeleteLeafResourcesByResourceServer = dbmodel.DBQuery{
+		ID: "RSQ-RES_MGT-43",
+		Query: `DELETE FROM "RESOURCE"
+		        WHERE RESOURCE_SERVER_ID = $1
+		          AND DEPLOYMENT_ID = $2
+		          AND ID NOT IN (
+		              SELECT PARENT_RESOURCE_ID FROM "RESOURCE"
+		              WHERE RESOURCE_SERVER_ID = $1
+		                AND DEPLOYMENT_ID = $2
+		                AND PARENT_RESOURCE_ID IS NOT NULL
+		          )`,
 	}
 
 	// queryDeleteResourceServer deletes a resource server.
@@ -90,7 +143,7 @@ var (
 )
 
 // providers.Resource Queries
-var (
+var ( //nolint:dupl // Query constant blocks share structural patterns but are distinct queries.
 	// queryCreateResource creates a new resource.
 	queryCreateResource = dbmodel.DBQuery{
 		ID: "RSQ-RES_MGT-10",

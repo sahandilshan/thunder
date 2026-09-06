@@ -50,6 +50,10 @@ type entityStoreInterface interface {
 	GetEntitiesByIDs(ctx context.Context, entityIDs []string) ([]providers.Entity, error)
 	ValidateEntityIDsInOUs(ctx context.Context, entityIDs []string, ouIDs []string) ([]string, error)
 
+	// Resource server reference
+	UpdateEntityResourceServerID(ctx context.Context, entityID string, resourceServerID *string) error
+	GetEntitiesByResourceServerID(ctx context.Context, resourceServerID string) ([]providers.Entity, error)
+
 	// Groups
 	GetGroupCountForEntity(ctx context.Context, entityID string) (int, error)
 	GetEntityGroups(ctx context.Context, entityID string, limit, offset int) ([]providers.EntityGroup, error)
@@ -145,6 +149,10 @@ func (es *entityDBStore) CreateEntity(ctx context.Context, entity providers.Enti
 	}
 
 	now := time.Now().UTC()
+	var rsID interface{}
+	if entity.ResourceServerID != "" {
+		rsID = entity.ResourceServerID
+	}
 	_, err = dbClient.ExecuteContext(
 		ctx,
 		QueryCreateEntity,
@@ -158,6 +166,7 @@ func (es *entityDBStore) CreateEntity(ctx context.Context, entity providers.Enti
 		systemAttrs,
 		credsJSON,
 		sysCredsJSON,
+		rsID,
 		now,
 		now,
 	)
@@ -749,6 +758,47 @@ func (es *entityDBStore) ValidateEntityIDsInOUs(
 	return outOfScopeIDs, nil
 }
 
+// UpdateEntityResourceServerID updates the RESOURCE_SERVER_ID of an entity.
+// Pass nil to clear the reference.
+func (es *entityDBStore) UpdateEntityResourceServerID(
+	ctx context.Context, entityID string, resourceServerID *string,
+) error {
+	dbClient, err := es.dbProvider.GetEntityDBClient()
+	if err != nil {
+		return fmt.Errorf("failed to get database client: %w", err)
+	}
+
+	rowsAffected, err := dbClient.ExecuteContext(ctx, QueryUpdateEntityResourceServerID,
+		entityID, resourceServerID, time.Now().UTC(), es.deploymentID)
+	if err != nil {
+		return fmt.Errorf("failed to update entity resource server ID: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrEntityNotFound
+	}
+
+	return nil
+}
+
+// GetEntitiesByResourceServerID retrieves all entities that reference the given resource server.
+func (es *entityDBStore) GetEntitiesByResourceServerID(
+	ctx context.Context, resourceServerID string,
+) ([]providers.Entity, error) {
+	dbClient, err := es.dbProvider.GetEntityDBClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database client: %w", err)
+	}
+
+	results, err := dbClient.QueryContext(ctx, QueryGetEntitiesByResourceServerID,
+		resourceServerID, es.deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entities by resource server ID: %w", err)
+	}
+
+	return buildEntitiesFromResults(results)
+}
+
 // GetGroupCountForEntity retrieves the total count of groups an entity belongs to.
 func (es *entityDBStore) GetGroupCountForEntity(ctx context.Context, entityID string) (int, error) {
 	dbClient, err := es.dbProvider.GetEntityDBClient()
@@ -856,6 +906,10 @@ func buildEntityFromResultRow(row map[string]interface{}) (providers.Entity, err
 	}
 
 	entity.SystemAttributes = parseJSONColumn(row, "system_attributes")
+
+	if rsID, ok := row["resource_server_id"].(string); ok {
+		entity.ResourceServerID = rsID
+	}
 
 	return entity, nil
 }

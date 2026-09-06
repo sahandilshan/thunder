@@ -99,6 +99,13 @@ func (e *agentExporter) GetResourceByID(
 			a.AttributesYAML = attrs
 		}
 	}
+	// The resource server the agent owns is exported inline here rather than by the resource server
+	// exporter, which skips entity-owned resource servers; otherwise an import would create it twice.
+	access, err := e.service.GetAgentDeclarativeInboundAccess(ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+	a.InboundAccessYAML = access
 	return a, a.Name, nil
 }
 
@@ -243,6 +250,19 @@ func makeAgentEntityParser(
 		)
 		if buildErr != nil {
 			return nil, nil, nil, fmt.Errorf("failed to build agent entity for '%s': %w", req.ID, buildErr)
+		}
+
+		// Create the resource server the agent owns from the inline inbound access block and point
+		// the agent at it. Loading runs at startup, so any failure here aborts the server start and
+		// leaves no half-applied state behind.
+		if req.InboundAccess != nil {
+			resourceServerID, rsErr := agentSvc.LoadDeclarativeInboundAccess(
+				security.WithRuntimeContext(context.Background()),
+				req.ID, agent.OUID, req.Name, req.InboundAccess)
+			if rsErr != nil {
+				return nil, nil, nil, fmt.Errorf("failed to load the inbound access of agent '%s': %w", req.ID, rsErr)
+			}
+			e.ResourceServerID = resourceServerID
 		}
 
 		return e, nil, sysCredsJSON, nil

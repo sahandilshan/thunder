@@ -125,8 +125,9 @@ paths:
             Resource indicator per RFC 8707 (absolute URI, no fragment). Only one value is
             supported; requests with multiple resource values are rejected with invalid_target.
             When omitted from a permission-bearing request, the configured
-            defaultResourceServer is used. OIDC-only and scopeless requests use the
-            client_id audience.
+            defaultResourceServer is used. OIDC-only and scopeless requests use the client's
+            inbound access identifier when inbound access is enabled, otherwise defaultAudience
+            or the client_id; see the aud resolution order documented under `POST /oauth2/token`.
         - name: acr_values
           in: query
           required: false
@@ -234,6 +235,28 @@ paths:
         ThunderID access token. Optional `scope` and `resource` parameters further narrow the granted
         scopes and audience; `resource` must be a subset of the assertion's own `resource` claim when
         the assertion carries one. No refresh token is issued for this grant.
+
+        **Access token audience (`aud`) resolution.** For grants whose subject is not the client
+        itself (`authorization_code`, `urn:ietf:params:oauth:grant-type:token-exchange`,
+        `urn:ietf:params:oauth:grant-type:jwt-bearer`, and `urn:openid:params:grant-type:ciba`), the
+        audience is resolved in this order: (1) an explicit `resource` parameter (RFC 8707), if
+        supplied; (2) the client's inbound access identifier, if inbound access is enabled for the
+        requesting agent or application (see `POST /agents/{id}/resource-server` and
+        `POST /applications/{id}/resource-server`); (3) the deployment's default resource server,
+        but only when permission scopes are requested; (4) the client's configured
+        `defaultAudience`; (5) the `client_id`. For `client_credentials`, where the client itself is
+        the subject, the order is unchanged from before inbound access existed: the deployment's
+        default resource server when scopes are requested, then `defaultAudience`, then
+        `client_id`. Step 2 does not apply to `client_credentials`. The `refresh_token` grant
+        inherits the audience already bound to the refresh token and is not affected by this
+        resolution.
+
+        Two consequences of this are easy to miss. Once inbound access is enabled for a client, a
+        plain OIDC login with no `resource` parameter (for example `scope=openid profile`) receives
+        the inbound access identifier as its `aud`, not the `client_id` and not the configured
+        `defaultAudience`. Also, when the inbound access identifier is the resolved audience, any
+        requested non-OIDC scope that is not defined as a permission on that resource server is
+        dropped from the token; OIDC scopes are always retained unchanged.
       tags:
         - Token
       requestBody:
@@ -296,7 +319,9 @@ paths:
         authorization. A valid `resource` binds the request to that resource server; when omitted from
         a permission-bearing request the configured `defaultResourceServer` is used, and a
         permission-bearing request with no resource and no default is rejected with `invalid_target`.
-        OIDC-only requests without a resource remain valid and keep the `client_id` audience. Multiple
+        OIDC-only requests without a resource remain valid and use the same audience resolution as
+        the token endpoint (see `POST /oauth2/token`), so they receive the client's inbound access
+        identifier when it is enabled, otherwise `defaultAudience` or the `client_id`. Multiple
         `resource` values, including duplicates, are rejected with `invalid_target`. The resulting
         access token has the bound resource server identifier as its sole `aud`, and its permissions
         are limited to those defined by that resource server. A `resource` optionally supplied when
@@ -734,7 +759,9 @@ components:
             Resource indicator (RFC 8707). For access-token issuance, binds the issued access token
             to exactly one resource server. When omitted from a permission-bearing request, the
             configured defaultResourceServer is used, and if neither is available the request is
-            rejected with invalid_target. OIDC-only and scopeless requests use the client_id audience. Optional
+            rejected with invalid_target. OIDC-only and scopeless requests use the audience
+            resolved per the precedence described above (the client's inbound access identifier
+            when enabled, then defaultAudience, then client_id). Optional
             for ID-JAG requests, where it is embedded in the issued ID-JAG's `resource` claim. For
             the jwt-bearer grant, when present it must be a subset of the assertion's own `resource`
             claim.
@@ -1180,7 +1207,8 @@ components:
             supported; requests with multiple resource values, including duplicates, are rejected
             with invalid_target. When omitted from a permission-bearing request, the configured
             defaultResourceServer is used; a permission-bearing request with no resource and no
-            default is rejected with invalid_target. OIDC-only requests use the client_id audience.
+            default is rejected with invalid_target. OIDC-only requests use the same audience
+            resolution as the token endpoint (see `POST /oauth2/token`).
         binding_message:
           type: string
           description: >-

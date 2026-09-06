@@ -9,6 +9,8 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 	"github.com/thunder-id/thunderid/internal/application/model"
+	"github.com/thunder-id/thunderid/internal/entity"
+	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/system/resourcedependency"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/common"
 	"github.com/thunder-id/thunderid/pkg/thunderidengine/providers"
@@ -170,6 +172,141 @@ func (_c *ApplicationServiceInterfaceMock_DeleteApplication_Call) RunAndReturn(r
 	return _c
 }
 
+// DisableApplicationInboundAccess provides a mock function for the type ApplicationServiceInterfaceMock
+func (_mock *ApplicationServiceInterfaceMock) DisableApplicationInboundAccess(ctx context.Context, appID string) *common.ServiceError {
+	ret := _mock.Called(ctx, appID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DisableApplicationInboundAccess")
+	}
+
+	var r0 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *common.ServiceError); ok {
+		r0 = returnFunc(ctx, appID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*common.ServiceError)
+		}
+	}
+	return r0
+}
+
+// ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DisableApplicationInboundAccess'
+type ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call struct {
+	*mock.Call
+}
+
+// DisableApplicationInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - appID string
+func (_e *ApplicationServiceInterfaceMock_Expecter) DisableApplicationInboundAccess(ctx interface{}, appID interface{}) *ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call {
+	return &ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call{Call: _e.mock.On("DisableApplicationInboundAccess", ctx, appID)}
+}
+
+func (_c *ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call) Run(run func(ctx context.Context, appID string)) *ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call) Return(serviceError *common.ServiceError) *ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call {
+	_c.Call.Return(serviceError)
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call) RunAndReturn(run func(ctx context.Context, appID string) *common.ServiceError) *ApplicationServiceInterfaceMock_DisableApplicationInboundAccess_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// EnableApplicationInboundAccess provides a mock function for the type ApplicationServiceInterfaceMock
+func (_mock *ApplicationServiceInterfaceMock) EnableApplicationInboundAccess(ctx context.Context, appID string, identifier string) (*model.ApplicationInboundAccessResponse, *common.ServiceError) {
+	ret := _mock.Called(ctx, appID, identifier)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EnableApplicationInboundAccess")
+	}
+
+	var r0 *model.ApplicationInboundAccessResponse
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*model.ApplicationInboundAccessResponse, *common.ServiceError)); ok {
+		return returnFunc(ctx, appID, identifier)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *model.ApplicationInboundAccessResponse); ok {
+		r0 = returnFunc(ctx, appID, identifier)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.ApplicationInboundAccessResponse)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, appID, identifier)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EnableApplicationInboundAccess'
+type ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call struct {
+	*mock.Call
+}
+
+// EnableApplicationInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - appID string
+//   - identifier string
+func (_e *ApplicationServiceInterfaceMock_Expecter) EnableApplicationInboundAccess(ctx interface{}, appID interface{}, identifier interface{}) *ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call {
+	return &ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call{Call: _e.mock.On("EnableApplicationInboundAccess", ctx, appID, identifier)}
+}
+
+func (_c *ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call) Run(run func(ctx context.Context, appID string, identifier string)) *ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call) Return(applicationInboundAccessResponse *model.ApplicationInboundAccessResponse, serviceError *common.ServiceError) *ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call {
+	_c.Call.Return(applicationInboundAccessResponse, serviceError)
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call) RunAndReturn(run func(ctx context.Context, appID string, identifier string) (*model.ApplicationInboundAccessResponse, *common.ServiceError)) *ApplicationServiceInterfaceMock_EnableApplicationInboundAccess_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetApplication provides a mock function for the type ApplicationServiceInterfaceMock
 func (_mock *ApplicationServiceInterfaceMock) GetApplication(ctx context.Context, appID string) (*providers.Application, *common.ServiceError) {
 	ret := _mock.Called(ctx, appID)
@@ -236,6 +373,146 @@ func (_c *ApplicationServiceInterfaceMock_GetApplication_Call) Return(applicatio
 }
 
 func (_c *ApplicationServiceInterfaceMock_GetApplication_Call) RunAndReturn(run func(ctx context.Context, appID string) (*providers.Application, *common.ServiceError)) *ApplicationServiceInterfaceMock_GetApplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetApplicationDeclarativeInboundAccess provides a mock function for the type ApplicationServiceInterfaceMock
+func (_mock *ApplicationServiceInterfaceMock) GetApplicationDeclarativeInboundAccess(ctx context.Context, appID string) (*providers.DeclarativeInboundAccess, *common.ServiceError) {
+	ret := _mock.Called(ctx, appID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetApplicationDeclarativeInboundAccess")
+	}
+
+	var r0 *providers.DeclarativeInboundAccess
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*providers.DeclarativeInboundAccess, *common.ServiceError)); ok {
+		return returnFunc(ctx, appID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *providers.DeclarativeInboundAccess); ok {
+		r0 = returnFunc(ctx, appID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*providers.DeclarativeInboundAccess)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, appID)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetApplicationDeclarativeInboundAccess'
+type ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call struct {
+	*mock.Call
+}
+
+// GetApplicationDeclarativeInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - appID string
+func (_e *ApplicationServiceInterfaceMock_Expecter) GetApplicationDeclarativeInboundAccess(ctx interface{}, appID interface{}) *ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call {
+	return &ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call{Call: _e.mock.On("GetApplicationDeclarativeInboundAccess", ctx, appID)}
+}
+
+func (_c *ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call) Run(run func(ctx context.Context, appID string)) *ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call) Return(declarativeInboundAccess *providers.DeclarativeInboundAccess, serviceError *common.ServiceError) *ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call {
+	_c.Call.Return(declarativeInboundAccess, serviceError)
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call) RunAndReturn(run func(ctx context.Context, appID string) (*providers.DeclarativeInboundAccess, *common.ServiceError)) *ApplicationServiceInterfaceMock_GetApplicationDeclarativeInboundAccess_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetApplicationInboundAccess provides a mock function for the type ApplicationServiceInterfaceMock
+func (_mock *ApplicationServiceInterfaceMock) GetApplicationInboundAccess(ctx context.Context, appID string) (*model.ApplicationInboundAccessResponse, *common.ServiceError) {
+	ret := _mock.Called(ctx, appID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetApplicationInboundAccess")
+	}
+
+	var r0 *model.ApplicationInboundAccessResponse
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*model.ApplicationInboundAccessResponse, *common.ServiceError)); ok {
+		return returnFunc(ctx, appID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *model.ApplicationInboundAccessResponse); ok {
+		r0 = returnFunc(ctx, appID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.ApplicationInboundAccessResponse)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, appID)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetApplicationInboundAccess'
+type ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call struct {
+	*mock.Call
+}
+
+// GetApplicationInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - appID string
+func (_e *ApplicationServiceInterfaceMock_Expecter) GetApplicationInboundAccess(ctx interface{}, appID interface{}) *ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call {
+	return &ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call{Call: _e.mock.On("GetApplicationInboundAccess", ctx, appID)}
+}
+
+func (_c *ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call) Run(run func(ctx context.Context, appID string)) *ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call) Return(applicationInboundAccessResponse *model.ApplicationInboundAccessResponse, serviceError *common.ServiceError) *ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call {
+	_c.Call.Return(applicationInboundAccessResponse, serviceError)
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call) RunAndReturn(run func(ctx context.Context, appID string) (*model.ApplicationInboundAccessResponse, *common.ServiceError)) *ApplicationServiceInterfaceMock_GetApplicationInboundAccess_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -448,6 +725,90 @@ func (_c *ApplicationServiceInterfaceMock_GetResourceDependencies_Call) RunAndRe
 	return _c
 }
 
+// LoadDeclarativeInboundAccess provides a mock function for the type ApplicationServiceInterfaceMock
+func (_mock *ApplicationServiceInterfaceMock) LoadDeclarativeInboundAccess(ctx context.Context, appID string, ouID string, name string, access *providers.DeclarativeInboundAccess) (string, error) {
+	ret := _mock.Called(ctx, appID, ouID, name, access)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoadDeclarativeInboundAccess")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, *providers.DeclarativeInboundAccess) (string, error)); ok {
+		return returnFunc(ctx, appID, ouID, name, access)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, *providers.DeclarativeInboundAccess) string); ok {
+		r0 = returnFunc(ctx, appID, ouID, name, access)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string, *providers.DeclarativeInboundAccess) error); ok {
+		r1 = returnFunc(ctx, appID, ouID, name, access)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LoadDeclarativeInboundAccess'
+type ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call struct {
+	*mock.Call
+}
+
+// LoadDeclarativeInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - appID string
+//   - ouID string
+//   - name string
+//   - access *providers.DeclarativeInboundAccess
+func (_e *ApplicationServiceInterfaceMock_Expecter) LoadDeclarativeInboundAccess(ctx interface{}, appID interface{}, ouID interface{}, name interface{}, access interface{}) *ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call {
+	return &ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call{Call: _e.mock.On("LoadDeclarativeInboundAccess", ctx, appID, ouID, name, access)}
+}
+
+func (_c *ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call) Run(run func(ctx context.Context, appID string, ouID string, name string, access *providers.DeclarativeInboundAccess)) *ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		var arg4 *providers.DeclarativeInboundAccess
+		if args[4] != nil {
+			arg4 = args[4].(*providers.DeclarativeInboundAccess)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+		)
+	})
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call) Return(s string, err error) *ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call) RunAndReturn(run func(ctx context.Context, appID string, ouID string, name string, access *providers.DeclarativeInboundAccess) (string, error)) *ApplicationServiceInterfaceMock_LoadDeclarativeInboundAccess_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetDependencyRegistry provides a mock function for the type ApplicationServiceInterfaceMock
 func (_mock *ApplicationServiceInterfaceMock) SetDependencyRegistry(r resourcedependency.Registry) {
 	_mock.Called(r)
@@ -484,6 +845,86 @@ func (_c *ApplicationServiceInterfaceMock_SetDependencyRegistry_Call) Return() *
 }
 
 func (_c *ApplicationServiceInterfaceMock_SetDependencyRegistry_Call) RunAndReturn(run func(r resourcedependency.Registry)) *ApplicationServiceInterfaceMock_SetDependencyRegistry_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetEntityService provides a mock function for the type ApplicationServiceInterfaceMock
+func (_mock *ApplicationServiceInterfaceMock) SetEntityService(es entity.EntityServiceInterface) {
+	_mock.Called(es)
+	return
+}
+
+// ApplicationServiceInterfaceMock_SetEntityService_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetEntityService'
+type ApplicationServiceInterfaceMock_SetEntityService_Call struct {
+	*mock.Call
+}
+
+// SetEntityService is a helper method to define mock.On call
+//   - es entity.EntityServiceInterface
+func (_e *ApplicationServiceInterfaceMock_Expecter) SetEntityService(es interface{}) *ApplicationServiceInterfaceMock_SetEntityService_Call {
+	return &ApplicationServiceInterfaceMock_SetEntityService_Call{Call: _e.mock.On("SetEntityService", es)}
+}
+
+func (_c *ApplicationServiceInterfaceMock_SetEntityService_Call) Run(run func(es entity.EntityServiceInterface)) *ApplicationServiceInterfaceMock_SetEntityService_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 entity.EntityServiceInterface
+		if args[0] != nil {
+			arg0 = args[0].(entity.EntityServiceInterface)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_SetEntityService_Call) Return() *ApplicationServiceInterfaceMock_SetEntityService_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_SetEntityService_Call) RunAndReturn(run func(es entity.EntityServiceInterface)) *ApplicationServiceInterfaceMock_SetEntityService_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetResourceService provides a mock function for the type ApplicationServiceInterfaceMock
+func (_mock *ApplicationServiceInterfaceMock) SetResourceService(rs resource.ResourceServiceInterface) {
+	_mock.Called(rs)
+	return
+}
+
+// ApplicationServiceInterfaceMock_SetResourceService_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetResourceService'
+type ApplicationServiceInterfaceMock_SetResourceService_Call struct {
+	*mock.Call
+}
+
+// SetResourceService is a helper method to define mock.On call
+//   - rs resource.ResourceServiceInterface
+func (_e *ApplicationServiceInterfaceMock_Expecter) SetResourceService(rs interface{}) *ApplicationServiceInterfaceMock_SetResourceService_Call {
+	return &ApplicationServiceInterfaceMock_SetResourceService_Call{Call: _e.mock.On("SetResourceService", rs)}
+}
+
+func (_c *ApplicationServiceInterfaceMock_SetResourceService_Call) Run(run func(rs resource.ResourceServiceInterface)) *ApplicationServiceInterfaceMock_SetResourceService_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 resource.ResourceServiceInterface
+		if args[0] != nil {
+			arg0 = args[0].(resource.ResourceServiceInterface)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_SetResourceService_Call) Return() *ApplicationServiceInterfaceMock_SetResourceService_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_SetResourceService_Call) RunAndReturn(run func(rs resource.ResourceServiceInterface)) *ApplicationServiceInterfaceMock_SetResourceService_Call {
 	_c.Run(run)
 	return _c
 }
@@ -560,6 +1001,82 @@ func (_c *ApplicationServiceInterfaceMock_UpdateApplication_Call) Return(applica
 }
 
 func (_c *ApplicationServiceInterfaceMock_UpdateApplication_Call) RunAndReturn(run func(ctx context.Context, appID string, app *model.ApplicationDTO) (*model.ApplicationDTO, *common.ServiceError)) *ApplicationServiceInterfaceMock_UpdateApplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateApplicationInboundAccess provides a mock function for the type ApplicationServiceInterfaceMock
+func (_mock *ApplicationServiceInterfaceMock) UpdateApplicationInboundAccess(ctx context.Context, appID string, identifier string) (*model.ApplicationInboundAccessResponse, *common.ServiceError) {
+	ret := _mock.Called(ctx, appID, identifier)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateApplicationInboundAccess")
+	}
+
+	var r0 *model.ApplicationInboundAccessResponse
+	var r1 *common.ServiceError
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*model.ApplicationInboundAccessResponse, *common.ServiceError)); ok {
+		return returnFunc(ctx, appID, identifier)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *model.ApplicationInboundAccessResponse); ok {
+		r0 = returnFunc(ctx, appID, identifier)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.ApplicationInboundAccessResponse)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) *common.ServiceError); ok {
+		r1 = returnFunc(ctx, appID, identifier)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*common.ServiceError)
+		}
+	}
+	return r0, r1
+}
+
+// ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateApplicationInboundAccess'
+type ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call struct {
+	*mock.Call
+}
+
+// UpdateApplicationInboundAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - appID string
+//   - identifier string
+func (_e *ApplicationServiceInterfaceMock_Expecter) UpdateApplicationInboundAccess(ctx interface{}, appID interface{}, identifier interface{}) *ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call {
+	return &ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call{Call: _e.mock.On("UpdateApplicationInboundAccess", ctx, appID, identifier)}
+}
+
+func (_c *ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call) Run(run func(ctx context.Context, appID string, identifier string)) *ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call) Return(applicationInboundAccessResponse *model.ApplicationInboundAccessResponse, serviceError *common.ServiceError) *ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call {
+	_c.Call.Return(applicationInboundAccessResponse, serviceError)
+	return _c
+}
+
+func (_c *ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call) RunAndReturn(run func(ctx context.Context, appID string, identifier string) (*model.ApplicationInboundAccessResponse, *common.ServiceError)) *ApplicationServiceInterfaceMock_UpdateApplicationInboundAccess_Call {
 	_c.Call.Return(run)
 	return _c
 }

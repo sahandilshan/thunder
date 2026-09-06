@@ -62,6 +62,25 @@ func (suite *DefaultResourceServerConfigHandlerTestSuite) TestValidateKnownIDAcc
 	assert.NoError(suite.T(), h.Validate(DefaultResourceServerConfig{ResourceServerID: "rs-1"}, nil, nil))
 }
 
+// TestValidateEntityOwnedRejected asserts that a resource server owned by an agent or application
+// cannot be made the deployment default: it backs that one entity's inbound access, and it is
+// deleted with the entity, which would leave this configuration dangling.
+func (suite *DefaultResourceServerConfigHandlerTestSuite) TestValidateEntityOwnedRejected() {
+	for _, ownedType := range []providers.ResourceServerType{
+		providers.ResourceServerTypeAgent,
+		providers.ResourceServerTypeApplication,
+	} {
+		mockSvc := NewResourceServiceInterfaceMock(suite.T())
+		mockSvc.EXPECT().GetResourceServer(mock.Anything, "rs-owned").
+			Return(&providers.ResourceServer{ID: "rs-owned", Type: ownedType}, nil)
+		h := NewDefaultResourceServerConfigHandler(mockSvc)
+
+		err := h.Validate(DefaultResourceServerConfig{ResourceServerID: "rs-owned"}, nil, nil)
+
+		assert.ErrorIs(suite.T(), err, errEntityOwnedDefaultResourceServer)
+	}
+}
+
 func (suite *DefaultResourceServerConfigHandlerTestSuite) TestValidateUnknownIDRejected() {
 	mockSvc := NewResourceServiceInterfaceMock(suite.T())
 	mockSvc.EXPECT().GetResourceServer(mock.Anything, "missing").Return(nil, &ErrorResourceServerNotFound)

@@ -654,3 +654,134 @@ func (suite *ServiceTestSuite) TestIsPARRequestURI() {
 	assert.False(suite.T(), IsPARRequestURI(""))
 	assert.False(suite.T(), IsPARRequestURI("urn:ietf:params:oauth:request-uri:abc123"))
 }
+
+// testPARInboundRSID is the id of the resource server a client's own entity owns.
+const testPARInboundRSID = "rs-inbound"
+
+// testPARPermissionScope is a scope string that carries a permission scope, so the request must
+// bind to a resource server.
+const testPARPermissionScope = "openid read:things"
+
+// Entity inbound access: a pushed request that resolves to the client's own resource server is
+// accepted rather than rejected as invalid_target, matching what the token endpoint later resolves.
+
+func (s *ServiceTestSuite) TestHandlePAR_InboundRS_PermissionScopeNoResource_Accepted() {
+	store := newParStoreInterfaceMock(s.T())
+	store.EXPECT().Store(mock.Anything, mock.Anything, mock.Anything).Return("test-uri", nil)
+	rsMock := resourcemock.NewResourceServiceInterfaceMock(s.T())
+	rsMock.On("GetResourceServer", mock.Anything, testPARInboundRSID).
+		Return(&providers.ResourceServer{ID: testPARInboundRSID, Identifier: "https://agent.example.com"}, nil)
+	svc := newPARService(store, rsMock, s.testCfg)
+	app := s.newTestApp()
+	app.InboundResourceServerID = testPARInboundRSID
+	params := s.newValidParams()
+	params[oauth2const.RequestParamScope] = testPARPermissionScope
+
+	resp, errCode, _ := svc.HandlePushedAuthorizationRequest(s.ctx, params, nil, app, "")
+
+	assert.Empty(s.T(), errCode)
+	assert.NotNil(s.T(), resp)
+	rsMock.AssertNotCalled(s.T(), "GetResourceServerByIdentifier", mock.Anything, "")
+}
+
+func (s *ServiceTestSuite) TestHandlePAR_NoInboundRS_PermissionScopeNoDefault_InvalidTarget() {
+	store := newParStoreInterfaceMock(s.T())
+	rsMock := resourcemock.NewResourceServiceInterfaceMock(s.T())
+	rsMock.On("GetResourceServerByIdentifier", mock.Anything, "").
+		Return((*providers.ResourceServer)(nil), &tidcommon.ServiceError{
+			Type: tidcommon.ClientErrorType,
+			Code: "RES-1003",
+		})
+	svc := newPARService(store, rsMock, s.testCfg)
+	app := s.newTestApp()
+	params := s.newValidParams()
+	params[oauth2const.RequestParamScope] = testPARPermissionScope
+
+	resp, errCode, _ := svc.HandlePushedAuthorizationRequest(s.ctx, params, nil, app, "")
+
+	assert.Nil(s.T(), resp)
+	assert.Equal(s.T(), oauth2const.ErrorInvalidTarget, errCode)
+}
+
+func (s *ServiceTestSuite) TestHandlePAR_InboundRS_ExplicitResourceStillValidated() {
+	store := newParStoreInterfaceMock(s.T())
+	rsMock := resourcemock.NewResourceServiceInterfaceMock(s.T())
+	rsMock.On("GetResourceServerByIdentifier", mock.Anything, "https://unknown.example.com").
+		Return((*providers.ResourceServer)(nil), &tidcommon.ServiceError{
+			Type: tidcommon.ClientErrorType,
+			Code: "RES-1001",
+		})
+	svc := newPARService(store, rsMock, s.testCfg)
+	app := s.newTestApp()
+	app.InboundResourceServerID = testPARInboundRSID
+	params := s.newValidParams()
+
+	resp, errCode, _ := svc.HandlePushedAuthorizationRequest(
+		s.ctx, params, []string{"https://unknown.example.com"}, app, "")
+
+	assert.Nil(s.T(), resp)
+	assert.Equal(s.T(), oauth2const.ErrorInvalidTarget, errCode)
+	rsMock.AssertNotCalled(s.T(), "GetResourceServer", mock.Anything, testPARInboundRSID)
+}
+
+// PAR stores the caller's resource parameter, not an identifier this server resolved, so it never
+// round-trips an internally-resolved value. The RFC 8707 §2 shape rule therefore still applies to
+// everything PAR persists, and is checked at the push.
+func (s *ServiceTestSuite) TestHandlePAR_CallerSuppliedNonURIResource_InvalidTarget() {
+	store := newParStoreInterfaceMock(s.T())
+	svc := newPARService(store, s.newPermissiveResourceMock(), s.testCfg)
+	app := s.newTestApp()
+	params := s.newValidParams()
+
+	resp, errCode, _ := svc.HandlePushedAuthorizationRequest(
+		s.ctx, params, []string{"01997c1e-0f5a-7a3c-9b2e-9f1c4c2d5e60"}, app, "")
+
+	assert.Nil(s.T(), resp)
+	assert.Equal(s.T(), oauth2const.ErrorInvalidTarget, errCode)
+	store.AssertNotCalled(s.T(), "Store", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A client whose inbound access uses the default bare-entity-ID identifier can still push: PAR
+// resolves the binding to confirm the request can bind, and never re-validates that identifier.
+func (s *ServiceTestSuite) TestHandlePAR_InboundRSWithBareEntityIDIdentifier_Accepted() {
+	store := newParStoreInterfaceMock(s.T())
+	store.EXPECT().Store(mock.Anything, mock.Anything, mock.Anything).Return("test-uri", nil)
+	rsMock := resourcemock.NewResourceServiceInterfaceMock(s.T())
+	rsMock.On("GetResourceServer", mock.Anything, testPARInboundRSID).
+		Return(&providers.ResourceServer{
+			ID: testPARInboundRSID, Identifier: "01997c1e-0f5a-7a3c-9b2e-9f1c4c2d5e60",
+		}, nil)
+	svc := newPARService(store, rsMock, s.testCfg)
+	app := s.newTestApp()
+	app.InboundResourceServerID = testPARInboundRSID
+	params := s.newValidParams()
+	params[oauth2const.RequestParamScope] = testPARPermissionScope
+
+	resp, errCode, _ := svc.HandlePushedAuthorizationRequest(s.ctx, params, nil, app, "")
+
+	assert.Empty(s.T(), errCode)
+	assert.NotNil(s.T(), resp)
+}
+
+// A stale inbound reference must not widen the pushed request's binding to the deployment default.
+func (s *ServiceTestSuite) TestHandlePAR_StaleInboundRS_DoesNotFallBackToDeploymentDefault() {
+	store := newParStoreInterfaceMock(s.T())
+	store.EXPECT().Store(mock.Anything, mock.Anything, mock.Anything).Return("test-uri", nil)
+	rsMock := resourcemock.NewResourceServiceInterfaceMock(s.T())
+	rsMock.On("GetResourceServer", mock.Anything, testPARInboundRSID).
+		Return((*providers.ResourceServer)(nil), &tidcommon.ServiceError{
+			Type: tidcommon.ClientErrorType,
+			Code: "RES-1003",
+		})
+	svc := newPARService(store, rsMock, s.testCfg)
+	app := s.newTestApp()
+	app.InboundResourceServerID = testPARInboundRSID
+	params := s.newValidParams()
+	params[oauth2const.RequestParamScope] = testPARPermissionScope
+
+	resp, errCode, _ := svc.HandlePushedAuthorizationRequest(s.ctx, params, nil, app, "")
+
+	assert.Empty(s.T(), errCode)
+	assert.NotNil(s.T(), resp)
+	rsMock.AssertNotCalled(s.T(), "GetResourceServerByIdentifier", mock.Anything, "")
+}

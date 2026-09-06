@@ -120,6 +120,15 @@ func (h *jwtBearerGrantHandler) HandleGrant(ctx context.Context, tokenRequest *m
 	// permission scopes are present and neither the assertion nor the request carries a resource,
 	// the configured defaultResourceServer is used, and if none is configured the request is rejected
 	// with invalid_target. OIDC-only no-resource requests are not resource-server bound.
+	// Both sides are caller-supplied: the request parameter directly, and the assertion's resource
+	// claim through the assertion the client presents. Check them where they enter, per RFC 8707 §2.
+	if errResp := resourceindicators.ValidateResourceURIs(tokenRequest.Resources); errResp != nil {
+		return nil, errResp
+	}
+	if errResp := resourceindicators.ValidateResourceURIs(assertionClaims.Resources); errResp != nil {
+		return nil, errResp
+	}
+
 	resources := assertionClaims.Resources
 	if len(tokenRequest.Resources) > 0 {
 		if len(assertionClaims.Resources) > 0 {
@@ -140,7 +149,7 @@ func (h *jwtBearerGrantHandler) HandleGrant(ctx context.Context, tokenRequest *m
 	oidcScopes, permissionScopes := oauth2utils.SeparateOIDCAndNonOIDCScopes(
 		tokenservice.JoinScopes(grantedScopes), oauthApp.ScopeClaims)
 	targetRS, errResp := resourceindicators.ResolveAudienceBinding(
-		ctx, h.resourceService, resources, permissionScopes)
+		ctx, h.resourceService, oauthApp, resourceindicators.SubjectPrincipal, resources, permissionScopes)
 	if errResp != nil {
 		return nil, errResp
 	}
