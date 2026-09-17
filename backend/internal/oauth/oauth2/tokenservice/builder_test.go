@@ -45,6 +45,7 @@ const (
 	testRefreshToken = "test-refresh-token" //nolint:gosec // Test token, not a real credential
 	testIDToken      = "test-id-token"      //nolint:gosec // Test token, not a real credential
 	testUserName     = "John Doe"
+	testUserEmail    = "user@example.com"
 	testAppID        = "app123"
 	testCacheID      = "test-cache-id"
 	testIDJAGAud     = "https://rs.example.com"
@@ -2525,6 +2526,141 @@ func (suite *TokenBuilderTestSuite) TestBuildIDJAG_NoResources_OmitsResourceClai
 		mock.MatchedBy(func(claims map[string]interface{}) bool {
 			_, hasResource := claims["resource"]
 			return !hasResource
+		}),
+		jwt.TokenTypeIDJAG,
+		mock.Anything,
+	).Return("test-id-jag", time.Now().Unix(), nil)
+
+	result, err := suite.builder.BuildIDJAG(context.Background(), ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	suite.mockJWTService.AssertExpectations(suite.T())
+}
+
+func (suite *TokenBuilderTestSuite) TestBuildIDJAG_IdentityClaims_EmailAndEmailVerified() {
+	ctx := &IDJAGBuildContext{
+		Subject:  "user123",
+		Audience: testIDJAGAud,
+		ClientID: suite.oauthApp.ClientID,
+		Scopes:   []string{"read"},
+		UserAttributes: map[string]interface{}{
+			"email":          testUserEmail,
+			"email_verified": true,
+		},
+		OAuthApp: suite.oauthApp,
+	}
+
+	suite.mockJWTService.On("GenerateJWT",
+		mock.Anything,
+		"user123",
+		"https://example.com",
+		providers.DefaultIDJAGValidityPeriod,
+		mock.MatchedBy(func(claims map[string]interface{}) bool {
+			return claims["email"] == testUserEmail &&
+				claims["email_verified"] == true
+		}),
+		jwt.TokenTypeIDJAG,
+		mock.Anything,
+	).Return("test-id-jag", time.Now().Unix(), nil)
+
+	result, err := suite.builder.BuildIDJAG(context.Background(), ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	suite.mockJWTService.AssertExpectations(suite.T())
+}
+
+func (suite *TokenBuilderTestSuite) TestBuildIDJAG_IdentityClaims_EmailOnly() {
+	ctx := &IDJAGBuildContext{
+		Subject:  "user123",
+		Audience: testIDJAGAud,
+		ClientID: suite.oauthApp.ClientID,
+		Scopes:   []string{"read"},
+		UserAttributes: map[string]interface{}{
+			"email": testUserEmail,
+		},
+		OAuthApp: suite.oauthApp,
+	}
+
+	suite.mockJWTService.On("GenerateJWT",
+		mock.Anything,
+		"user123",
+		"https://example.com",
+		providers.DefaultIDJAGValidityPeriod,
+		mock.MatchedBy(func(claims map[string]interface{}) bool {
+			_, hasEmailVerified := claims["email_verified"]
+			return claims["email"] == testUserEmail && !hasEmailVerified
+		}),
+		jwt.TokenTypeIDJAG,
+		mock.Anything,
+	).Return("test-id-jag", time.Now().Unix(), nil)
+
+	result, err := suite.builder.BuildIDJAG(context.Background(), ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	suite.mockJWTService.AssertExpectations(suite.T())
+}
+
+func (suite *TokenBuilderTestSuite) TestBuildIDJAG_IdentityClaims_NilUserAttributes() {
+	ctx := &IDJAGBuildContext{
+		Subject:  "user123",
+		Audience: testIDJAGAud,
+		ClientID: suite.oauthApp.ClientID,
+		Scopes:   []string{"read"},
+		OAuthApp: suite.oauthApp,
+	}
+
+	suite.mockJWTService.On("GenerateJWT",
+		mock.Anything,
+		"user123",
+		"https://example.com",
+		providers.DefaultIDJAGValidityPeriod,
+		mock.MatchedBy(func(claims map[string]interface{}) bool {
+			_, hasEmail := claims["email"]
+			_, hasEmailVerified := claims["email_verified"]
+			return !hasEmail && !hasEmailVerified
+		}),
+		jwt.TokenTypeIDJAG,
+		mock.Anything,
+	).Return("test-id-jag", time.Now().Unix(), nil)
+
+	result, err := suite.builder.BuildIDJAG(context.Background(), ctx)
+
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	suite.mockJWTService.AssertExpectations(suite.T())
+}
+
+func (suite *TokenBuilderTestSuite) TestBuildIDJAG_IdentityClaims_NonSpecClaimsExcluded() {
+	ctx := &IDJAGBuildContext{
+		Subject:  "user123",
+		Audience: testIDJAGAud,
+		ClientID: suite.oauthApp.ClientID,
+		Scopes:   []string{"read"},
+		UserAttributes: map[string]interface{}{
+			"email":        testUserEmail,
+			"name":         "John Doe",
+			"phone_number": "+1234567890",
+			"groups":       []string{"admin"},
+			"picture":      "https://example.com/photo.jpg",
+		},
+		OAuthApp: suite.oauthApp,
+	}
+
+	suite.mockJWTService.On("GenerateJWT",
+		mock.Anything,
+		"user123",
+		"https://example.com",
+		providers.DefaultIDJAGValidityPeriod,
+		mock.MatchedBy(func(claims map[string]interface{}) bool {
+			_, hasName := claims["name"]
+			_, hasPhone := claims["phone_number"]
+			_, hasGroups := claims["groups"]
+			_, hasPicture := claims["picture"]
+			return claims["email"] == testUserEmail &&
+				!hasName && !hasPhone && !hasGroups && !hasPicture
 		}),
 		jwt.TokenTypeIDJAG,
 		mock.Anything,

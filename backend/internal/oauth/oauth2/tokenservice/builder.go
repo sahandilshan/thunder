@@ -224,6 +224,17 @@ func (tb *tokenBuilder) BuildIDJAG(
 		claims["resource"] = tokenCtx.Resources
 	}
 
+	// Spec-bounded identity claims for subject resolution at the resource authorization server
+	// (draft-ietf-oauth-identity-assertion-authz-grant). Only claims defined by the draft are
+	// forwarded; the ID-JAG is an authorization grant, not a profile carrier.
+	idjagIdentityClaims := []string{"email", "email_verified"}
+
+	for _, claim := range idjagIdentityClaims {
+		if val, ok := tokenCtx.UserAttributes[claim]; ok {
+			claims[claim] = val
+		}
+	}
+
 	token, iat, err := tb.jwtService.GenerateJWT(
 		ctx,
 		tokenCtx.Subject,

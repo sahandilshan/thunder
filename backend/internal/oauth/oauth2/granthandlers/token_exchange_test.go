@@ -3676,6 +3676,114 @@ func (suite *TokenExchangeGrantHandlerTestSuite) TestHandleGrant_IDJAG_ScopesPas
 	assert.Equal(suite.T(), []string{"read", "delete"}, result.AccessToken.Scopes)
 }
 
+func (suite *TokenExchangeGrantHandlerTestSuite) TestHandleGrant_IDJAG_UserAttributesThreaded() {
+	suite.oauthApp.Token.IDJAG = &providers.IDJAGConfig{
+		Enabled:          true,
+		AllowedAudiences: []string{testIDJAGAudience},
+	}
+	now := time.Now().Unix()
+	subjectToken := suite.createTestJWT(map[string]interface{}{
+		"sub": testUserID,
+		"iss": testIDJAGServerIssuer,
+		"aud": testClientID,
+		"exp": float64(now + 3600),
+	})
+
+	tokenRequest := &model.TokenRequest{
+		GrantType:          string(providers.GrantTypeTokenExchange),
+		ClientID:           testClientID,
+		SubjectToken:       subjectToken,
+		SubjectTokenType:   string(constants.TokenTypeIdentifierIDToken),
+		RequestedTokenType: string(constants.TokenTypeIdentifierIDJAG),
+		Audiences:          []string{testIDJAGAudience},
+		Scope:              testScopeRead,
+	}
+
+	suite.mockTokenValidator.On("ValidateIDJAGSubjectToken", mock.Anything, subjectToken, suite.oauthApp).
+		Return(&tokenservice.SubjectTokenClaims{
+			Sub: testUserID,
+			Iss: testIDJAGServerIssuer,
+			Aud: []string{testClientID},
+			UserAttributes: map[string]interface{}{
+				"email":          testUserEmail,
+				"email_verified": true,
+			},
+		}, nil)
+	suite.mockTokenBuilder.On("BuildIDJAG", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.IDJAGBuildContext) bool {
+			return ctx.UserAttributes != nil &&
+				ctx.UserAttributes["email"] == testUserEmail &&
+				ctx.UserAttributes["email_verified"] == true
+		})).Return(&model.TokenDTO{
+		Token:     "test-id-jag",
+		TokenType: constants.TokenTypeNA,
+		IssuedAt:  now,
+		ExpiresIn: 300,
+		Scopes:    []string{testScopeRead},
+		ClientID:  testClientID,
+		Subject:   testUserID,
+		Audiences: []string{testIDJAGAudience},
+	}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.NotNil(suite.T(), result)
+	suite.mockTokenBuilder.AssertExpectations(suite.T())
+}
+
+func (suite *TokenExchangeGrantHandlerTestSuite) TestHandleGrant_IDJAG_EmptyUserAttributes() {
+	suite.oauthApp.Token.IDJAG = &providers.IDJAGConfig{
+		Enabled:          true,
+		AllowedAudiences: []string{testIDJAGAudience},
+	}
+	now := time.Now().Unix()
+	subjectToken := suite.createTestJWT(map[string]interface{}{
+		"sub": testUserID,
+		"iss": testIDJAGServerIssuer,
+		"aud": testClientID,
+		"exp": float64(now + 3600),
+	})
+
+	tokenRequest := &model.TokenRequest{
+		GrantType:          string(providers.GrantTypeTokenExchange),
+		ClientID:           testClientID,
+		SubjectToken:       subjectToken,
+		SubjectTokenType:   string(constants.TokenTypeIdentifierIDToken),
+		RequestedTokenType: string(constants.TokenTypeIdentifierIDJAG),
+		Audiences:          []string{testIDJAGAudience},
+		Scope:              testScopeRead,
+	}
+
+	suite.mockTokenValidator.On("ValidateIDJAGSubjectToken", mock.Anything, subjectToken, suite.oauthApp).
+		Return(&tokenservice.SubjectTokenClaims{
+			Sub: testUserID,
+			Iss: testIDJAGServerIssuer,
+			Aud: []string{testClientID},
+		}, nil)
+	suite.mockTokenBuilder.On("BuildIDJAG", mock.Anything,
+		mock.MatchedBy(func(ctx *tokenservice.IDJAGBuildContext) bool {
+			return ctx.Subject == testUserID &&
+				ctx.Audience == testIDJAGAudience &&
+				ctx.UserAttributes == nil
+		})).Return(&model.TokenDTO{
+		Token:     "test-id-jag",
+		TokenType: constants.TokenTypeNA,
+		IssuedAt:  now,
+		ExpiresIn: 300,
+		Scopes:    []string{testScopeRead},
+		ClientID:  testClientID,
+		Subject:   testUserID,
+		Audiences: []string{testIDJAGAudience},
+	}, nil)
+
+	result, errResp := suite.handler.HandleGrant(context.Background(), tokenRequest, suite.oauthApp)
+
+	assert.Nil(suite.T(), errResp)
+	assert.NotNil(suite.T(), result)
+	suite.mockTokenBuilder.AssertExpectations(suite.T())
+}
+
 func (suite *TokenExchangeGrantHandlerTestSuite) TestHandleGrant_OIDCOnly_NoResource_AudIsClientID() {
 	// Only OIDC scopes and no resource: the exchanged token is not bound to a resource server, so
 	// its audience is the client_id and it carries the OIDC scopes.

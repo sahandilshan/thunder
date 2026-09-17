@@ -419,12 +419,13 @@ func (h *tokenExchangeGrantHandler) handleIDJAGGrant(ctx context.Context, tokenR
 	grantedScopes := tokenservice.ParseScopes(tokenRequest.Scope)
 
 	idjag, err := h.tokenBuilder.BuildIDJAG(ctx, &tokenservice.IDJAGBuildContext{
-		Subject:   subjectClaims.Sub,
-		Audience:  audience,
-		ClientID:  tokenRequest.ClientID,
-		Scopes:    grantedScopes,
-		Resources: tokenRequest.Resources,
-		OAuthApp:  oauthApp,
+		Subject:        subjectClaims.Sub,
+		Audience:       audience,
+		ClientID:       tokenRequest.ClientID,
+		Scopes:         grantedScopes,
+		Resources:      tokenRequest.Resources,
+		UserAttributes: subjectClaims.UserAttributes,
+		OAuthApp:       oauthApp,
 	})
 	if err != nil {
 		logger.Error(ctx, "Failed to generate ID-JAG", log.Error(err))
