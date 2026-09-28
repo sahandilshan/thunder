@@ -1,21 +1,21 @@
 ---
-title: LangChain Agent Quickstart
+title: Vercel AI SDK Agent Quickstart
 docType: quickstart
 toc_progress: quickstart
-sidebar_position: 1
+sidebar_position: 3
 persona: app
-description: Build a course enrollment agent with LangChain and {{ProductName}} using agent or delegated user identity.
+description: Build a course enrollment agent with Vercel AI SDK and {{ProductName}} using agent or delegated user identity.
 ---
 
-# Connect an AI Agent with LangChain
+# Connect an AI Agent with Vercel AI SDK
 
-Use this guide to build an interactive course enrollment agent with LangChain and <ProductName />. Complete the [shared setup](../) first, including the student role and consent flow.
+Use this guide to build an interactive course enrollment agent with Vercel AI SDK and <ProductName />. Complete the [shared setup](../) first, including the student role and consent flow.
 
 Ask **“List the available courses”** to use the agent's own identity. Then ask **“Enroll me in CS205”** to trigger sign-in and consent before the agent acts on your behalf. Both tools are available in the same session.
 
 ## Prerequisites
 
-- Python 3.12 and pip, or Node.js 24 and npm.
+- Node.js 24 and npm.
 - A [Google AI Studio API key](https://aistudio.google.com/apikey) with access to the Gemini model you configure.
 - A browser on the same computer as the sample. User sign-in uses local port `6274`.
 
@@ -23,39 +23,18 @@ Ask **“List the available courses”** to use the agent's own identity. Then a
 
 ## Create the Sample Project
 
-<LangTabs>
-<Lang value="python">
-
-Run these commands in a new directory:
+Run these commands in a new directory. Use Node.js 24 for these pinned dependencies:
 
 ```bash
-mkdir langchain-enrollment-python
-cd langchain-enrollment-python
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install langchain==1.4.2 langchain-google-genai==4.4.0 requests==2.34.2 python-dotenv==1.2.3
-```
-
-On Windows, create the environment with `py -3.12 -m venv .venv`. Activate it with `.venv\Scripts\Activate.ps1` in PowerShell before running the install command.
-
-</Lang>
-<Lang value="typescript">
-
-Run these commands in a new directory:
-
-```bash
-mkdir langchain-enrollment-typescript
-cd langchain-enrollment-typescript
+mkdir vercel-ai-sdk-enrollment
+cd vercel-ai-sdk-enrollment
 npm init -y
 npm pkg set type=module
-npm install --save-exact langchain@1.5.14 @langchain/google-genai@2.3.2 zod@4.6.5
-npm install --save-dev --save-exact tsx@4.23.15 @types/node@24.19.0
+npm install --save-exact ai@7.0.114 @ai-sdk/google@4.0.80 zod@4.6.5 tsx@4.23.15
+npm install --save-dev --save-exact @types/node@24.19.0
 ```
 
-</Lang>
-</LangTabs>
-
-Create `.env` in the sample directory:
+Create `.env` in this directory:
 
 ```dotenv title=".env"
 THUNDERID_BASE_URL=https://localhost:8090
@@ -64,18 +43,28 @@ AGENT_SECRET=replace-with-your-client-secret
 GOOGLE_API_KEY=replace-with-your-google-api-key
 GEMINI_MODEL=gemini-flash-lite-latest
 COURSE_RESOURCE=https://courses.example.com
-THUNDERID_CA_BUNDLE=./thunderid.pem
+# Set NODE_EXTRA_CA_CERTS in your shell as shown below.
 ```
 
-Use the **Client ID** from the shared setup for `AGENT_CLIENT_ID`. Keep `.env` out of version control. The sample uses the same variables for either identity mode.
+Use the **Client ID**, not the Agent ID, for `AGENT_CLIENT_ID`. Keep `.env` out of version control.
 
-For a local <ProductName /> instance, save its public server certificate as `thunderid.pem` in the sample directory:
+For a local instance, save its public server certificate as `thunderid.pem` in the sample directory. With OpenSSL installed, run this command against the local instance you started:
 
 ```bash
 openssl s_client -connect localhost:8090 -servername localhost </dev/null 2>/dev/null | openssl x509 -out thunderid.pem
 ```
 
-You can instead copy `config/certs/server.cert` from your installation directory, or `backend/cmd/server/config/certs/server.cert` from a source checkout. Rename the copy to `thunderid.pem`. For an instance with a publicly trusted certificate, set `THUNDERID_BASE_URL` to its HTTPS URL and omit the local certificate configuration.
+Alternatively, copy `config/certs/server.cert` from your installation directory. For a source checkout, copy `backend/cmd/server/config/certs/server.cert`. Rename the copy to `thunderid.pem`.
+
+For an instance with a publicly trusted certificate, set `THUNDERID_BASE_URL` to its HTTPS URL and omit the local certificate configuration.
+
+For Node.js, set the certificate variable in the shell **before** starting the process. Putting it in `.env` is not sufficient.
+
+```bash
+export NODE_EXTRA_CA_CERTS="$PWD/thunderid.pem"
+```
+
+In PowerShell, use `$env:NODE_EXTRA_CA_CERTS = "$PWD/thunderid.pem"` instead. Omit this step for a publicly trusted certificate.
 
 ## Add the Authentication Helper
 
@@ -85,123 +74,6 @@ Create the helper next to `.env`. The callback checks `state` and waits up to 18
 
 <details>
 <summary>Copy the complete authentication helper</summary>
-
-<LangTabs>
-<Lang value="python">
-
-```python title="auth.py"
-import base64
-import hashlib
-import json
-import os
-import secrets
-import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, quote_plus, urlencode, urlsplit
-
-import requests
-from dotenv import load_dotenv
-
-load_dotenv()
-BASE_URL = os.environ["THUNDERID_BASE_URL"].rstrip("/")
-CLIENT_ID = os.environ["AGENT_CLIENT_ID"]
-CLIENT_SECRET = os.environ["AGENT_SECRET"]
-RESOURCE = os.environ["COURSE_RESOURCE"]
-REDIRECT_URI = "http://localhost:6274/callback"
-
-
-def post(path, data):
-    credentials = f"{quote_plus(CLIENT_ID)}:{quote_plus(CLIENT_SECRET)}"
-    basic = base64.b64encode(credentials.encode()).decode()
-    response = requests.post(
-        f"{BASE_URL}{path}",
-        data=data,
-        headers={"Authorization": f"Basic {basic}"},
-        verify=os.environ.get("THUNDERID_CA_BUNDLE") or True,
-        timeout=30,
-        allow_redirects=False,
-    )
-    if response.status_code != 200:
-        raise RuntimeError(f"{path} returned HTTP {response.status_code}; check the agent configuration.")
-    return response.json()
-
-
-def get_agent_token():
-    return post("/oauth2/token", {"grant_type": "client_credentials", "resource": RESOURCE, "scope": "courses:read"})["access_token"]
-
-
-def get_user_token():
-    verifier = secrets.token_urlsafe(32)
-    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    state = secrets.token_urlsafe(32)
-    result = {}
-
-    class Callback(BaseHTTPRequestHandler):
-        def do_GET(self):
-            url = urlsplit(self.path)
-            params = parse_qs(url.query)
-            valid = (
-                url.path == "/callback"
-                and len(params.get("state", [])) == 1
-                and secrets.compare_digest(params["state"][0], state)
-                and (len(params.get("code", [])) == 1 or "error" in params)
-            )
-            self.send_response(200 if valid else 400)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"Return to your terminal." if valid else b"Invalid callback.")
-            if valid:
-                result.update(params)
-
-        def log_message(self, *args):
-            pass
-
-    params = {
-        "response_type": "code", "client_id": CLIENT_ID,
-        "redirect_uri": REDIRECT_URI, "scope": "openid courses:enroll", "resource": RESOURCE, "state": state, "prompt": "consent",
-        "code_challenge": challenge, "code_challenge_method": "S256",
-    }
-    with HTTPServer(("localhost", 6274), Callback) as server:
-        server.timeout = 1
-        print("Open this URL in your browser to sign in:", flush=True)
-        print(f"{BASE_URL}/oauth2/authorize?{urlencode(params)}", flush=True)
-        deadline = time.monotonic() + 180
-        while not result and time.monotonic() < deadline:
-            server.handle_request()
-    if not result:
-        raise TimeoutError("Sign-in timed out after 180 seconds. Submit the request again.")
-    if "error" in result:
-        raise RuntimeError("Sign-in was denied or failed. Submit the request again.")
-    return post("/oauth2/token", {
-        "grant_type": "authorization_code", "code": result["code"][0],
-        "redirect_uri": REDIRECT_URI, "code_verifier": verifier,
-    })["access_token"]
-
-
-def inspect_identity(token, permission):
-    data = post("/oauth2/introspect", {"token": token})
-    if data.get("active") is not True:
-        raise RuntimeError("The access token is inactive. Submit the request again.")
-    if data.get("client_id") != CLIENT_ID or not data.get("sub"):
-        raise RuntimeError("The token does not belong to this agent client.")
-    audiences = data.get("aud", [])
-    if isinstance(audiences, str):
-        audiences = [audiences]
-    if RESOURCE not in audiences or permission not in data.get("scope", "").split():
-        raise PermissionError(f"Access denied: the token needs {permission} for {RESOURCE}.")
-    # Introspection has validated this exact token. Decode only to read its actor,
-    # which the introspection response does not expose.
-    payload = token.split(".")[1]
-    claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-    identity = {key: data[key] for key in ("active", "sub", "client_id", "scope")}
-    if "act" in claims:
-        identity["act"] = claims["act"]
-    print("Verified identity:", json.dumps(identity), flush=True)
-    return identity
-```
-
-</Lang>
-<Lang value="typescript">
 
 ```ts title="auth.ts"
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -296,61 +168,13 @@ export async function inspectIdentity(token: string, permission: string) {
 }
 ```
 
-</Lang>
-</LangTabs>
-
 </details>
 
-`inspect_identity` (Python) or `inspectIdentity` (TypeScript) validates the access token through <ProductName /> before checking its audience and required permission. It reads `act` from the validated JWT because the introspection response does not include that claim.
+`inspectIdentity` validates the access token through <ProductName /> before checking its audience and required permission. It reads `act` from the validated JWT because the introspection response does not include that claim.
 
 ## Add the Course Tools
 
 Create the following file beside the helper. These protected course operations accept a token from the runtime, validate it, and enforce the required permission before reading or changing course data.
-
-<LangTabs>
-<Lang value="python">
-
-```python title="course_tools.py"
-import json
-from threading import Lock
-
-from auth import inspect_identity
-
-COURSES = [
-    {"id": "CS101", "name": "Introduction to Computer Science"},
-    {"id": "CS205", "name": "Data Structures"},
-]
-enrollments = {}
-enrollment_lock = Lock()
-
-
-def list_courses(access_token: str) -> dict:
-    """List available courses using the agent's own identity. No student sign-in needed."""
-    inspect_identity(access_token, "courses:read")
-    result = {"courses": COURSES}
-    print("Tool result:", json.dumps(result), flush=True)
-    return result
-
-
-def enroll_course(course_id: str, access_token: str) -> dict:
-    """Enroll the requesting student after the runtime obtains delegated authority."""
-    if course_id not in {course["id"] for course in COURSES}:
-        return {"status": "not_enrolled", "reason": "Unknown course ID."}
-    with enrollment_lock:
-        identity = inspect_identity(access_token, "courses:enroll")
-        if not identity.get("act", {}).get("sub"):
-            raise PermissionError("Enrollment requires a delegated user token.")
-        student_id = identity["sub"]  # The model cannot choose the student.
-        enrolled = enrollments.setdefault(student_id, set())
-        status = "already_enrolled" if course_id in enrolled else "enrolled"
-        enrolled.add(course_id)
-        result = {"student_id": student_id, "course_id": course_id, "status": status}
-        print("Tool result:", json.dumps(result), flush=True)
-        return result
-```
-
-</Lang>
-<Lang value="typescript">
 
 ```ts title="course_tools.ts"
 import { inspectIdentity } from './auth.ts';
@@ -392,104 +216,44 @@ export async function enrollCourse(courseId: string, accessToken: string) {
 }
 ```
 
-</Lang>
-</LangTabs>
-
-The course operations validate tokens but never acquire them. The runtime wrappers supply each token outside the model-visible tool arguments, so the model cannot provide credentials or choose another student.
+The course operations validate tokens but never acquire them. The runtime callbacks supply each token outside the model-visible tool arguments, so the model cannot provide credentials or choose another student.
 
 ## Connect the Tools to the Agent
 
-The entrypoint defines runtime-owned wrappers that acquire the required token before calling the protected course operations. LangChain exposes only those wrappers to the model.
+The entrypoint's runtime callbacks acquire the required token before calling the protected course operations. Vercel AI SDK exposes only the callbacks' schemas to the model and limits each request to 3 steps.
 
-<LangTabs>
-<Lang value="python">
-
-```python title="langchain_agent.py"
-import os
-
-from langchain.agents import create_agent
-from langchain.tools import tool
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-from auth import get_agent_token, get_user_token
-from course_tools import enroll_course as enroll_student
-from course_tools import list_courses as read_courses
-
-
-@tool("list_courses")
-def list_courses() -> dict:
-    """List available courses as the agent. No student sign-in needed."""
-    return read_courses(get_agent_token())
-
-
-@tool("enroll_course")
-def enroll_course(course_id: str) -> dict:
-    """Enroll the requesting student. Triggers sign-in and consent first."""
-    print(f"Agent: Enrolling you in {course_id} needs your permission.", flush=True)
-    access_token = get_user_token()  # Pause until the student signs in and consents.
-    return enroll_student(course_id, access_token)
-
-agent = create_agent(
-    model=ChatGoogleGenerativeAI(model=os.environ["GEMINI_MODEL"], temperature=0),
-    tools=[list_courses, enroll_course],
-    system_prompt=(
-        "Help with courses. Use list_courses for the catalog and enroll_course only when "
-        "the student asks to enroll. The runtime handles sign-in and consent. "
-        "Use the supplied course ID. Report success only if the tool succeeds. "
-        "If a tool fails or consent is denied, report it and do not retry in this turn."
-    ),
-)
-
-print("Ask about courses, or ask to enroll in CS205. Type exit to stop.")
-while True:
-    try:
-        question = input("You: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        break
-    if question.lower() == "exit":
-        break
-    if not question:
-        continue
-    try:
-        response = agent.invoke({"messages": [{"role": "user", "content": question}]})
-        print("Agent:", response["messages"][-1].text)
-    except Exception as error:
-        print("Request failed:", error)
-```
-
-</Lang>
-<Lang value="typescript">
-
-```ts title="langchain_agent.ts"
+```ts title="vercel.ts"
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
-import { createAgent, tool } from 'langchain';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { ToolLoopAgent, stepCountIs, tool } from 'ai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import { getAgentToken, getUserToken } from './auth.ts';
 import { listCourses, enrollCourse } from './course_tools.ts';
 
-const agent = createAgent({
-  model: new ChatGoogleGenerativeAI({ model: process.env.GEMINI_MODEL!, temperature: 0 }),
-  tools: [
-    tool(async () => listCourses(await getAgentToken()), {
-      name: 'list_courses',
-      description: 'List available courses as the agent. No student sign-in needed.',
-      schema: z.object({}),
-    }),
-    tool(async ({ course_id }: { course_id: string }) => {
-      console.log(`Agent: Enrolling you in ${course_id} needs your permission.`);
-      const accessToken = await getUserToken(); // Pause until the student signs in and consents.
-      return enrollCourse(course_id, accessToken);
-    }, {
-      name: 'enroll_course',
-      description: 'Enroll the requesting student. Triggers sign-in and consent first.',
-      schema: z.object({ course_id: z.string() }),
-    }),
-  ],
-  systemPrompt: 'Use list_courses for the catalog and enroll_course only for enrollment requests. '
+const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_API_KEY });
+const agent = new ToolLoopAgent({
+  model: google(process.env.GEMINI_MODEL!),
+  instructions: 'Use list_courses for the catalog and enroll_course only for enrollment requests. '
     + 'The runtime handles sign-in and consent. Use the supplied course ID. '
     + 'Report success only if the tool succeeds. If it fails, do not retry in this turn.',
+  tools: {
+    list_courses: tool({
+      description: 'List available courses as the agent. No student sign-in needed.',
+      inputSchema: z.object({}),
+      execute: async () => listCourses(await getAgentToken()),
+    }),
+    enroll_course: tool({
+      description: 'Enroll the requesting student. Triggers sign-in and consent first.',
+      inputSchema: z.object({ course_id: z.string() }),
+      execute: async ({ course_id }) => {
+        console.log(`Agent: Enrolling you in ${course_id} needs your permission.`);
+        const accessToken = await getUserToken(); // Pause until the student signs in and consents.
+        return enrollCourse(course_id, accessToken);
+      },
+    }),
+  },
+  stopWhen: stepCountIs(3),
 });
 const terminal = createInterface({ input: stdin, output: stdout });
 console.log('Ask about courses, or ask to enroll in CS205. Type exit to stop.');
@@ -501,8 +265,8 @@ try {
     if (question.toLowerCase() === 'exit') break;
     if (!question) continue;
     try {
-      const response = await agent.invoke({ messages: [{ role: 'user', content: question }] });
-      console.log('Agent:', response.messages.at(-1)?.content);
+      const result = await agent.generate({ prompt: question });
+      console.log('Agent:', result.text);
     } catch (error) {
       console.error('Request failed:', error instanceof Error ? error.message : 'Unknown error');
     }
@@ -512,32 +276,16 @@ try {
 }
 ```
 
-</Lang>
-</LangTabs>
-
 Each request is independent: include the course ID when asking to enroll. Enrollment records remain in memory until you exit; delegated tokens are not cached between requests.
 
 ## Ask the Agent to List Courses
 
 Start the agent:
 
-<LangTabs>
-<Lang value="python">
-
-```bash
-python langchain_agent.py
-```
-
-</Lang>
-<Lang value="typescript">
-
 ```bash
 export NODE_EXTRA_CA_CERTS="$PWD/thunderid.pem"
-npx tsx --env-file=.env langchain_agent.ts
+npx tsx --env-file=.env vercel.ts
 ```
-
-</Lang>
-</LangTabs>
 
 In PowerShell, set `$env:NODE_EXTRA_CA_CERTS = "$PWD/thunderid.pem"` before the `npx` command. Omit the certificate variable for a publicly trusted server certificate.
 
