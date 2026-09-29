@@ -138,7 +138,7 @@ interface LoadedVersion {
  * version at render time, so they are compared against the version-agnostic
  * tail rather than any one version's literal path.
  */
-function collectDocPaths(allContent: AllContent): Map<string, string> {
+function collectDocPaths(allContent: AllContent, baseUrl: string): Map<string, string> {
   const docsContent = allContent['docusaurus-plugin-content-docs']?.default as
     | {loadedVersions?: LoadedVersion[]}
     | undefined;
@@ -146,7 +146,8 @@ function collectDocPaths(allContent: AllContent): Map<string, string> {
   const paths = new Map<string, string>();
   for (const version of docsContent?.loadedVersions ?? []) {
     for (const doc of version.docs) {
-      paths.set(doc.permalink.replace(/^\/docs\/[^/]+\//, '').replace(/\/$/, ''), doc.source.replace('@site/', ''));
+      const permalink = doc.permalink.startsWith(baseUrl) ? `/${doc.permalink.slice(baseUrl.length)}` : doc.permalink;
+      paths.set(permalink.replace(/^\/docs\/[^/]+\//, '').replace(/\/$/, ''), doc.source.replace('@site/', ''));
     }
   }
   return paths;
@@ -251,6 +252,7 @@ function pruneDocPaths(byVersion: Record<string, EcosystemEntry[]>, docPaths: Ma
  */
 export default function ecosystemPlugin(context: LoadContext): Plugin {
   const {siteDir, siteConfig} = context;
+  const routePath = (pathname: string): string => `${siteConfig.baseUrl}${pathname.replace(/^\//, '')}`;
   const productName = (siteConfig.customFields?.product as {project: {name: string}} | undefined)?.project.name ?? '';
   const productSlug = productName.toLowerCase();
   let loaded: EcosystemGlobalData | undefined;
@@ -303,7 +305,7 @@ export default function ecosystemPlugin(context: LoadContext): Plugin {
     async allContentLoaded({allContent, actions}): Promise<void> {
       if (!loaded) return;
       fillReadingTimes(loaded.byVersion);
-      const warnings = pruneDocPaths(loaded.byVersion, collectDocPaths(allContent));
+      const warnings = pruneDocPaths(loaded.byVersion, collectDocPaths(allContent, siteConfig.baseUrl));
       actions.setGlobalData(loaded);
 
       // Routes are created here, not in contentLoaded, so each page is
@@ -313,7 +315,7 @@ export default function ecosystemPlugin(context: LoadContext): Plugin {
         if (!entry.sections?.length && !entry.guides?.length) continue;
         const data = await actions.createData(`ecosystem-${entry.id}.json`, JSON.stringify(entry));
         actions.addRoute({
-          path: `/sdks-and-tools/${entry.id}`,
+          path: routePath(`/sdks-and-tools/${entry.id}`),
           component: '@site/src/components/Ecosystem/Detail/DetailPage',
           modules: {entry: data},
           exact: true,
@@ -323,7 +325,7 @@ export default function ecosystemPlugin(context: LoadContext): Plugin {
         // a handful of exports; this lists every one the registry carries.
         if (entry.sections?.some((section) => section.type === 'api')) {
           actions.addRoute({
-            path: `/sdks-and-tools/${entry.id}/apis`,
+            path: routePath(`/sdks-and-tools/${entry.id}/apis`),
             component: '@site/src/components/Ecosystem/Detail/ApiReferencePage',
             modules: {entry: data},
             exact: true,
@@ -334,7 +336,7 @@ export default function ecosystemPlugin(context: LoadContext): Plugin {
         // the entry into a guide stays in one layout.
         for (const guide of entry.guides ?? []) {
           actions.addRoute({
-            path: `/sdks-and-tools/${entry.id}/guides/${guide.id}`,
+            path: routePath(`/sdks-and-tools/${entry.id}/guides/${guide.id}`),
             component: '@site/src/components/Ecosystem/Detail/GuidePage',
             modules: {entry: data},
             exact: true,
