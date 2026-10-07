@@ -13,18 +13,35 @@ export async function github(
   path,
   { token, method = "GET", body, raw = false, allow404 = false } = {},
 ) {
-  const response = await fetch(`https://api.github.com/${path}`, {
-    method,
-    headers: {
-      Accept: raw
-        ? "application/vnd.github.raw+json"
-        : "application/vnd.github+json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(30000),
-  });
+  let response;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await fetch(`https://api.github.com/${path}`, {
+        method,
+        headers: {
+          Accept: raw
+            ? "application/vnd.github.raw+json"
+            : "application/vnd.github+json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (error) {
+      if (method !== "GET" || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+      continue;
+    }
+    if (
+      method !== "GET" ||
+      response.ok ||
+      response.status < 500 ||
+      attempt === 2
+    )
+      break;
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+  }
   if (allow404 && response.status === 404) return null;
   if (!response.ok)
     throw new Error(

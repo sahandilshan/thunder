@@ -22,7 +22,7 @@ Standard runners in a public repository have free runner minutes. Reports are re
 - New high/critical main advisories, changed advisory severity/patch metadata, and newly observed CI advisories are reported.
 - Findings already reported on main are not reported again for every failing PR. CI-only advisories are deduplicated across runs. The first run inspects seven days of history and can send a backlog of alerts.
 - A failed audit step with unavailable advisory details still produces a job link.
-- Scan failures produce an operational alert and fail the notification job. An unchanged operational error stays quiet; recovery is reported.
+- Transient GitHub read failures are retried up to three times. Scan failures produce an operational alert and fail the notification job. An unchanged operational error stays quiet; recovery is reported.
 - The main audit honors upstream's configured ignores, matching its CI policy. It does not independently reassess ignored advisories. A disappearance is described as no longer reported, not automatically as fixed.
 - An advisory's patch range is labeled as unverified. This phase does not test registry publication, compatibility, or installability.
 - Only PR Builder audit-step failures are inspected. Unrelated build/test failures are not security alerts. Runs originally created more than seven days ago, even if rerun recently, are outside the polling window. Pagination is bounded at 1,000 results and fails visibly rather than silently dropping results.

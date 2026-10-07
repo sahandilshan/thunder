@@ -333,3 +333,26 @@ test("durable state initializes an isolated branch and updates using optimistic 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("transient GitHub reads retry but writes are never repeated automatically", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return calls === 1
+      ? { ok: false, status: 502 }
+      : { ok: true, status: 200, json: async () => ({ recovered: true }) };
+  };
+  try {
+    assert.deepEqual(await github("repos/example/test"), { recovered: true });
+    assert.equal(calls, 2);
+    calls = 0;
+    await assert.rejects(
+      github("repos/example/test", { method: "POST", body: {} }),
+      /HTTP 502/,
+    );
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
