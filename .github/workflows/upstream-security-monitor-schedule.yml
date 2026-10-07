@@ -1,0 +1,28 @@
+name: Upstream security monitor schedule
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview notifications without posting to Chat or changing state
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    if: github.repository == 'sahandilshan/thunder'
+    permissions:
+      contents: write
+      actions: read
+    uses: sahandilshan/thunder/.github/workflows/upstream-security-monitor.yml@e94beb86bf5cda4cdc9aa942811f4920c8f89546
+    with:
+      monitor_ref: e94beb86bf5cda4cdc9aa942811f4920c8f89546
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets:
+      GOOGLE_CHAT_SECURITY_WEBHOOK: ${{ secrets.GOOGLE_CHAT_SECURITY_WEBHOOK }}
+      UPSTREAM_READ_TOKEN: ${{ secrets.UPSTREAM_READ_TOKEN }}
