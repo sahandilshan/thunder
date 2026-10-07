@@ -19,9 +19,9 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: sahandilshan/thunder/.github/workflows/upstream-security-monitor.yml@e94beb86bf5cda4cdc9aa942811f4920c8f89546
+    uses: sahandilshan/thunder/.github/workflows/upstream-security-monitor.yml@0c54ca359baeeedeb9808c26a02b058e071e5d80
     with:
-      monitor_ref: e94beb86bf5cda4cdc9aa942811f4920c8f89546
+      monitor_ref: 0c54ca359baeeedeb9808c26a02b058e071e5d80
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
     secrets:
       GOOGLE_CHAT_SECURITY_WEBHOOK: ${{ secrets.GOOGLE_CHAT_SECURITY_WEBHOOK }}
