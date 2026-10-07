@@ -1,27 +1,31 @@
 {
   "version": 1,
   "seen": {
-    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-6h2x-m376-mqjq": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T04:00:35.877Z",
-    "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T04:00:35.877Z"
+    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-6h2x-m376-mqjq": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z"
   },
   "main": {},
   "errors": [],
-  "lastScan": "2026-10-07T04:00:35.877Z",
+  "lastScan": "2026-10-07T05:52:23.868Z",
   "runCache": {
+    "37575540844:1:2026-10-07T05:37:42Z": [],
+    "37575355805:1:2026-10-07T05:36:05Z": [],
+    "37573224174:1:2026-10-07T05:10:45Z": [],
+    "37572922161:1:2026-10-07T05:07:39Z": [],
     "37510862054:1:2026-10-06T18:47:44Z": [],
     "37501113982:1:2026-10-06T17:08:15Z": [
       {
@@ -52,6 +56,7 @@
         ]
       }
     ],
+    "37572918378:1:2026-10-07T05:09:29Z": [],
     "37463927912:1:2026-10-06T13:14:25Z": [],
     "37462852266:1:2026-10-06T12:43:24Z": [],
     "37459200787:1:2026-10-06T12:14:28Z": [],
@@ -843,38 +848,6 @@
         "url": "https://github.com/thunder-id/thunderid/actions/runs/36675438144/job/109759272741",
         "branch": "DCRM-Support",
         "sha": "345129043846585240ccf1352154b04980d1d773",
-        "ids": [
-          "GHSA-6h2x-m376-mqjq",
-          "GHSA-6j4f-fj2g-mc7p",
-          "GHSA-qhr7-859c-m2p7",
-          "GHSA-rfgv-xxqx-mfg5"
-        ]
-      }
-    ],
-    "36669389886:1:2026-09-30T04:34:10Z": [
-      {
-        "runId": 36669389886,
-        "attempt": 1,
-        "jobId": 109740909973,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/36669389886/job/109740909973",
-        "branch": "gh-readonly-queue/main/pr-5451-a0b9aa35348c5e258029f1f558956d24b4187a51",
-        "sha": "fae9ee1dd153f43aa853fe08ff64e5d6fe6e1e41",
-        "ids": [
-          "GHSA-6h2x-m376-mqjq",
-          "GHSA-6j4f-fj2g-mc7p",
-          "GHSA-qhr7-859c-m2p7",
-          "GHSA-rfgv-xxqx-mfg5"
-        ]
-      }
-    ],
-    "36668036285:1:2026-09-30T04:16:46Z": [
-      {
-        "runId": 36668036285,
-        "attempt": 1,
-        "jobId": 109736825290,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/36668036285/job/109736825290",
-        "branch": "refactor-providers",
-        "sha": "f43a54b5984a44bbaa9922326c779b382bc0877b",
         "ids": [
           "GHSA-6h2x-m376-mqjq",
           "GHSA-6j4f-fj2g-mc7p",
