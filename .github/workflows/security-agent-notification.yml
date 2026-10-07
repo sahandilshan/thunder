@@ -1,0 +1,77 @@
+name: Local security agent notification
+run-name: "Security agent: ${{ inputs.advisory }} (${{ inputs.status }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      advisory:
+        description: GHSA identifier or agent for a startup notification
+        required: true
+        type: string
+      status:
+        description: Repair outcome
+        required: true
+        type: string
+      pr_url:
+        description: Public upstream draft PR URL
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: github.repository == 'sahandilshan/thunder'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Send repair status to Google Chat
+        env:
+          WEBHOOK: ${{ secrets.GOOGLE_CHAT_SECURITY_WEBHOOK }}
+          ADVISORY: ${{ inputs.advisory }}
+          REPAIR_STATUS: ${{ inputs.status }}
+          PR_URL: ${{ inputs.pr_url }}
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+          import urllib.parse
+          import urllib.request
+
+          advisory = os.environ['ADVISORY']
+          status = os.environ['REPAIR_STATUS']
+          pr_url = os.environ['PR_URL']
+          valid_statuses = {'started', 'ready', 'waiting_for_release', 'needs_review', 'failed', 'not_reported', 'pr_open'}
+          if not re.fullmatch(r'GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}|agent', advisory):
+              raise SystemExit('Invalid advisory identifier')
+          if status not in valid_statuses:
+              raise SystemExit('Invalid repair status')
+          if pr_url and not re.fullmatch(r'https://github.com/thunder-id/thunderid/pull/[0-9]+', pr_url):
+              raise SystemExit('Invalid upstream PR URL')
+          webhook = os.environ['WEBHOOK']
+          url = urllib.parse.urlparse(webhook)
+          if url.scheme != 'https' or url.netloc != 'chat.googleapis.com' or not url.path.startswith('/v1/spaces/'):
+              raise SystemExit('Google Chat webhook secret is missing or invalid')
+          descriptions = {
+              'started': 'Local repair agent is running. Validated patches require manual draft-PR publication.',
+              'ready': 'A repair passed independent checks. It is ready for manual draft-PR publication.',
+              'waiting_for_release': 'Waiting for a published usable fix. The advisory was not ignored.',
+              'needs_review': 'Repair requires a developer compatibility decision. Inspect the private agent state.',
+              'failed': 'Repair did not pass verification. Inspect the private local run logs.',
+              'not_reported': 'Fresh main audit no longer reports this advisory. No repair PR was created.',
+              'pr_open': 'A verified repair draft PR is available for review.'
+          }
+          message = f'ThunderID security agent: {advisory}\n{descriptions[status]}'
+          if pr_url:
+              message += '\n' + pr_url
+          request = urllib.request.Request(webhook, data=json.dumps({'text': message}).encode(),
+                                           headers={'Content-Type': 'application/json'}, method='POST')
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  if response.status != 200:
+                      raise SystemExit('Google Chat rejected the update')
+          except Exception:
+              raise SystemExit('Google Chat delivery failed; webhook credentials are omitted from logs')
+          print('Repair status delivered')
