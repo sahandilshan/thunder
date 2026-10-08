@@ -1,28 +1,40 @@
 {
   "version": 1,
   "seen": {
-    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-08T09:31:54.192Z",
-    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-08T09:31:54.192Z",
+    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-08T16:58:48.846Z",
+    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-08T16:58:48.846Z",
     "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-08T02:43:22.638Z",
     "advisory:GHSA-6h2x-m376-mqjq": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-08T09:31:54.192Z"
+    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-08T16:58:48.846Z"
   },
   "main": {},
   "errors": [],
-  "lastScan": "2026-10-08T09:31:54.192Z",
+  "lastScan": "2026-10-08T16:58:48.846Z",
   "runCache": {
+    "37782362798:1:2026-10-08T13:34:31Z": [],
+    "37780679479:1:2026-10-08T13:22:38Z": [],
+    "37783537927:1:2026-10-08T13:44:24Z": [],
+    "37784665098:1:2026-10-08T13:51:08Z": [],
+    "37771941173:1:2026-10-08T11:50:22Z": [],
+    "37773093482:1:2026-10-08T12:17:33Z": [],
+    "37776114621:1:2026-10-08T12:43:57Z": [],
+    "37775195986:1:2026-10-08T12:36:11Z": [],
+    "37742200644:1:2026-10-08T07:39:17Z": [],
+    "37763575738:1:2026-10-08T10:52:50Z": [],
+    "37756058615:1:2026-10-08T09:46:08Z": [],
+    "37756393934:1:2026-10-08T09:45:15Z": [],
     "37741953153:1:2026-10-08T07:12:19Z": [
       {
         "runId": 37741953153,
@@ -36,35 +48,8 @@
         ]
       }
     ],
-    "37742200644:1:2026-10-08T07:39:17Z": [],
     "37741058977:1:2026-10-08T07:26:41Z": [],
     "37738979142:1:2026-10-08T07:03:18Z": [],
-    "37734573476:1:2026-10-08T05:53:00Z": [
-      {
-        "runId": 37734573476,
-        "attempt": 1,
-        "jobId": 113171093634,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37734573476/job/113171093634",
-        "branch": "list-references",
-        "sha": "e9262e2ae89f1e6c2ca21035806c7861517ed5a6",
-        "ids": [
-          "GHSA-cjq9-62q9-8jv4"
-        ]
-      }
-    ],
-    "37735160770:1:2026-10-08T05:59:46Z": [
-      {
-        "runId": 37735160770,
-        "attempt": 1,
-        "jobId": 113172936774,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37735160770/job/113172936774",
-        "branch": "feature/criteria-based-revocation",
-        "sha": "c62258f96f4bb326f4256b9a0e6c8b81d160196c",
-        "ids": [
-          "GHSA-cjq9-62q9-8jv4"
-        ]
-      }
-    ],
     "37738631178:2:2026-10-08T06:40:34Z": [
       {
         "runId": 37738631178,
@@ -79,40 +64,27 @@
       }
     ],
     "37738293815:1:2026-10-08T06:59:03Z": [],
-    "37733909731:1:2026-10-08T05:45:06Z": [
+    "37735160770:1:2026-10-08T05:59:46Z": [
       {
-        "runId": 37733909731,
+        "runId": 37735160770,
         "attempt": 1,
-        "jobId": 113169030996,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37733909731/job/113169030996",
-        "branch": "docs/rar-spec",
-        "sha": "7376f3a64f2afb82e8856798d305ad04383f5588",
+        "jobId": 113172936774,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37735160770/job/113172936774",
+        "branch": "feature/criteria-based-revocation",
+        "sha": "c62258f96f4bb326f4256b9a0e6c8b81d160196c",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
       }
     ],
-    "37733912428:1:2026-10-08T05:45:17Z": [
+    "37734573476:1:2026-10-08T05:53:00Z": [
       {
-        "runId": 37733912428,
+        "runId": 37734573476,
         "attempt": 1,
-        "jobId": 113169039582,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37733912428/job/113169039582",
-        "branch": "docs/rar-threat-model",
-        "sha": "63f3cc8d5655ce0883b2dda855ab1d7568866170",
-        "ids": [
-          "GHSA-cjq9-62q9-8jv4"
-        ]
-      }
-    ],
-    "37732826508:1:2026-10-08T05:32:23Z": [
-      {
-        "runId": 37732826508,
-        "attempt": 1,
-        "jobId": 113165656351,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37732826508/job/113165656351",
-        "branch": "feature-email-provider-backend",
-        "sha": "5565afd147e56b0fd6d5cd79e07fbdb0cfc0cc36",
+        "jobId": 113171093634,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37734573476/job/113171093634",
+        "branch": "list-references",
+        "sha": "e9262e2ae89f1e6c2ca21035806c7861517ed5a6",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
@@ -131,27 +103,40 @@
         ]
       }
     ],
-    "37729369837:1:2026-10-08T04:50:28Z": [
+    "37733912428:1:2026-10-08T05:45:17Z": [
       {
-        "runId": 37729369837,
+        "runId": 37733912428,
         "attempt": 1,
-        "jobId": 113154768839,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37729369837/job/113154768839",
-        "branch": "gh-readonly-queue/main/pr-5624-4ff37087974b535013b9e6ea25c7b1ed42c4e1db",
-        "sha": "0c8d9ec5334fdd16a1360e62ba6f79a9a36faaaa",
+        "jobId": 113169039582,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37733912428/job/113169039582",
+        "branch": "docs/rar-threat-model",
+        "sha": "63f3cc8d5655ce0883b2dda855ab1d7568866170",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
       }
     ],
-    "37731578132:1:2026-10-08T05:17:28Z": [
+    "37733909731:1:2026-10-08T05:45:06Z": [
       {
-        "runId": 37731578132,
+        "runId": 37733909731,
         "attempt": 1,
-        "jobId": 113161663545,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37731578132/job/113161663545",
-        "branch": "cp-integration-suite",
-        "sha": "71d5bda29482e755abf4f0aef379c9d5c04efd7c",
+        "jobId": 113169030996,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37733909731/job/113169030996",
+        "branch": "docs/rar-spec",
+        "sha": "7376f3a64f2afb82e8856798d305ad04383f5588",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
+    "37732826508:1:2026-10-08T05:32:23Z": [
+      {
+        "runId": 37732826508,
+        "attempt": 1,
+        "jobId": 113165656351,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37732826508/job/113165656351",
+        "branch": "feature-email-provider-backend",
+        "sha": "5565afd147e56b0fd6d5cd79e07fbdb0cfc0cc36",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
@@ -170,6 +155,19 @@
         ]
       }
     ],
+    "37731578132:1:2026-10-08T05:17:28Z": [
+      {
+        "runId": 37731578132,
+        "attempt": 1,
+        "jobId": 113161663545,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37731578132/job/113161663545",
+        "branch": "cp-integration-suite",
+        "sha": "71d5bda29482e755abf4f0aef379c9d5c04efd7c",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
     "37729491732:1:2026-10-08T04:52:00Z": [
       {
         "runId": 37729491732,
@@ -178,6 +176,32 @@
         "url": "https://github.com/thunder-id/thunderid/actions/runs/37729491732/job/113155146639",
         "branch": "gh-readonly-queue/main/pr-5624-4ff37087974b535013b9e6ea25c7b1ed42c4e1db",
         "sha": "0ed989eee2b310eda658a5258130e80487424e2e",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
+    "37729369837:1:2026-10-08T04:50:28Z": [
+      {
+        "runId": 37729369837,
+        "attempt": 1,
+        "jobId": 113154768839,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37729369837/job/113154768839",
+        "branch": "gh-readonly-queue/main/pr-5624-4ff37087974b535013b9e6ea25c7b1ed42c4e1db",
+        "sha": "0c8d9ec5334fdd16a1360e62ba6f79a9a36faaaa",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
+    "37728957101:1:2026-10-08T04:45:22Z": [
+      {
+        "runId": 37728957101,
+        "attempt": 1,
+        "jobId": 113153469484,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37728957101/job/113153469484",
+        "branch": "feature-email-provider-backend",
+        "sha": "ccc54f658d64eebc75441058c8e031a868c1052a",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
@@ -209,19 +233,6 @@
         ]
       }
     ],
-    "37728957101:1:2026-10-08T04:45:22Z": [
-      {
-        "runId": 37728957101,
-        "attempt": 1,
-        "jobId": 113153469484,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37728957101/job/113153469484",
-        "branch": "feature-email-provider-backend",
-        "sha": "ccc54f658d64eebc75441058c8e031a868c1052a",
-        "ids": [
-          "GHSA-cjq9-62q9-8jv4"
-        ]
-      }
-    ],
     "37728056013:1:2026-10-08T04:34:19Z": [
       {
         "runId": 37728056013,
@@ -230,19 +241,6 @@
         "url": "https://github.com/thunder-id/thunderid/actions/runs/37728056013/job/113150619560",
         "branch": "switch-using-new-feature-template",
         "sha": "f66afe6e23ab4713c73f3bf85a25fbd39b2dcfea",
-        "ids": [
-          "GHSA-cjq9-62q9-8jv4"
-        ]
-      }
-    ],
-    "37726485086:1:2026-10-08T04:14:35Z": [
-      {
-        "runId": 37726485086,
-        "attempt": 1,
-        "jobId": 113145710409,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37726485086/job/113145710409",
-        "branch": "docs/rar-threat-model",
-        "sha": "5c6da3ba41bc6a707bd41e8e2a04723349b4e63b",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
@@ -269,6 +267,19 @@
         "url": "https://github.com/thunder-id/thunderid/actions/runs/37727780906/job/113149776703",
         "branch": "docs/rar-spec",
         "sha": "ed0be193e1e06321823a87b44047ae1db19fc16b",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
+    "37726485086:1:2026-10-08T04:14:35Z": [
+      {
+        "runId": 37726485086,
+        "attempt": 1,
+        "jobId": 113145710409,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37726485086/job/113145710409",
+        "branch": "docs/rar-threat-model",
+        "sha": "5c6da3ba41bc6a707bd41e8e2a04723349b4e63b",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
@@ -313,19 +324,6 @@
         ]
       }
     ],
-    "37725763984:1:2026-10-08T04:05:24Z": [
-      {
-        "runId": 37725763984,
-        "attempt": 1,
-        "jobId": 113143436231,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37725763984/job/113143436231",
-        "branch": "docs/rar-threat-model",
-        "sha": "7f0ecdf98339914e7a8126c79bad33d3573d3e0a",
-        "ids": [
-          "GHSA-cjq9-62q9-8jv4"
-        ]
-      }
-    ],
     "37725860055:1:2026-10-08T04:06:38Z": [
       {
         "runId": 37725860055,
@@ -339,27 +337,14 @@
         ]
       }
     ],
-    "37718678849:1:2026-10-08T02:36:45Z": [
+    "37725763984:1:2026-10-08T04:05:24Z": [
       {
-        "runId": 37718678849,
+        "runId": 37725763984,
         "attempt": 1,
-        "jobId": 113121028167,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37718678849/job/113121028167",
-        "branch": "gh-readonly-queue/main/pr-5571-4ff37087974b535013b9e6ea25c7b1ed42c4e1db",
-        "sha": "4518df86458b1e757bcba3d43eea78135a6eb5d3",
-        "ids": [
-          "GHSA-cjq9-62q9-8jv4"
-        ]
-      }
-    ],
-    "37725586506:1:2026-10-08T04:03:17Z": [
-      {
-        "runId": 37725586506,
-        "attempt": 1,
-        "jobId": 113142880389,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37725586506/job/113142880389",
-        "branch": "docs/rar-spec",
-        "sha": "6dc781a04ff18eab092119a37fb65aba5ae6cf00",
+        "jobId": 113143436231,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37725763984/job/113143436231",
+        "branch": "docs/rar-threat-model",
+        "sha": "7f0ecdf98339914e7a8126c79bad33d3573d3e0a",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
@@ -378,6 +363,19 @@
         ]
       }
     ],
+    "37725586506:1:2026-10-08T04:03:17Z": [
+      {
+        "runId": 37725586506,
+        "attempt": 1,
+        "jobId": 113142880389,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37725586506/job/113142880389",
+        "branch": "docs/rar-spec",
+        "sha": "6dc781a04ff18eab092119a37fb65aba5ae6cf00",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
     "37725570870:1:2026-10-08T04:02:59Z": [
       {
         "runId": 37725570870,
@@ -386,6 +384,19 @@
         "url": "https://github.com/thunder-id/thunderid/actions/runs/37725570870/job/113142831972",
         "branch": "docs/rar-threat-model",
         "sha": "2e43ec403f3eb16e7eab3d43367d69cb2cb990a1",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
+    "37718678849:1:2026-10-08T02:36:45Z": [
+      {
+        "runId": 37718678849,
+        "attempt": 1,
+        "jobId": 113121028167,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37718678849/job/113121028167",
+        "branch": "gh-readonly-queue/main/pr-5571-4ff37087974b535013b9e6ea25c7b1ed42c4e1db",
+        "sha": "4518df86458b1e757bcba3d43eea78135a6eb5d3",
         "ids": [
           "GHSA-cjq9-62q9-8jv4"
         ]
@@ -859,10 +870,6 @@
     "36911320300:1:2026-10-01T19:26:47Z": [],
     "36909509434:1:2026-10-01T19:08:36Z": [],
     "36906461595:1:2026-10-01T18:47:58Z": [],
-    "36904688918:1:2026-10-01T18:35:00Z": [],
-    "36888041597:1:2026-10-01T16:31:05Z": [],
-    "36851235883:1:2026-10-01T11:10:23Z": [],
-    "36846423127:1:2026-10-01T10:24:14Z": [],
-    "36845478203:1:2026-10-01T10:15:59Z": []
+    "36904688918:1:2026-10-01T18:35:00Z": []
   }
 }
