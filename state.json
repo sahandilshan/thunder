@@ -1,31 +1,73 @@
 {
   "version": 1,
   "seen": {
-    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-07T23:08:52.669Z",
-    "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-07T23:08:52.669Z",
+    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-08T02:43:22.638Z",
+    "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-08T02:43:22.638Z",
     "advisory:GHSA-6h2x-m376-mqjq": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z"
+    "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z",
+    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-08T02:43:22.638Z"
   },
-  "main": {},
+  "main": {
+    "GHSA-cjq9-62q9-8jv4": "[\"high\",\">=16.3.8\"]"
+  },
   "errors": [],
-  "lastScan": "2026-10-07T23:08:52.669Z",
+  "lastScan": "2026-10-08T02:43:22.638Z",
   "runCache": {
-    "37658385878:1:2026-10-07T17:44:02Z": [],
-    "37665468582:1:2026-10-07T18:40:41Z": [],
     "37673775981:1:2026-10-07T19:52:06Z": [],
+    "37718469131:1:2026-10-08T02:34:17Z": [
+      {
+        "runId": 37718469131,
+        "attempt": 1,
+        "jobId": 113120369082,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37718469131/job/113120369082",
+        "branch": "FE-flow-selection",
+        "sha": "4297b150d30b96e0ed9ad0c81f3e4309a565bbeb",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
+    "37718678849:1:2026-10-08T02:36:45Z": [
+      {
+        "runId": 37718678849,
+        "attempt": 1,
+        "jobId": 113121028167,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37718678849/job/113121028167",
+        "branch": "gh-readonly-queue/main/pr-5571-4ff37087974b535013b9e6ea25c7b1ed42c4e1db",
+        "sha": "4518df86458b1e757bcba3d43eea78135a6eb5d3",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
+    "37707155267:1:2026-10-08T00:20:03Z": [
+      {
+        "runId": 37707155267,
+        "attempt": 1,
+        "jobId": 113084136632,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/37707155267/job/113084136632",
+        "branch": "switch-using-new-feature-template",
+        "sha": "a7c20f6be5e044361cba216b1f89337bcdec2482",
+        "ids": [
+          "GHSA-cjq9-62q9-8jv4"
+        ]
+      }
+    ],
+    "37665468582:1:2026-10-07T18:40:41Z": [],
     "37665009016:1:2026-10-07T18:38:10Z": [],
+    "37658385878:1:2026-10-07T17:44:02Z": [],
     "37655053073:1:2026-10-07T17:12:37Z": [],
     "37652952726:1:2026-10-07T16:56:59Z": [],
     "37648560626:1:2026-10-07T16:21:12Z": [],
