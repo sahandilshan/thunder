@@ -1,15 +1,15 @@
 {
   "version": 1,
   "seen": {
-    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-10T13:59:51.319Z",
+    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-10T18:40:25.155Z",
     "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-10T01:18:39.706Z",
     "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-10T01:18:39.706Z",
     "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-08T02:43:22.638Z",
@@ -17,13 +17,13 @@
     "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-10T13:59:51.319Z",
-    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-10T13:59:51.319Z"
+    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-10T18:40:25.155Z",
+    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-10T18:40:25.155Z"
   },
   "main": {},
   "errors": [],
-  "lastScan": "2026-10-10T13:59:51.319Z",
+  "lastScan": "2026-10-10T18:40:25.155Z",
   "runCache": {
     "37933792119:1:2026-10-09T13:25:33Z": [],
     "37926612724:1:2026-10-09T12:18:26Z": [],
@@ -1030,8 +1030,6 @@
     "37183897302:1:2026-10-04T07:09:25Z": [],
     "37178778089:1:2026-10-04T05:42:58Z": [],
     "37176349918:1:2026-10-04T04:42:34Z": [],
-    "37172773110:1:2026-10-04T03:22:08Z": [],
-    "37143509362:1:2026-10-03T18:38:07Z": [],
-    "37140635585:1:2026-10-03T17:49:53Z": []
+    "37172773110:1:2026-10-04T03:22:08Z": []
   }
 }
