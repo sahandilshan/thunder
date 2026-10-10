@@ -1,15 +1,15 @@
 {
   "version": 1,
   "seen": {
-    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-10T07:45:55.820Z",
     "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-10T01:18:39.706Z",
     "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-10T01:18:39.706Z",
     "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-08T02:43:22.638Z",
@@ -17,13 +17,13 @@
     "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-10T01:18:39.706Z"
+    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-10T07:45:55.820Z",
+    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-10T07:45:55.820Z"
   },
   "main": {},
   "errors": [],
-  "lastScan": "2026-10-10T01:18:39.706Z",
+  "lastScan": "2026-10-10T07:45:55.820Z",
   "runCache": {
     "37933792119:1:2026-10-09T13:25:33Z": [],
     "37926612724:1:2026-10-09T12:18:26Z": [],
@@ -1037,63 +1037,6 @@
     "37121507675:1:2026-10-03T12:35:01Z": [],
     "37117168050:1:2026-10-03T11:04:31Z": [],
     "37113771091:1:2026-10-03T10:01:50Z": [],
-    "37110135079:1:2026-10-03T08:58:45Z": [],
-    "37100953132:1:2026-10-03T06:11:31Z": [],
-    "37098122010:1:2026-10-03T04:55:36Z": [
-      {
-        "runId": 37098122010,
-        "attempt": 1,
-        "jobId": 111132114573,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37098122010/job/111132114573",
-        "branch": "gh-readonly-queue/main/pr-5608-05d92a2a98b387110aad9e2aa63935a5049b2372",
-        "sha": "04bd0d72f6857dc3ea847c52237b453596fd0a02",
-        "ids": [
-          "GHSA-ch52-4w7c-c8xp",
-          "GHSA-vfj7-8cjw-p6xm"
-        ]
-      }
-    ],
-    "37097704073:1:2026-10-03T04:47:54Z": [
-      {
-        "runId": 37097704073,
-        "attempt": 1,
-        "jobId": 111130914943,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37097704073/job/111130914943",
-        "branch": "design/back-channel-logout-threat-model",
-        "sha": "1fed04b7ef921cdd40171a61661a5fbb88ad7188",
-        "ids": [
-          "GHSA-ch52-4w7c-c8xp",
-          "GHSA-vfj7-8cjw-p6xm"
-        ]
-      }
-    ],
-    "37097698561:1:2026-10-03T04:47:52Z": [
-      {
-        "runId": 37097698561,
-        "attempt": 1,
-        "jobId": 111130899139,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37097698561/job/111130899139",
-        "branch": "gh-readonly-queue/main/pr-5608-05d92a2a98b387110aad9e2aa63935a5049b2372",
-        "sha": "4dde4b614c01cfdd888f6cb77c780c29db14bf0d",
-        "ids": [
-          "GHSA-ch52-4w7c-c8xp",
-          "GHSA-vfj7-8cjw-p6xm"
-        ]
-      }
-    ],
-    "37097665063:1:2026-10-03T04:47:10Z": [
-      {
-        "runId": 37097665063,
-        "attempt": 1,
-        "jobId": 111130802503,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37097665063/job/111130802503",
-        "branch": "design/back-channel-logout-spec-followup",
-        "sha": "7cb4ab9252a13b7620f274901dc567fd8b788309",
-        "ids": [
-          "GHSA-ch52-4w7c-c8xp",
-          "GHSA-vfj7-8cjw-p6xm"
-        ]
-      }
-    ]
+    "37110135079:1:2026-10-03T08:58:45Z": []
   }
 }
