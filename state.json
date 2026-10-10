@@ -1,29 +1,29 @@
 {
   "version": 1,
   "seen": {
-    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-09T21:20:27.147Z",
+    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-10T01:18:39.706Z",
     "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-08T02:43:22.638Z",
     "advisory:GHSA-6h2x-m376-mqjq": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-09T21:20:27.147Z",
-    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-09T21:20:27.147Z"
+    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-10T01:18:39.706Z",
+    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-10T01:18:39.706Z"
   },
   "main": {},
   "errors": [],
-  "lastScan": "2026-10-09T21:20:27.147Z",
+  "lastScan": "2026-10-10T01:18:39.706Z",
   "runCache": {
     "37933792119:1:2026-10-09T13:25:33Z": [],
     "37926612724:1:2026-10-09T12:18:26Z": [],
@@ -1094,7 +1094,6 @@
           "GHSA-vfj7-8cjw-p6xm"
         ]
       }
-    ],
-    "37068769107:1:2026-10-02T22:16:04Z": []
+    ]
   }
 }
