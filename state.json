@@ -1,9 +1,9 @@
 {
   "version": 1,
   "seen": {
-    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-13T02:03:33.410Z",
+    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-13T09:29:16.214Z",
+    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-13T09:29:16.214Z",
+    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-13T09:29:16.214Z",
     "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-13T02:03:33.410Z",
     "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-13T02:03:33.410Z",
     "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-13T02:03:33.410Z",
@@ -17,18 +17,32 @@
     "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T05:52:23.868Z",
     "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-13T02:03:33.410Z"
+    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-13T09:29:16.214Z",
+    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-13T09:29:16.214Z",
+    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-13T09:29:16.214Z"
   },
   "main": {},
   "errors": [],
-  "lastScan": "2026-10-13T02:03:33.410Z",
+  "lastScan": "2026-10-13T09:29:16.214Z",
   "runCache": {
+    "38373432392:1:2026-10-13T09:13:57Z": [],
+    "38369506044:1:2026-10-13T08:56:28Z": [],
+    "38361850361:1:2026-10-13T07:44:49Z": [],
+    "38359068895:1:2026-10-13T07:17:26Z": [],
+    "38352282245:1:2026-10-13T08:16:17Z": [],
+    "38352695592:1:2026-10-13T06:04:50Z": [],
+    "38352190988:1:2026-10-13T06:02:53Z": [],
+    "38353127004:2:2026-10-13T06:55:13Z": [],
+    "38352135593:1:2026-10-13T06:01:19Z": [],
+    "38351024657:1:2026-10-13T05:46:08Z": [],
+    "38349269219:1:2026-10-13T05:38:48Z": [],
+    "38343526698:1:2026-10-13T04:14:41Z": [],
+    "38297736086:1:2026-10-12T19:58:52Z": [],
     "38287717580:1:2026-10-12T18:26:16Z": [],
+    "38332097668:1:2026-10-13T08:16:17Z": [],
+    "38334507870:1:2026-10-13T02:35:56Z": [],
     "38277660298:1:2026-10-12T16:54:04Z": [],
     "38269489165:1:2026-10-12T16:01:12Z": [],
-    "38297736086:1:2026-10-12T19:58:52Z": [],
     "38259048988:1:2026-10-12T14:25:34Z": [],
     "38258106799:2:2026-10-12T14:12:40Z": [],
     "38255806330:1:2026-10-12T13:54:24Z": [],
@@ -804,235 +818,6 @@
     "37455396349:1:2026-10-06T11:42:30Z": [],
     "37448163159:1:2026-10-06T10:34:02Z": [],
     "37443887826:1:2026-10-06T09:59:09Z": [],
-    "37443549243:1:2026-10-06T09:55:20Z": [],
-    "37443087191:1:2026-10-06T10:12:56Z": [],
-    "37442112026:1:2026-10-06T09:42:52Z": [],
-    "37440510989:1:2026-10-06T09:26:02Z": [],
-    "37440325378:1:2026-10-06T09:27:45Z": [],
-    "37440076776:1:2026-10-06T09:21:01Z": [],
-    "37438097717:1:2026-10-06T09:15:21Z": [],
-    "37437587276:1:2026-10-06T09:03:57Z": [],
-    "37434777160:1:2026-10-06T08:38:45Z": [],
-    "37429171174:1:2026-10-06T07:44:25Z": [],
-    "37427650298:1:2026-10-06T07:40:56Z": [],
-    "37427554573:1:2026-10-06T07:30:14Z": [],
-    "37427468704:1:2026-10-06T07:27:37Z": [],
-    "37425403990:1:2026-10-06T07:05:42Z": [],
-    "37422847038:1:2026-10-06T06:17:16Z": [
-      {
-        "runId": 37422847038,
-        "attempt": 1,
-        "jobId": 112135840947,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37422847038/job/112135840947",
-        "branch": "feat/notification-templates-preview-on-main",
-        "sha": "818484514a8dff411bab409e8c99bbdce39bdb8d",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37422297897:1:2026-10-06T06:11:05Z": [
-      {
-        "runId": 37422297897,
-        "attempt": 1,
-        "jobId": 112134125751,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37422297897/job/112134125751",
-        "branch": "gateway-capture",
-        "sha": "0ed8973dd1b4a8103a13636ba77fa0710ea9c683",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37422279738:1:2026-10-06T06:10:53Z": [
-      {
-        "runId": 37422279738,
-        "attempt": 1,
-        "jobId": 112134069874,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37422279738/job/112134069874",
-        "branch": "gateway-apply",
-        "sha": "217e453b4b8372d82062392eec992ecae50620de",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37421560975:1:2026-10-06T06:02:44Z": [
-      {
-        "runId": 37421560975,
-        "attempt": 1,
-        "jobId": 112131830047,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37421560975/job/112131830047",
-        "branch": "backchannel-logout/notify-only-on-removed-row",
-        "sha": "c24db7337e133299a53e56575cc5c6c47653c05b",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37420762940:1:2026-10-06T05:53:38Z": [
-      {
-        "runId": 37420762940,
-        "attempt": 1,
-        "jobId": 112129372382,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37420762940/job/112129372382",
-        "branch": "add-notification-i18n-namespace",
-        "sha": "5c9cc96ada776d1b5d589880de61df1445b395e5",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37420460006:1:2026-10-06T05:50:04Z": [
-      {
-        "runId": 37420460006,
-        "attempt": 1,
-        "jobId": 112128430935,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37420460006/job/112128430935",
-        "branch": "gateway-capture",
-        "sha": "4f13dc7f0a0c65e2f9438d672194fe61d939c565",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37420424250:1:2026-10-06T05:49:31Z": [
-      {
-        "runId": 37420424250,
-        "attempt": 1,
-        "jobId": 112128317608,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37420424250/job/112128317608",
-        "branch": "gateway-apply",
-        "sha": "69fd8ed2fcf7cbac7b9e38de3c2c1920a10f396d",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37419997328:1:2026-10-06T05:44:32Z": [
-      {
-        "runId": 37419997328,
-        "attempt": 1,
-        "jobId": 112127002305,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37419997328/job/112127002305",
-        "branch": "backchannel-logout/console-field",
-        "sha": "4bc6939cda893a774a1865cb5e1ef5329866cc3c",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37419902496:1:2026-10-06T05:43:29Z": [
-      {
-        "runId": 37419902496,
-        "attempt": 1,
-        "jobId": 112126711091,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37419902496/job/112126711091",
-        "branch": "feat/notification-templates-preview-on-main",
-        "sha": "e5dc8718b9066b44e58b60c0143415732ffd21bd",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37418115716:1:2026-10-06T05:22:10Z": [
-      {
-        "runId": 37418115716,
-        "attempt": 1,
-        "jobId": 112121182139,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37418115716/job/112121182139",
-        "branch": "feature-email-provider-backend",
-        "sha": "dc4224d5e79a4da5d835e08a65d10cf327983a50",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37413829602:1:2026-10-06T04:28:26Z": [
-      {
-        "runId": 37413829602,
-        "attempt": 1,
-        "jobId": 112107956921,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37413829602/job/112107956921",
-        "branch": "codex/fix-sidebar-resource-alignment",
-        "sha": "3ad09bca885bf96594d260d26e412ce86a4a39c7",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ],
-    "37413719862:1:2026-10-06T04:27:05Z": [
-      {
-        "runId": 37413719862,
-        "attempt": 1,
-        "jobId": 112107609740,
-        "url": "https://github.com/thunder-id/thunderid/actions/runs/37413719862/job/112107609740",
-        "branch": "graceful_refresh_token",
-        "sha": "03a0cb12d76fd8be1dbb2c8a19422fd553c0233f",
-        "ids": [
-          "GHSA-5gmw-xhrv-c9v3",
-          "GHSA-68fv-2mgg-jv7q",
-          "GHSA-85c8-ppgw-ccpr",
-          "GHSA-g2v6-rqmx-r4w6",
-          "GHSA-jqcg-44mw-7w3h",
-          "GHSA-vc2v-76pw-4v95"
-        ]
-      }
-    ]
+    "37443549243:1:2026-10-06T09:55:20Z": []
   }
 }
