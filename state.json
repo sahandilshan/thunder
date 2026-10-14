@@ -1,34 +1,97 @@
 {
   "version": 1,
   "seen": {
-    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-13T09:29:16.214Z",
-    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-13T09:29:16.214Z",
-    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-13T09:29:16.214Z",
-    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-13T02:03:33.410Z",
-    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-10T01:18:39.706Z",
-    "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-08T02:43:22.638Z",
-    "advisory:GHSA-6h2x-m376-mqjq": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-qhr7-859c-m2p7": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-07T05:52:23.868Z",
-    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-14T17:16:51.801Z",
-    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-14T17:16:51.801Z",
-    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-14T17:16:51.801Z"
+    "advisory:GHSA-6qxp-vccf-f47h": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-pqg4-j6r4-53mv": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-wq5f-xc86-pv6w": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-5gmw-xhrv-c9v3": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-68fv-2mgg-jv7q": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-85c8-ppgw-ccpr": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-g2v6-rqmx-r4w6": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-jqcg-44mw-7w3h": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-vc2v-76pw-4v95": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-ch52-4w7c-c8xp": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-vfj7-8cjw-p6xm": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-vcvr-r3jv-pc5j": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-6h2x-m376-mqjq": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-6j4f-fj2g-mc7p": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-qhr7-859c-m2p7": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-rfgv-xxqx-mfg5": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-cjq9-62q9-8jv4": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-8r5x-fm3f-whwj": "2026-10-14T20:47:15.185Z",
+    "advisory:GHSA-p8wg-vrv2-v86f": "2026-10-14T20:47:15.185Z"
   },
   "main": {},
   "errors": [],
-  "lastScan": "2026-10-14T17:16:51.801Z",
+  "lastScan": "2026-10-14T20:47:15.185Z",
   "runCache": {
-    "38555784971:1:2026-10-14T11:45:58Z": [],
     "38596658425:1:2026-10-14T16:41:50Z": [],
+    "38615030300:1:2026-10-14T18:26:06Z": [
+      {
+        "runId": 38615030300,
+        "attempt": 1,
+        "jobId": 116027808826,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/38615030300/job/116027808826",
+        "branch": "backport/federated-authz-1.0.x",
+        "sha": "f4f2aa25814395ff6758b4c54e2e5471ad4a2afa",
+        "ids": [
+          "GHSA-5gmw-xhrv-c9v3",
+          "GHSA-68fv-2mgg-jv7q",
+          "GHSA-6h2x-m376-mqjq",
+          "GHSA-6j4f-fj2g-mc7p",
+          "GHSA-6qxp-vccf-f47h",
+          "GHSA-85c8-ppgw-ccpr",
+          "GHSA-8r5x-fm3f-whwj",
+          "GHSA-ch52-4w7c-c8xp",
+          "GHSA-cjq9-62q9-8jv4",
+          "GHSA-g2v6-rqmx-r4w6",
+          "GHSA-jqcg-44mw-7w3h",
+          "GHSA-p8wg-vrv2-v86f",
+          "GHSA-pqg4-j6r4-53mv",
+          "GHSA-qhr7-859c-m2p7",
+          "GHSA-rfgv-xxqx-mfg5",
+          "GHSA-vc2v-76pw-4v95",
+          "GHSA-vcvr-r3jv-pc5j",
+          "GHSA-vfj7-8cjw-p6xm",
+          "GHSA-wq5f-xc86-pv6w"
+        ]
+      }
+    ],
+    "38614602142:1:2026-10-14T18:23:00Z": [
+      {
+        "runId": 38614602142,
+        "attempt": 1,
+        "jobId": 116026339815,
+        "url": "https://github.com/thunder-id/thunderid/actions/runs/38614602142/job/116026339815",
+        "branch": "backport/federated-authz-1.0.x",
+        "sha": "6bdc32b749b8b4ca6da8be8fea311bda0224ed43",
+        "ids": [
+          "GHSA-5gmw-xhrv-c9v3",
+          "GHSA-68fv-2mgg-jv7q",
+          "GHSA-6h2x-m376-mqjq",
+          "GHSA-6j4f-fj2g-mc7p",
+          "GHSA-6qxp-vccf-f47h",
+          "GHSA-85c8-ppgw-ccpr",
+          "GHSA-8r5x-fm3f-whwj",
+          "GHSA-ch52-4w7c-c8xp",
+          "GHSA-cjq9-62q9-8jv4",
+          "GHSA-g2v6-rqmx-r4w6",
+          "GHSA-jqcg-44mw-7w3h",
+          "GHSA-p8wg-vrv2-v86f",
+          "GHSA-pqg4-j6r4-53mv",
+          "GHSA-qhr7-859c-m2p7",
+          "GHSA-rfgv-xxqx-mfg5",
+          "GHSA-vc2v-76pw-4v95",
+          "GHSA-vcvr-r3jv-pc5j",
+          "GHSA-vfj7-8cjw-p6xm",
+          "GHSA-wq5f-xc86-pv6w"
+        ]
+      }
+    ],
+    "38618044372:1:2026-10-14T19:15:34Z": [],
     "38596467193:1:2026-10-14T16:39:28Z": [],
     "38568702564:1:2026-10-14T13:27:57Z": [],
+    "38555784971:1:2026-10-14T11:45:58Z": [],
     "38555759204:1:2026-10-14T11:45:51Z": [],
     "38550448738:1:2026-10-14T11:01:27Z": [],
     "38550318882:1:2026-10-14T11:02:05Z": [],
@@ -765,10 +828,6 @@
           "GHSA-cjq9-62q9-8jv4"
         ]
       }
-    ],
-    "37673775981:1:2026-10-07T19:52:06Z": [],
-    "37665468582:1:2026-10-07T18:40:41Z": [],
-    "37665009016:1:2026-10-07T18:38:10Z": [],
-    "37658385878:1:2026-10-07T17:44:02Z": []
+    ]
   }
 }
