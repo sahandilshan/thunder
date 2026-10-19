@@ -120,6 +120,7 @@ async def test_chat_contract_authentication_validation_and_ownership(components)
             await client.post("/chat", headers=headers, json={"message": ""})
         ).status_code == 400
         assert (await client.post("/chat", headers=headers, content="x" * 65537)).status_code == 413
+        assert (await client.post("/chat", headers=headers, content="[" * 5000)).status_code == 400
         assert (
             await client.post(
                 "/chat", headers=headers, json={"message": "Hello", "session_id": "foreign"}
@@ -193,6 +194,7 @@ async def test_upgrade_trigger_is_authenticated_feature_guarded_and_single_fligh
         upgrades.enabled = True
         assert (await client.post("/api/demo/process-upgrades", headers=headers)).status_code == 202
         await upgrades.started.wait()
+        assert (await client.get("/health")).json()["upgrade_status"] == "running"
         assert (await client.post("/api/demo/process-upgrades", headers=headers)).status_code == 409
         upgrades.finished.set()
         await app.state.upgrade_task

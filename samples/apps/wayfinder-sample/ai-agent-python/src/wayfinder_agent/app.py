@@ -24,12 +24,12 @@ from .upgrades import UpgradeProcessor
 async def _body(request: Request) -> dict[str, Any]:
     content = bytearray()
     async for chunk in request.stream():
-        content.extend(chunk)
-        if len(content) > 65536:
+        if len(content) + len(chunk) > 65536:
             raise AuthError("INVALID_REQUEST", "The request is too large.", 413)
+        content.extend(chunk)
     try:
         value = json.loads(content)
-    except (ValueError, UnicodeError):
+    except (ValueError, UnicodeError, RecursionError):
         raise AuthError("INVALID_REQUEST", "A JSON object is required.", 400) from None
     if not isinstance(value, dict):
         raise AuthError("INVALID_REQUEST", "A JSON object is required.", 400)
@@ -169,6 +169,7 @@ def create_app(
             raise AuthError(
                 "UPGRADE_IN_PROGRESS", "An upgrade approval is already in progress.", 409
             )
+        app.state.last_upgrade_status = "running"
         app.state.upgrade_task = asyncio.create_task(process(principal))
         return {
             "message": "Upgrade processing started. Approve the request through the configured channel."

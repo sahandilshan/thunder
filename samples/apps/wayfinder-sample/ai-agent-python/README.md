@@ -9,6 +9,7 @@ Python 3.11 or later is required. Framework dependency versions are pinned in `p
 Run these commands from this directory:
 
 ```bash
+export THUNDERID_PYTHON_SDK_PATH=/path/to/python-sdks  # local thunder-id/python-sdks checkout
 uv venv .venv
 uv pip install --python .venv/bin/python -e "$THUNDERID_PYTHON_SDK_PATH" -e '.[dev]'
 cp .env.example .env
@@ -79,7 +80,7 @@ Once configured, sign in to the existing Wayfinder frontend with an account hold
 
 Queue an upgrade through the Concierge, then trigger the guarded demo endpoint with the same user's valid chat bearer. The processor reads the next pending request from the booking MCP server; it does not accept a user identity or hint from the HTTP body. Requests belonging to another user are refused before approval begins.
 
-Approve the request through the configured channel. The job has a 120-second local deadline. `/health` exposes only the coarse outcome (`processed`, `upgrade_failed`, `no_pending_upgrade`, `failed`, or `canceled`). A `202` response means the job started, not that the upgrade succeeded. No automatic scheduler or repeated approval attempts run in the background.
+Approve the request through the configured channel. The job has a 120-second local deadline. `/health` exposes only a coarse status: `running` while a job waits, then `processed`, `upgrade_failed`, `no_pending_upgrade`, `failed`, or `canceled`. A `202` response means the job started, not that the upgrade succeeded. No automatic scheduler or repeated approval attempts run in the background.
 
 ## Storage and Limits
 
