@@ -37,14 +37,14 @@ def _absolute_url(value: str, name: str) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    thunder_base_url: str
+    thunderid_base_url: str
     agent_id: str
     agent_secret: str = field(repr=False)
     mcp_server_url: str
     agent_redirect_uri: str
     chat_resource_url: str
     frontend_origin: str
-    thunder_ca_file: str | None = None
+    thunderid_ca_file: str | None = None
     agent_access_scope: str = "agent:access"
     host: str = "127.0.0.1"
     port: int = 8790
@@ -73,7 +73,7 @@ class Settings:
         required = {
             name: _required(env, key)
             for name, key in (
-                ("thunder_base_url", "THUNDER_BASE_URL"),
+                ("thunderid_base_url", "THUNDERID_BASE_URL"),
                 ("agent_id", "AGENT_ID"),
                 ("agent_secret", "AGENT_SECRET"),
                 ("mcp_server_url", "MCP_SERVER_URL"),
@@ -83,7 +83,7 @@ class Settings:
             )
         }
         for name in (
-            "thunder_base_url",
+            "thunderid_base_url",
             "mcp_server_url",
             "agent_redirect_uri",
             "chat_resource_url",
@@ -93,8 +93,8 @@ class Settings:
         chat = urlsplit(required["chat_resource_url"])
         try:
             port = int(
-                env.get("PORT")
-                or env.get("AGENT_PORT")
+                env.get("AGENT_PORT")
+                or env.get("PORT")
                 or chat.port
                 or (443 if chat.scheme == "https" else 80)
             )
@@ -103,14 +103,14 @@ class Settings:
         except ValueError:
             raise ValueError("Configure a valid AGENT_PORT.") from None
         return cls(
-            thunder_base_url=required["thunder_base_url"],
+            thunderid_base_url=required["thunderid_base_url"],
             agent_id=required["agent_id"],
             agent_secret=required["agent_secret"],
             mcp_server_url=required["mcp_server_url"],
             agent_redirect_uri=required["agent_redirect_uri"],
             chat_resource_url=required["chat_resource_url"],
             frontend_origin=required["frontend_origin"],
-            thunder_ca_file=env.get("THUNDER_CA_FILE") or None,
+            thunderid_ca_file=env.get("THUNDERID_CA_FILE") or None,
             agent_access_scope=env.get("AGENT_ACCESS_SCOPE", "agent:access"),
             host=env.get("HOST") or "127.0.0.1",
             port=port,
@@ -125,4 +125,4 @@ class Settings:
         )
 
     def tls_context(self) -> ssl.SSLContext:
-        return ssl.create_default_context(cafile=self.thunder_ca_file)
+        return ssl.create_default_context(cafile=self.thunderid_ca_file)

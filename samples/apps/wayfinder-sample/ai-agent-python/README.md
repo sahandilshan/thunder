@@ -20,14 +20,14 @@ Fill the environment file for your deployment. Keep populated files private and 
 
 | Setting | Purpose |
 | --- | --- |
-| `THUNDER_BASE_URL` | Exact issuer URL of the isolated ThunderID instance. |
-| `THUNDER_CA_FILE` | Trusted public CA/server certificate for a private local certificate. TLS checks remain enabled. |
+| `THUNDERID_BASE_URL` | Exact issuer URL of the isolated ThunderID instance. |
+| `THUNDERID_CA_FILE` | CA certificate that issued the instance's server certificate, or the server certificate itself when it is self-signed. TLS checks remain enabled. |
 | `AGENT_ID`, `AGENT_SECRET` | Confidential Concierge client, with client credentials, authorization code, and refresh grants configured. |
 | `MCP_SERVER_URL` | Booking backend's `/mcp` URL and registered booking resource-server identifier. |
 | `AGENT_REDIRECT_URI` | Exact registered redirect URI used by the frontend consent popup, ending in `/agent-callback`. |
 | `AGENT_CHAT_URL` | This service's `/chat` URL and registered chat resource-server identifier. |
 | `FRONTEND_ORIGIN` | Exact allowed browser origin. |
-| `AGENT_PORT` or `PORT`, `HOST` | Listener configuration. The port must match `AGENT_CHAT_URL`. |
+| `AGENT_PORT` or `PORT`, `HOST` | Listener configuration. `AGENT_PORT` takes precedence over `PORT`. The port must match `AGENT_CHAT_URL`. |
 | `AGENT_ACCESS_SCOPE` | Required inbound scope, default `agent:access`. |
 | `LLM_PROVIDER` | `google`, the supported provider in this sample. |
 | `LLM_API_KEY`, `MODEL_NAME` | Gemini Developer API credential and an available model ID. Both are required for chat generation. |
@@ -43,7 +43,7 @@ Set these frontend variables before starting Vite:
 VITE_AI_FEATURES_ENABLED=true
 VITE_AGENT_CHAT_URL=<same value as AGENT_CHAT_URL>
 VITE_API_BASE_URL=<booking backend origin>
-VITE_THUNDER_BASE_URL=<same value as THUNDER_BASE_URL>
+VITE_THUNDER_BASE_URL=<same value as THUNDERID_BASE_URL>
 ```
 
 Use separate service ports when another Wayfinder stack is running. Start services individually; a shared `PORT` in the aggregate Node launcher would affect multiple services. The booking backend must trust the local issuer certificate through `NODE_EXTRA_CA_CERTS`, as described in its README. Do not disable TLS verification in Python or Node.

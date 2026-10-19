@@ -35,7 +35,7 @@ TLS verification stays enabled for the configured issuer, including loopback add
 NODE_EXTRA_CA_CERTS="$THUNDERID_CA_FILE" npm start
 ```
 
-`THUNDERID_CA_FILE` must point to the trusted public CA certificate or server certificate for that instance. Do not set `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+`THUNDERID_CA_FILE` must point to the CA certificate that issued the instance's server certificate, or to the server certificate itself when it is self-signed. Do not set `NODE_TLS_REJECT_UNAUTHORIZED=0`.
 
 Sample flights, hotels, and trips live in memory (`src/data.js`) and are reloaded on every start, so there is no database to set up. Bookings and upgrade requests are in memory too, so they reset whenever the server restarts, including on a `npm run dev` reload.
 

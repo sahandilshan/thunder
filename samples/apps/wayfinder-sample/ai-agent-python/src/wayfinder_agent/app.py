@@ -79,12 +79,6 @@ def create_app(
                     await authentication.aclose()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[settings.frontend_origin],
-        allow_methods=["GET", "POST"],
-        allow_headers=["Authorization", "Content-Type"],
-    )
 
     @app.middleware("http")
     async def check_origin(request: Request, call_next):
@@ -97,6 +91,14 @@ def create_app(
             return JSONResponse(
                 {"error": "The Concierge could not complete the request."}, status_code=502
             )
+
+    # Added last so it wraps check_origin and its sanitized 502 responses keep CORS headers.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.frontend_origin],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
     @app.exception_handler(AuthError)
     async def auth_error(request: Request, error: AuthError):

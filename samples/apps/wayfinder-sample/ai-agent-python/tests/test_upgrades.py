@@ -20,7 +20,7 @@ from wayfinder_agent.upgrades import UpgradeProcessor
 @pytest.fixture
 def settings():
     return Settings(
-        thunder_base_url="https://issuer.example",
+        thunderid_base_url="https://issuer.example",
         agent_id="client",
         agent_secret="secret",
         mcp_server_url="http://booking.example/mcp",

@@ -82,7 +82,7 @@ class Upgrades:
 @pytest.fixture
 def components():
     settings = Settings(
-        thunder_base_url="https://issuer.example",
+        thunderid_base_url="https://issuer.example",
         agent_id="client",
         agent_secret="secret",
         mcp_server_url="http://booking.example/mcp",
@@ -170,9 +170,12 @@ async def test_model_failures_are_sanitized(components):
         ) as client,
     ):
         response = await client.post(
-            "/chat", headers={"Authorization": "Bearer valid"}, json={"message": "Hello"}
+            "/chat",
+            headers={"Authorization": "Bearer valid", "Origin": "http://travel.example"},
+            json={"message": "Hello"},
         )
         assert response.status_code == 502
+        assert response.headers["access-control-allow-origin"] == "http://travel.example"
         assert "secret-from-provider" not in response.text
 
 

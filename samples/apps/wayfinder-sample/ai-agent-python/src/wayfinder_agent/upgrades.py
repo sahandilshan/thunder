@@ -64,7 +64,7 @@ class UpgradeProcessor:
             )
         self._client = AsyncThunderIDClient(
             ThunderIDConfig(
-                base_url=self.settings.thunder_base_url,
+                base_url=self.settings.thunderid_base_url,
                 client_id=self.settings.upgrade_agent_id,
                 client_secret=self.settings.upgrade_agent_secret,
                 scopes=("openid", "upgrade:process"),

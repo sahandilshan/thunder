@@ -25,7 +25,7 @@ from wayfinder_agent.settings import Settings
 @pytest.fixture
 def settings():
     return Settings(
-        thunder_base_url="https://issuer.example",
+        thunderid_base_url="https://issuer.example",
         agent_id="concierge",
         agent_secret="credential",
         mcp_server_url="https://booking.example/mcp",
@@ -204,7 +204,7 @@ def signed_bearer(settings, monkeypatch):
 
     def sign(**changes):
         claims = {
-            "iss": settings.thunder_base_url,
+            "iss": settings.thunderid_base_url,
             "aud": settings.chat_resource_url,
             "iat": int(time.time()),
             "exp": int(time.time()) + 300,
@@ -278,7 +278,7 @@ async def test_missing_scope_and_forged_signature_rejected(signed_bearer):
     other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     forged = jwt.encode(
         {
-            "iss": verifier._settings.thunder_base_url,
+            "iss": verifier._settings.thunderid_base_url,
             "aud": verifier._settings.chat_resource_url,
             "sub": "alice",
             "iat": int(time.time()),
@@ -295,7 +295,7 @@ async def test_missing_scope_and_forged_signature_rejected(signed_bearer):
 
 def test_settings_no_secrets_in_repr_and_explicit_urls(settings):
     environment = {
-        "THUNDER_BASE_URL": settings.thunder_base_url,
+        "THUNDERID_BASE_URL": settings.thunderid_base_url,
         "AGENT_ID": settings.agent_id,
         "AGENT_SECRET": "sensitive-agent",
         "MCP_SERVER_URL": settings.mcp_server_url,
@@ -311,6 +311,7 @@ def test_settings_no_secrets_in_repr_and_explicit_urls(settings):
         Settings.from_env({})
     with pytest.raises(ValueError):
         Settings.from_env({**environment, "AGENT_PORT": "bad"})
+    assert Settings.from_env({**environment, "AGENT_PORT": "8791", "PORT": "8787"}).port == 8791
 
 
 async def test_sdk_terminal_authorization_failure_starts_new_consent(

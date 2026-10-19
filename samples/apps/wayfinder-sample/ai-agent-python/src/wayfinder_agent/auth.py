@@ -66,7 +66,7 @@ class BearerVerifier:
     def __init__(self, settings: Settings):
         self._settings = settings
         self._keys = jwt.PyJWKClient(
-            settings.thunder_base_url.rstrip("/") + "/oauth2/jwks",
+            settings.thunderid_base_url.rstrip("/") + "/oauth2/jwks",
             ssl_context=settings.tls_context(),
             timeout=10,
             lifespan=300,
@@ -95,7 +95,7 @@ class BearerVerifier:
                 token,
                 key.key,
                 algorithms=list(ALGORITHMS),
-                issuer=self._settings.thunder_base_url,
+                issuer=self._settings.thunderid_base_url,
                 audience=self._settings.chat_resource_url,
                 options={"require": ["iss", "aud", "exp", "iat", "sub", "scope"]},
             )
@@ -149,7 +149,7 @@ class ConciergeAuth:
     def _new_client(self, *, machine: bool = False) -> AsyncThunderIDClient:
         return AsyncThunderIDClient(
             ThunderIDConfig(
-                base_url=self.settings.thunder_base_url,
+                base_url=self.settings.thunderid_base_url,
                 client_id=self.settings.agent_id,
                 client_secret=self.settings.agent_secret,
                 after_sign_in_url=self.settings.agent_redirect_uri,
