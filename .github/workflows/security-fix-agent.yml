@@ -153,7 +153,8 @@ jobs:
           npm_config_cache: /tmp/security-fix/npm-cache
         with:
           openai-api-key: ${{ secrets.AZURE_OPENAI_API_KEY }}
-          responses-api-endpoint: ${{ vars.AZURE_OPENAI_RESPONSES_ENDPOINT }}
+          # A secret, not a variable, so the Azure resource name is masked in this public repository's logs.
+          responses-api-endpoint: ${{ secrets.AZURE_OPENAI_RESPONSES_ENDPOINT }}
           model: ${{ vars.AZURE_OPENAI_MODEL }}
           effort: ${{ vars.AZURE_OPENAI_EFFORT || 'high' }}
           codex-version: "0.160.0"

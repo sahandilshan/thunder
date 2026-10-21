@@ -23,6 +23,7 @@ Secrets:
 | Name | Value | Needed for |
 |---|---|---|
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI key | All runs |
+| `AZURE_OPENAI_RESPONSES_ENDPOINT` | `https://<resource>.openai.azure.com/openai/v1/responses`. A secret so the resource name is masked in public run logs. | All runs |
 | `GOOGLE_CHAT_SECURITY_WEBHOOK` | Chat incoming webhook URL (already set for the monitor) | Live runs |
 | `SECURITY_FIX_FORK_TOKEN` | The fork token (see below). Pushes fix branches, which carry upstream commits that change workflow files and so cannot be pushed with the default `GITHUB_TOKEN`. | Live runs |
 | `UPSTREAM_PR_TOKEN` | The PR token (see below). Opens draft pull requests on `thunder-id/thunderid`. Stored only here. | Live runs |
@@ -32,7 +33,6 @@ Variables:
 | Name | Example | Needed for |
 |---|---|---|
 | `SECURITY_FIX_ENABLED` | `true` | All runs |
-| `AZURE_OPENAI_RESPONSES_ENDPOINT` | `https://<resource>.openai.azure.com/openai/v1/responses` | All runs |
 | `AZURE_OPENAI_MODEL` | The Azure deployment name of a strong coding model | All runs |
 | `AZURE_OPENAI_EFFORT` | `high` (default) | Optional |
 | `SECURITY_FIX_GIT_NAME`, `SECURITY_FIX_GIT_EMAIL` | The identity used for the commit and its DCO sign-off | Live runs |
