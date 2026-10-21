@@ -40,6 +40,8 @@ Variables:
 
 In the Apps Script project, add the script properties `FIX_DISPATCH_TOKEN` (the same fork token) and `FIX_MODE`. Move `FIX_MODE` from `off` to `dry-run`, then to `live`.
 
+The monitor's source is [`apps-script/Code.gs`](apps-script/Code.gs). Apps Script does not read it from here: after a change, paste the whole file into the sheet's Apps Script editor and save. `testFixDispatch()` starts a dry run on a past commit to check that `FIX_DISPATCH_TOKEN` can start this workflow.
+
 ### Tokens
 
 Two tokens keep each one narrow. A fine-grained token covers repositories of one owner only, so it cannot both push to the fork and open a pull request on `thunder-id/thunderid`. A single classic token could, but starting a workflow with a classic token needs the `repo` scope, which grants access to every public and private repository the account can reach.
