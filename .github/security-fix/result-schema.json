@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "advisories", "title", "purpose", "approach", "validation", "notes"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["fixed", "needs_review", "waiting_for_release", "not_reported", "failed"]
+    },
+    "advisories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "package", "strategy", "from", "to"],
+        "properties": {
+          "id": { "type": "string" },
+          "package": { "type": "string" },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "direct_range",
+              "lockfile_refresh",
+              "raise_override",
+              "head_dependency",
+              "new_override",
+              "major_bump",
+              "ignore",
+              "none"
+            ]
+          },
+          "from": { "type": "string" },
+          "to": { "type": "string" }
+        }
+      }
+    },
+    "title": { "type": "string" },
+    "purpose": { "type": "string" },
+    "approach": { "type": "string" },
+    "validation": { "type": "string" },
+    "notes": { "type": "string" }
+  }
+}

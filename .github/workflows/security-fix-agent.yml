@@ -1,0 +1,362 @@
+name: Security fix agent
+run-name: "Security fix: ${{ inputs.advisories }}${{ inputs.dry_run && ' (dry run)' || '' }}"
+
+# Started by the Apps Script security monitor when upstream main reports a new high or critical
+# npm advisory. Codex (Azure OpenAI) prepares the fix in a job that has read-only repository access
+# and network access only to the npm registry. A separate job without the model key re-checks the
+# change and opens a draft pull request on upstream, or pushes a branch for a maintainer to review.
+
+on:
+  workflow_dispatch:
+    inputs:
+      advisories:
+        description: Comma-separated GHSA IDs reported by upstream main's audit
+        required: true
+        type: string
+      ref:
+        description: Upstream branch or commit to fix. Use main for real runs and an older commit to test.
+        type: string
+        default: main
+      base_branch:
+        description: Upstream branch the pull request targets
+        type: string
+        default: main
+      dry_run:
+        description: Run the agent and the checks without pushing, opening a PR, or posting to Chat
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-fix-agent
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: thunder-id/thunderid
+
+jobs:
+  check:
+    if: github.repository != 'thunder-id/thunderid' && vars.SECURITY_FIX_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      proceed: ${{ steps.targets.outputs.proceed }}
+      targets: ${{ steps.targets.outputs.targets }}
+      summary: ${{ steps.targets.outputs.summary }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      pnpm: ${{ steps.resolve.outputs.pnpm }}
+    steps:
+      - name: Validate inputs
+        env:
+          ADVISORIES: ${{ inputs.advisories }}
+          REF: ${{ inputs.ref }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        run: |
+          ghsa='GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}'
+          [[ "$ADVISORIES" =~ ^$ghsa(,$ghsa)*$ ]] || { echo "::error::Invalid advisories input"; exit 1; }
+          [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::Invalid ref input"; exit 1; }
+          [[ "$BASE_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::Invalid base_branch input"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: thunder-id/thunderid
+          ref: ${{ inputs.ref }}
+          path: repo
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: automation
+          persist-credentials: false
+      - name: Resolve the commit and pnpm version
+        id: resolve
+        run: |
+          echo "sha=$(git -C repo rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "pnpm=$(node -p 'require("./repo/package.json").devEngines.packageManager.version')" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ steps.resolve.outputs.pnpm }}
+          run_install: false
+      - name: Audit the commit
+        working-directory: repo
+        run: |
+          set +e
+          pnpm audit --json --ignore-registry-errors --audit-level=high > "$RUNNER_TEMP/audit.json"
+          code=$?
+          set -e
+          [[ $code -le 1 ]] || { echo "::error::pnpm audit could not run (exit $code)"; exit 1; }
+      - name: Select advisories that are still reported and have no open pull request
+        id: targets
+        env:
+          ADVISORIES: ${{ inputs.advisories }}
+          GH_TOKEN: ${{ github.token }}
+        run: node automation/.github/security-fix/publish.mjs targets --audit "$RUNNER_TEMP/audit.json" --advisories "$ADVISORIES"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-fix-context
+          path: ${{ runner.temp }}/audit.json
+          retention-days: 7
+
+  agent:
+    needs: check
+    if: needs.check.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: thunder-id/thunderid
+          ref: ${{ needs.check.outputs.sha }}
+          path: repo
+          # Full history so the agent can find when an override was first added.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: automation
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ needs.check.outputs.pnpm }}
+          run_install: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: security-fix-context
+          path: ${{ runner.temp }}/context
+      - name: Prepare the Codex configuration and prompt
+        env:
+          TARGETS: ${{ needs.check.outputs.targets }}
+          SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          # Codex may only write inside the checkout and temporary directories.
+          mkdir -p "$RUNNER_TEMP/codex-home" /tmp/security-fix/context /tmp/security-fix/tools /tmp/security-fix/pnpm-cache /tmp/security-fix/pnpm-store /tmp/security-fix/npm-cache
+          cp automation/.github/security-fix/codex-config.toml "$RUNNER_TEMP/codex-home/config.toml"
+          cp "$RUNNER_TEMP/context/audit.json" /tmp/security-fix/context/audit.json
+          cp automation/.github/security-fix/lint-overrides.mjs /tmp/security-fix/tools/lint-overrides.mjs
+          node automation/.github/security-fix/publish.mjs prompt \
+            --template automation/.github/security-fix/prompt.md --out security-fix-prompt.md \
+            --advisories "$TARGETS" --context /tmp/security-fix/context --tools /tmp/security-fix/tools --sha "$SHA"
+      - name: Run Codex
+        id: codex
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
+        env:
+          pnpm_config_cache_dir: /tmp/security-fix/pnpm-cache
+          pnpm_config_store_dir: /tmp/security-fix/pnpm-store
+          npm_config_cache: /tmp/security-fix/npm-cache
+        with:
+          openai-api-key: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          responses-api-endpoint: ${{ vars.AZURE_OPENAI_RESPONSES_ENDPOINT }}
+          model: ${{ vars.AZURE_OPENAI_MODEL }}
+          effort: ${{ vars.AZURE_OPENAI_EFFORT || 'high' }}
+          codex-version: "0.160.0"
+          codex-home: ${{ runner.temp }}/codex-home
+          permission-profile: security-fix
+          safety-strategy: drop-sudo
+          prompt-file: security-fix-prompt.md
+          working-directory: repo
+          output-schema-file: automation/.github/security-fix/result-schema.json
+          output-file: ${{ runner.temp }}/security-fix-result.json
+      - name: Save the agent's changes
+        if: always() && steps.codex.outcome != 'skipped'
+        run: |
+          git -C repo add --intent-to-add --all
+          git -C repo diff --binary > "$RUNNER_TEMP/security-fix.patch"
+          echo "Patch size: $(wc -c < "$RUNNER_TEMP/security-fix.patch") bytes"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.codex.outcome != 'skipped'
+        with:
+          name: security-fix-output
+          path: |
+            ${{ runner.temp }}/security-fix.patch
+            ${{ runner.temp }}/security-fix-result.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  publish:
+    needs: [check, agent]
+    if: always() && needs.check.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Pushes use SECURITY_FIX_FORK_TOKEN: the branch carries upstream commits that change workflow
+    # files, which GITHUB_TOKEN may not push. Opening the upstream PR uses UPSTREAM_PR_TOKEN.
+    permissions:
+      contents: read
+    outputs:
+      notified: ${{ steps.notify.outputs.notified }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: thunder-id/thunderid
+          ref: ${{ needs.check.outputs.sha }}
+          path: repo
+          # Full history so the fix branch can be pushed to the fork.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: automation
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ needs.check.outputs.pnpm }}
+          run_install: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.agent.result != 'skipped'
+        continue-on-error: true
+        with:
+          name: security-fix-output
+          path: ${{ runner.temp }}/output
+      - name: Re-check the change in a clean checkout
+        env:
+          SHA: ${{ needs.check.outputs.sha }}
+          # Read-only token for advisory lookups by the override conventions check.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          out="$RUNNER_TEMP/output"
+          checks="$RUNNER_TEMP/checks.json"
+          echo '{"apply":"skipped"}' > "$checks"
+          [[ -s "$out/security-fix.patch" ]] || exit 0
+          git -C repo apply --index "$out/security-fix.patch" || { echo '{"apply":"failed"}' > "$checks"; exit 0; }
+          node automation/.github/security-fix/guard.mjs --repo repo --base "$SHA" > "$RUNNER_TEMP/guard.json"
+          lint=pass
+          node automation/.github/security-fix/lint-overrides.mjs --repo repo --base "$SHA" > "$RUNNER_TEMP/lint.json" || lint=fail
+          cd repo
+          cp pnpm-lock.yaml "$RUNNER_TEMP/lock.before"
+          lockfile=consistent
+          pnpm install --lockfile-only --ignore-scripts > "$RUNNER_TEMP/install.log" 2>&1 || lockfile=install_failed
+          [[ $lockfile != consistent ]] || cmp -s pnpm-lock.yaml "$RUNNER_TEMP/lock.before" || lockfile=changed_by_pnpm_install
+          cp "$RUNNER_TEMP/lock.before" pnpm-lock.yaml
+          audit=pass
+          pnpm audit --ignore-registry-errors --audit-level=high > "$RUNNER_TEMP/audit-after.txt" 2>&1 || audit=fail
+          echo "{\"apply\":\"ok\",\"lockfile\":\"$lockfile\",\"audit\":\"$audit\",\"lint\":\"$lint\"}" > "$checks"
+          cat "$checks" "$RUNNER_TEMP/guard.json" "$RUNNER_TEMP/lint.json"
+      - name: Decide the outcome
+        id: decide
+        env:
+          SUMMARY: ${{ needs.check.outputs.summary }}
+          AGENT_OUTCOME: ${{ needs.agent.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node automation/.github/security-fix/publish.mjs decide \
+            --summary "$SUMMARY" --agent-outcome "$AGENT_OUTCOME" --run-url "$RUN_URL" \
+            --result "$RUNNER_TEMP/output/security-fix-result.json" --patch "$RUNNER_TEMP/output/security-fix.patch" \
+            --guard "$RUNNER_TEMP/guard.json" --checks "$RUNNER_TEMP/checks.json" --lint "$RUNNER_TEMP/lint.json" \
+            --body-out "$RUNNER_TEMP/body.md" --commit-out "$RUNNER_TEMP/commit-message.txt"
+      - name: Commit and push the branch
+        id: push
+        if: steps.decide.outputs.action != 'none' && !inputs.dry_run
+        env:
+          BRANCH: ${{ steps.decide.outputs.branch }}
+          GIT_NAME: ${{ vars.SECURITY_FIX_GIT_NAME }}
+          GIT_EMAIL: ${{ vars.SECURITY_FIX_GIT_EMAIL }}
+          GH_TOKEN: ${{ secrets.SECURITY_FIX_FORK_TOKEN }}
+        run: |
+          [[ -n "$GIT_NAME" && -n "$GIT_EMAIL" ]] || { echo "::error::Set SECURITY_FIX_GIT_NAME and SECURITY_FIX_GIT_EMAIL for the DCO sign-off"; exit 1; }
+          cd repo
+          git config user.name "$GIT_NAME"
+          git config user.email "$GIT_EMAIL"
+          git commit --signoff -F "$RUNNER_TEMP/commit-message.txt"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH"
+          echo "url=https://github.com/$GITHUB_REPOSITORY/compare/${BRANCH}?expand=1" >> "$GITHUB_OUTPUT"
+      - name: Open a draft pull request on upstream
+        id: pr
+        if: steps.decide.outputs.action == 'pr' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
+          BRANCH: ${{ steps.decide.outputs.branch }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          TITLE: ${{ steps.decide.outputs.title }}
+          LABELS: ${{ vars.SECURITY_FIX_PR_LABELS }}
+        run: |
+          url=$(gh pr create --repo "$UPSTREAM" --base "$BASE_BRANCH" --head "$GITHUB_REPOSITORY_OWNER:$BRANCH" \
+            --draft --title "$TITLE" --body-file "$RUNNER_TEMP/body.md")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          if [[ -n "$LABELS" ]]; then
+            gh pr edit "$url" --add-label "$LABELS" || echo "::warning::Could not add labels $LABELS"
+          fi
+      - name: Notify Google Chat
+        id: notify
+        if: always() && !inputs.dry_run && steps.decide.outcome == 'success'
+        env:
+          GOOGLE_CHAT_SECURITY_WEBHOOK: ${{ secrets.GOOGLE_CHAT_SECURITY_WEBHOOK }}
+          STATUS: ${{ (steps.push.outcome == 'failure' || steps.pr.outcome == 'failure') && 'failed' || steps.decide.outputs.status }}
+          ADVISORIES: ${{ steps.decide.outputs.advisories }}
+          URL: ${{ steps.pr.outputs.url || steps.push.outputs.url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          DETAIL: ${{ steps.decide.outputs.detail }}
+        run: |
+          node automation/.github/security-fix/publish.mjs notify --status "$STATUS" --advisories "$ADVISORIES" --url "$URL" --detail "$DETAIL"
+          echo "notified=true" >> "$GITHUB_OUTPUT"
+      - name: Write the job summary
+        if: always()
+        env:
+          ACTION: ${{ steps.decide.outputs.action }}
+          STATUS: ${{ steps.decide.outputs.status }}
+          TITLE: ${{ steps.decide.outputs.title }}
+          DETAIL: ${{ steps.decide.outputs.detail }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "## Security fix agent"
+            echo "- Status: \`$STATUS\` (action: \`$ACTION\`, dry run: \`$DRY_RUN\`)"
+            echo "- Title: $TITLE"
+            [[ -z "$DETAIL" ]] || { echo; echo '```'; echo "$DETAIL"; echo '```'; }
+            for file in checks.json guard.json lint.json; do
+              [[ -s "$RUNNER_TEMP/$file" ]] && { echo; echo "### $file"; echo '```json'; cat "$RUNNER_TEMP/$file"; echo '```'; }
+            done
+            [[ -s "$RUNNER_TEMP/audit-after.txt" ]] && { echo; echo "### Audit after the fix"; echo '```'; tail -n 40 "$RUNNER_TEMP/audit-after.txt"; echo '```'; }
+            [[ -s "$RUNNER_TEMP/body.md" ]] && { echo; echo "### Pull request body"; cat "$RUNNER_TEMP/body.md"; }
+            true
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: security-fix-review
+          path: |
+            ${{ runner.temp }}/guard.json
+            ${{ runner.temp }}/checks.json
+            ${{ runner.temp }}/lint.json
+            ${{ runner.temp }}/body.md
+            ${{ runner.temp }}/install.log
+            ${{ runner.temp }}/audit-after.txt
+          retention-days: 14
+          if-no-files-found: ignore
+
+  notify-failure:
+    # Posts to Chat when a run stops before the publish job could report it, for example when the
+    # check job cannot audit the commit or a job is cancelled.
+    needs: [check, agent, publish]
+    if: >-
+      always() && !inputs.dry_run && github.repository != 'thunder-id/thunderid' && vars.SECURITY_FIX_ENABLED == 'true' &&
+      needs.publish.outputs.notified != 'true' &&
+      (contains(fromJSON('["failure","cancelled"]'), needs.check.result) || contains(fromJSON('["failure","cancelled"]'), needs.publish.result))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: automation
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Notify Google Chat
+        env:
+          GOOGLE_CHAT_SECURITY_WEBHOOK: ${{ secrets.GOOGLE_CHAT_SECURITY_WEBHOOK }}
+          ADVISORIES: ${{ inputs.advisories }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DETAIL: "The run stopped before it finished. Check job: ${{ needs.check.result }}, agent job: ${{ needs.agent.result }}, publish job: ${{ needs.publish.result }}."
+        run: node automation/.github/security-fix/publish.mjs notify --status failed --advisories "$ADVISORIES" --url "$RUN_URL" --detail "$DETAIL"

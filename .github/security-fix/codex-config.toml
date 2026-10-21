@@ -1,0 +1,17 @@
+# Trusted Codex configuration for the security fix agent. The workflow copies it from this
+# repository into codex-home; it never comes from the upstream checkout that Codex edits.
+
+[features]
+network_proxy = true
+
+[permissions.security-fix]
+description = "Edit the upstream checkout. Network access only to the npm registry and GitHub's advisory API."
+extends = ":workspace"
+
+[permissions.security-fix.network]
+enabled = true
+
+[permissions.security-fix.network.domains]
+"registry.npmjs.org" = "allow"
+# Read-only advisory lookups (api.github.com/advisories/<GHSA>). Codex has no GitHub token.
+"api.github.com" = "allow"
