@@ -4,12 +4,12 @@ Fork-only automation that prepares fixes for high and critical npm advisories on
 
 The Apps Script security monitor detects a new advisory on upstream main and starts `.github/workflows/security-fix-agent.yml` with the GHSA IDs. The workflow has three jobs:
 
-1. **check** audits the upstream commit with the command upstream CI runs and drops advisories that are no longer reported or that an open upstream pull request already mentions.
+1. **check** audits the upstream commit with the command upstream CI runs and drops advisories that are no longer reported or that an open upstream pull request already fixes: one that names the advisory in its title or description and changes dependency files.
 2. **agent** runs Codex on Azure OpenAI through `openai/codex-action`. It follows the repository's `fix-npm-vulnerability` skill under the rules in `prompt.md`. The job has read-only repository access, and Codex may reach only `registry.npmjs.org` and GitHub's public advisory API (`codex-config.toml`). Before finishing, the agent runs `lint-overrides.mjs` and fixes what it reports. The job saves the change as a patch.
 3. **publish** has no model key. It applies the patch to a clean checkout and re-checks it:
    - `guard.mjs` allows only `package.json`, `pnpm-workspace.yaml` and `pnpm-lock.yaml`, and only same-major raises of existing versions count as automatic.
    - `pnpm install --lockfile-only` must leave the lockfile unchanged.
-   - `pnpm audit --ignore-registry-errors --audit-level=high` must pass.
+   - `pnpm audit --ignore-registry-errors --audit-level=high` must no longer report the targeted advisories and must not report new ones. Advisories that were already reported and are handled elsewhere may remain; the PR description lists them.
    - `lint-overrides.mjs` must report no problems. It applies the conventions upstream review enforced on #5942: every touched override is range-qualified or parent-scoped, its justification names the advisory, an `Added` date and a `Remove once` condition, every cited GHSA ID lists that package, and no unchanged comment still names a replaced version.
 
    An automatic fix becomes a signed-off commit on a `security-fix/` branch of the fork and a **draft** pull request on upstream. New overrides, major bumps, audit ignores and release-age exceptions are pushed as a branch for a maintainer instead. Every outcome is posted to Google Chat.

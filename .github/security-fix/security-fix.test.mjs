@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { classify, floor } from "./guard.mjs";
 import { lintWorkspace, overrideTarget } from "./lint-overrides.mjs";
-import { cleanTitle, decide, parseAdvisories, renderBody, reportedAdvisories } from "./publish.mjs";
+import { auditCheck, changesDependencies, cleanTitle, decide, parseAdvisories, renderBody, reportedAdvisories } from "./publish.mjs";
 
 const pkg = (deps, extra = {}) => JSON.stringify({ name: "x", ...extra, dependencies: deps }, null, 2);
 const reader = (files) => (path, side) => files[path]?.[side] ?? null;
@@ -204,4 +204,51 @@ test("a failing conventions check turns a clean fix into a review branch", () =>
   });
   assert.equal(decision.action, "branch");
   assert.deepEqual(decision.reasons, ['overrides "a" pins every version of a.']);
+});
+
+const auditOf = (...ids) => ({ advisories: Object.fromEntries(ids.map((id, i) => [i, { github_advisory_id: id, severity: "high" }])) });
+const HB1 = "GHSA-8r5x-fm3f-whwj", HB2 = "GHSA-p8wg-vrv2-v86f", VITE = "GHSA-587h-7wmj-h5pm", NEW = "GHSA-aaaa-bbbb-cccc";
+
+test("the audit passes when the targets are gone, even if advisories handled elsewhere remain", () => {
+  const result = auditCheck(auditOf(HB1, HB2, VITE), auditOf(VITE), [HB1, HB2]);
+  assert.equal(result.pass, true);
+  assert.deepEqual([...result.fixed], [HB1, HB2]);
+  assert.deepEqual([...result.unrelated], [VITE]);
+});
+
+test("the audit fails when a target remains or the change adds an advisory", () => {
+  const remaining = auditCheck(auditOf(HB1, HB2), auditOf(HB2), [HB1, HB2]);
+  assert.equal(remaining.pass, false);
+  assert.deepEqual([...remaining.remaining], [HB2]);
+  const added = auditCheck(auditOf(HB1), auditOf(NEW), [HB1]);
+  assert.equal(added.pass, false);
+  assert.deepEqual([...added.introduced], [NEW]);
+  const reasons = decide({
+    summary: { requested: [HB1], targets: [HB1], missing: [], existing: [] },
+    agentOutcome: "success",
+    result: fixed,
+    guard: { verdict: "auto", changes: ["raise"], reasons: [] },
+    checks: { ...passing, audit: "fail" },
+    patchSize: 10,
+    lint: { problems: [] },
+    audit: added,
+  }).reasons;
+  assert.deepEqual(reasons, [`The change adds ${NEW}.`]);
+});
+
+test("only PRs that change dependency files count as existing fixes", () => {
+  assert.equal(changesDependencies(["tools/k8s-operator/main.go", "docs/content/deployment/operator.mdx"]), false);
+  assert.equal(changesDependencies(["pnpm-workspace.yaml", "pnpm-lock.yaml"]), true);
+  assert.equal(changesDependencies(["frontend/packages/create/package.json"]), true);
+});
+
+test("the PR body names the fixed advisories and those handled elsewhere", () => {
+  const body = renderBody({
+    result: fixed,
+    guard: { changes: ["raises handlebars"], reasons: [] },
+    runUrl: "https://run",
+    audit: { fixed: [HB1, HB2], unrelated: [VITE], remaining: [], introduced: [] },
+  });
+  assert.match(body, new RegExp(`no longer reports ${HB1}, ${HB2}, and the change adds no new`));
+  assert.match(body, new RegExp(`${VITE} is still reported on the base commit and handled separately`));
 });

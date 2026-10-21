@@ -36,14 +36,14 @@ Upstream review enforces these on every override a change touches, including one
 ## Verify before you finish
 
 - After your edits, `pnpm install --lockfile-only` must leave `pnpm-lock.yaml` unchanged.
-- `pnpm audit --ignore-registry-errors --audit-level=high` must exit 0. This is the command upstream CI runs. It may still fail only when `status` is `needs_review` or `waiting_for_release`.
+- `pnpm audit --json --ignore-registry-errors --audit-level=high`, the command upstream CI runs, must no longer report the advisories you were asked to fix and must not report any advisory that `{{CONTEXT_DIR}}/audit.json` does not already list. Other advisories already in that file are handled elsewhere; leave them alone. This may fail only when `status` is `needs_review` or `waiting_for_release`.
 - `node {{TOOLS_DIR}}/lint-overrides.mjs --repo . --base {{BASE_SHA}}` reports no problems.
 
 ## Final answer
 
 Return JSON that matches the provided schema.
 
-- `status`: `fixed` when the audit passes with only rule 1 to 4 changes; otherwise the matching status.
+- `status`: `fixed` when the advisories you were asked to fix are gone with only rule 1 to 4 changes; otherwise the matching status.
 - `advisories`: one entry per advisory with the package, the strategy you used, and the version before and after.
 - `title`: a short imperative sentence under 72 characters with no prefix such as `fix:`. Examples from this repository: "Raise handlebars to 4.7.10 for two critical advisories", "Bump next to 16.3.8 to fix GHSA-cjq9-62q9-8jv4".
 - `purpose`: Markdown. Say which advisories make `pnpm audit --audit-level=high` fail, with a table of package, advisory link (`https://github.com/advisories/<GHSA>`) and fixed version.
