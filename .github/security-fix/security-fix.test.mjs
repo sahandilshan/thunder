@@ -252,3 +252,11 @@ test("the PR body names the fixed advisories and those handled elsewhere", () =>
   assert.match(body, new RegExp(`no longer reports ${HB1}, ${HB2}, and the change adds no new`));
   assert.match(body, new RegExp(`${VITE} is still reported on the base commit and handled separately`));
 });
+
+test("the PR body mentions overrides only when the fix touched one", () => {
+  const plain = renderBody({ result: fixed, guard: { changes: ["raises a"], reasons: [] }, runUrl: "u", lint: { touched: [], problems: [] } });
+  assert.ok(!plain.includes("Every touched override"));
+  assert.ok(plain.includes("still names a replaced version"));
+  const overrides = renderBody({ result: fixed, guard: { changes: ["raises a"], reasons: [] }, runUrl: "u", lint: { touched: ["a@<1.2.3"], problems: [] } });
+  assert.ok(overrides.includes("Every touched override is range-qualified or parent-scoped"));
+});

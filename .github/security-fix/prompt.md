@@ -46,9 +46,11 @@ Return JSON that matches the provided schema.
 - `status`: `fixed` when the advisories you were asked to fix are gone with only rule 1 to 4 changes; otherwise the matching status.
 - `advisories`: one entry per advisory with the package, the strategy you used, and the version before and after.
 - `title`: a short imperative sentence under 72 characters with no prefix such as `fix:`. Examples from this repository: "Raise handlebars to 4.7.10 for two critical advisories", "Bump next to 16.3.8 to fix GHSA-cjq9-62q9-8jv4".
+The `purpose`, `approach`, `validation` and `notes` fields become the pull request description, read by upstream maintainers who have not seen these instructions. Write them like recent security PRs in this repository (for example #5711, #5694 and #5942):
+
 - `purpose`: Markdown. Say which advisories make `pnpm audit --audit-level=high` fail, with a table of package, advisory link (`https://github.com/advisories/<GHSA>`) and fixed version.
-- `approach`: Markdown. Say what changed and why, including why a lighter fix was not possible and any lockfile drift you kept.
-- `validation`: Markdown list of the commands you ran and their results.
-- `notes`: anything a reviewer must know, or an empty string.
+- `approach`: Markdown. Say what changed and why in plain terms, including why a lighter fix was not possible and any lockfile drift you kept. Never refer to these instructions, their rule numbers or this workflow.
+- `validation`: Markdown list of the checks a reviewer can re-run from the repository root, such as `pnpm why <package>`, `pnpm install --frozen-lockfile` and `pnpm audit --ignore-registry-errors --audit-level=high`, with their results. Do not list paths outside the repository, environment variable tricks or tools from this workflow.
+- `notes`: only what a reviewer must know about the change itself, such as kept lockfile drift or a compatibility risk; otherwise an empty string. Do not describe how you worked (scripts, `node_modules`, commits) and do not mention advisories outside this fix, because the description already lists them.
 
 Write "ThunderID", never "Thunder" alone. Do not use em dashes.

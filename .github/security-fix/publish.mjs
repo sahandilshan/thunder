@@ -60,7 +60,7 @@ export function cleanTitle(title, ids) {
   return ids.length === 1 ? `Fix the ${ids[0]} audit advisory` : `Fix ${ids.length} pnpm audit advisories`;
 }
 
-export function renderBody({ result, guard, runUrl, audit }) {
+export function renderBody({ result, guard, runUrl, audit, lint }) {
   const changes = guard.changes.length ? guard.changes.map((change) => `  - ${change}`).join("\n") : "  - None";
   const unrelated = audit?.unrelated?.length
     ? `\n\n${audit.unrelated.join(", ")} ${audit.unrelated.length === 1 ? "is" : "are"} still reported on the base commit and handled separately, so the PR Builder audit keeps failing until ${audit.unrelated.length === 1 ? "it is" : "they are"} fixed.`
@@ -77,7 +77,7 @@ ${result.validation.trim()}
 Checked again in a separate job that has no access to the AI model:
 - \`pnpm audit --ignore-registry-errors --audit-level=high\` no longer reports ${audit?.fixed?.join(", ") || "the targeted advisories"}, and the change adds no new high or critical advisory.
 - \`pnpm install --lockfile-only\` leaves \`pnpm-lock.yaml\` unchanged.
-- Every touched override is range-qualified or parent-scoped, has a complete justification with verified advisory IDs, and no comment still names a replaced version.
+${lint?.touched?.length ? "- Every touched override is range-qualified or parent-scoped and has a complete justification with verified advisory IDs.\n" : ""}- No comment in \`pnpm-workspace.yaml\` still names a replaced version.
 - Only dependency files changed, and every change raises an existing version within its major version:
 ${changes}${unrelated}
 ${result.notes.trim() ? `\n### Notes for reviewers\n${result.notes.trim()}\n` : ""}
@@ -268,7 +268,7 @@ async function main() {
     const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 13).replace("T", "-");
     const branch = `security-fix/${ids[0].toLowerCase()}-${stamp}`;
     if (result && decision.action !== "none") {
-      writeFileSync(opts["body-out"], renderBody({ result, guard, runUrl: opts["run-url"], audit }));
+      writeFileSync(opts["body-out"], renderBody({ result, guard, runUrl: opts["run-url"], audit, lint }));
     }
     writeFileSync(opts["commit-out"], `${title}\n\nFix the pnpm audit advisories ${ids.join(", ")}.\n`);
     const existing = summary.existing.flatMap((entry) => entry.urls);
