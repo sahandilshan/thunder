@@ -321,7 +321,7 @@ test("token usage comes from the last token_count event of the Codex session", (
   const event = (total, output) =>
     JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: total - output, cached_input_tokens: 10, output_tokens: output, total_tokens: total } } } });
   const log = [JSON.stringify({ type: "session_meta" }), event(1000, 100), event(81196, 2210), '{"type":"event_msg","payload":{"type":"token_cou'].join("\n");
-  assert.deepEqual(tokenUsage(log), { total: 81196, input: 78986, cachedInput: 10, output: 2210 });
+  assert.deepEqual(tokenUsage(log), { total: 81196, uncached: 81186, input: 78986, cachedInput: 10, output: 2210 });
   assert.equal(tokenUsage('{"type":"session_meta"}'), null);
 });
 
@@ -332,10 +332,13 @@ test("the Chat detail lists a shared open PR once and adds the agent's usage", (
       { id: HB1, urls: ["https://github.com/thunder-id/thunderid/pull/6004"] },
       { id: HB2, urls: ["https://github.com/thunder-id/thunderid/pull/6004"] },
     ],
-    tokens: { total: 81196, input: 1, cachedInput: 0, output: 2210 },
-    seconds: 218,
+    tokens: { total: 524241, uncached: 59776, input: 520962, cachedInput: 464465, output: 3279 },
+    seconds: 124,
   });
-  assert.equal(detail, "reason\nOpen PR: https://github.com/thunder-id/thunderid/pull/6004\nAgent: 81,196 tokens (2,210 output) in 3.6 minutes.");
+  assert.equal(
+    detail,
+    "reason\nOpen PR: https://github.com/thunder-id/thunderid/pull/6004\nAgent: 59,776 tokens plus 464,465 cached input tokens, 2.1 minutes.",
+  );
   assert.equal(detailLines({ reasons: [], existing: [], tokens: null, seconds: 0 }), "");
 });
 
@@ -368,7 +371,7 @@ test("the cooldown ends at 20 hours and the daily limit counts the last 24 hours
 
 test("token counts are always numbers", () => {
   const line = JSON.stringify({ payload: { type: "token_count", info: { total_token_usage: { total_tokens: "=1+1", output_tokens: "12", input_tokens: -5 } } } });
-  assert.deepEqual(tokenUsage(line), { total: 0, input: 0, cachedInput: 0, output: 12 });
+  assert.deepEqual(tokenUsage(line), { total: 0, uncached: 0, input: 0, cachedInput: 0, output: 12 });
 });
 
 const here = fileURLToPath(new URL(".", import.meta.url));

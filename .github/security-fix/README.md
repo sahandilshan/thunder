@@ -64,7 +64,7 @@ Each layer stops repeated runs on its own, so one fault cannot loop the agent:
 
 These limit how often the agent runs, not what Azure charges. For a hard spending ceiling, set a tokens-per-minute quota on the Azure OpenAI deployment and a budget alert on its resource.
 
-Every run that reaches the publish job uploads `security-fix-summary` (kept 30 days): status, advisories, pull request or branch link, and the agent's token usage, read from the Codex session log. The agent's Chat message ends with the token count. The monitor adds a row per finished run to the sheet's **Fix runs** tab, including runs without a summary.
+Every run that reaches the publish job uploads `security-fix-summary` (kept 30 days): status, advisories, pull request or branch link, and the agent's token usage, read from the Codex session log. The agent's Chat message ends with the token count. Like Codex's own "tokens used", it leaves out cached input, which is billed at a lower rate and reported separately. The monitor adds a row per finished run to the sheet's **Fix runs** tab, including runs without a summary.
 
 ## Testing
 

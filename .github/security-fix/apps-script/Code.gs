@@ -42,6 +42,8 @@ const FIX_RETRY_MS = DAY;
 // Automatic fix agent starts per advisory while upstream main keeps reporting it, a day apart.
 const FIX_MAX_ATTEMPTS = 3;
 const FIX_RUNS_SHEET = 'Fix runs';
+// Tokens is what Codex reports as "tokens used": everything except cached input, which costs less.
+const FIX_RUNS_COLUMNS = ['Started (UTC)', 'Mode', 'Advisories', 'Outcome', 'PR or branch', 'Tokens', 'Cached input tokens', 'Output tokens', 'Agent minutes', 'Run'];
 const FIX_SUMMARY_ARTIFACT = 'security-fix-summary';
 // Run outcomes the workflow uses to stop repeated runs; reported here at most once a day.
 const FIX_LIMIT_STATUSES = ['cooldown', 'daily_limit'];
@@ -259,14 +261,19 @@ function recordFixRuns_(report, previous, token, fixes, started) {
       if (summary && FIX_LIMIT_STATUSES.indexOf(summary.status) >= 0) limited++;
       if (summary) refundSkipped_(fixes, summary);
       const seconds = summary && Number(summary.agentSeconds);
-      const tokens = summary && summary.tokens ? Number(summary.tokens.total) : NaN;
+      const usage = (summary && summary.tokens) || {};
+      // Older summaries have no "uncached" field; it is the total without cached input, as Codex reports it.
+      const tokens = 'uncached' in usage ? Number(usage.uncached) : Number(usage.total) - Number(usage.cachedInput);
+      const cell = (value) => (value >= 0 ? value : '');
       rows.push([
         run.run_started_at || run.created_at,
         (summary ? summary.dryRun : /\(dry run\)/.test(run.display_title)) ? 'dry run' : 'live',
         summary ? summary.requested.join(', ') : (run.display_title.match(/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/gi) || []).join(', '),
         summary ? summary.status : `${run.conclusion} (${unreadable ? 'summary unreadable' : 'no summary'})`,
         (summary && summary.url) || '',
-        tokens >= 0 ? tokens : '',
+        cell(tokens),
+        cell(Number(usage.cachedInput)),
+        cell(Number(usage.output)),
         seconds > 0 ? Math.round(seconds / 6) / 10 : '',
         run.html_url,
       ]);
@@ -314,16 +321,17 @@ function appendFixRuns_(rows) {
   if (!sheet) {
     sheet = spreadsheet.insertSheet(FIX_RUNS_SHEET, 1);
     sheet
-      .getRange(1, 1, 1, 8)
-      .setValues([['Started (UTC)', 'Mode', 'Advisories', 'Outcome', 'PR or branch', 'Tokens', 'Agent minutes', 'Run']])
+      .getRange(1, 1, 1, FIX_RUNS_COLUMNS.length)
+      .setValues([FIX_RUNS_COLUMNS])
       .setFontWeight('bold');
     sheet.setFrozenRows(1);
   }
   // The run link is the key: a run already in the tab is never added twice.
   const last = sheet.getLastRow();
-  const present = last > 1 ? sheet.getRange(2, 8, last - 1, 1).getValues().map((row) => row[0]) : [];
-  const fresh = rows.filter((row) => present.indexOf(row[7]) < 0);
-  if (fresh.length) sheet.getRange(last + 1, 1, fresh.length, 8).setValues(fresh);
+  const width = FIX_RUNS_COLUMNS.length;
+  const present = last > 1 ? sheet.getRange(2, width, last - 1, 1).getValues().map((row) => row[0]) : [];
+  const fresh = rows.filter((row) => present.indexOf(row[width - 1]) < 0);
+  if (fresh.length) sheet.getRange(last + 1, 1, fresh.length, width).setValues(fresh);
 }
 
 /** Starts the fix agent workflow on the fork's main and returns the HTTP status; GitHub answers 204 on success. */

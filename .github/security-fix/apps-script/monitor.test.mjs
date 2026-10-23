@@ -172,7 +172,7 @@ const summary202 = {
   action: "pr",
   title: "Raise b",
   url: "",
-  tokens: { total: 81196, input: 78986, cachedInput: 0, output: 2210 },
+  tokens: { total: 524241, uncached: 59776, input: 520962, cachedInput: 464465, output: 3279 },
   agentSeconds: 218,
   reasons: [],
 };
@@ -185,9 +185,9 @@ test("finished fix runs are recorded once each, oldest first, from their summary
   assert.equal(out.count, 2);
   assert.deepEqual(plain(out.recorded), [201, 202]);
   const rows = plain(sheets["Fix runs"].rows);
-  assert.deepEqual(rows[0], ["Started (UTC)", "Mode", "Advisories", "Outcome", "PR or branch", "Tokens", "Agent minutes", "Run"]);
-  assert.deepEqual(rows[1], [hoursAgo(2), "live", A, "failure (no summary)", "", "", "", "https://run/201"]);
-  assert.deepEqual(rows[2], [hoursAgo(1), "dry run", B, "pr_open", "", 81196, 3.6, "https://run/202"]);
+  assert.deepEqual(rows[0], ["Started (UTC)", "Mode", "Advisories", "Outcome", "PR or branch", "Tokens", "Cached input tokens", "Output tokens", "Agent minutes", "Run"]);
+  assert.deepEqual(rows[1], [hoursAgo(2), "live", A, "failure (no summary)", "", "", "", "", "", "https://run/201"]);
+  assert.deepEqual(rows[2], [hoursAgo(1), "dry run", B, "pr_open", "", 59776, 464465, 3279, 3.6, "https://run/202"]);
   const again = ctx.recordFixRuns_(report([]), { fixRunsRecorded: [201, 202] }, "fix-token", {}, Date.now());
   assert.equal(again.count, 0);
   assert.equal(sheets["Fix runs"].rows.length, 3);

@@ -88,18 +88,17 @@ export function tokenUsage(jsonl) {
   if (!usage) return null;
   // Numbers only: these values reach Chat and a spreadsheet cell.
   const count = (value) => Math.max(0, Math.trunc(Number(value) || 0));
-  return {
-    total: count(usage.total_tokens),
-    input: count(usage.input_tokens),
-    cachedInput: count(usage.cached_input_tokens),
-    output: count(usage.output_tokens),
-  };
+  const total = count(usage.total_tokens);
+  const cachedInput = count(usage.cached_input_tokens);
+  // Codex reports "tokens used" without cached input, which is billed at a lower rate.
+  return { total, uncached: Math.max(0, total - cachedInput), input: count(usage.input_tokens), cachedInput, output: count(usage.output_tokens) };
 }
 
 function usageLine(tokens, seconds) {
   if (!tokens?.total) return "";
-  const minutes = seconds ? ` in ${(seconds / 60).toFixed(1)} minutes` : "";
-  return `Agent: ${tokens.total.toLocaleString("en-US")} tokens (${tokens.output.toLocaleString("en-US")} output)${minutes}.`;
+  const minutes = seconds ? `, ${(seconds / 60).toFixed(1)} minutes` : "";
+  const cached = tokens.cachedInput ? ` plus ${tokens.cachedInput.toLocaleString("en-US")} cached input tokens` : "";
+  return `Agent: ${(tokens.uncached ?? tokens.total).toLocaleString("en-US")} tokens${cached}${minutes}.`;
 }
 
 /** The Chat detail: reasons, each open PR once (several advisories can share one), and the agent's usage. */
