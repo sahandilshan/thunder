@@ -244,6 +244,8 @@ function recordFixRuns_(report, previous, token, fixes, started) {
   const result = { recorded: null, limitAlertAt: previous.fixLimitAlertAt || null, messages: [], count: 0 };
   if (!token) return result;
   try {
+    // The first recording adds earlier runs too; those are history, not a sign of a loop.
+    const backfill = !previous.fixRunsRecorded;
     const known = (previous.fixRunsRecorded || []).slice();
     const runs = github_(`repos/${FIX_REPO}/actions/workflows/${FIX_WORKFLOW}/runs?status=completed&per_page=30`, { token }).workflow_runs;
     const rows = [];
@@ -282,7 +284,7 @@ function recordFixRuns_(report, previous, token, fixes, started) {
     if (rows.length) appendFixRuns_(rows);
     result.recorded = known.slice(-300);
     result.count = rows.length;
-    if (limited && (!result.limitAlertAt || Date.parse(report.scannedAt) - Date.parse(result.limitAlertAt) >= DAY)) {
+    if (limited && !backfill && (!result.limitAlertAt || Date.parse(report.scannedAt) - Date.parse(result.limitAlertAt) >= DAY)) {
       result.messages.push(
         `Security fix agent skipped ${limited} run(s) because of its limits (20-hour cooldown or daily run limit). ` +
           `Something may be starting it more than once a day: https://github.com/${FIX_REPO}/actions/workflows/${FIX_WORKFLOW}`,

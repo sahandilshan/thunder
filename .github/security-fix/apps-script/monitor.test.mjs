@@ -196,12 +196,15 @@ test("finished fix runs are recorded once each, oldest first, from their summary
 test("runs skipped by the workflow's limits produce at most one message a day", () => {
   const limited = { ...summary202, status: "cooldown", tokens: null, agentSeconds: null };
   const { ctx } = load(fixRunsRoute({ 202: limited }));
-  const first = ctx.recordFixRuns_(report([]), {}, "fix-token", {}, Date.now());
+  const backfill = ctx.recordFixRuns_(report([]), {}, "fix-token", {}, Date.now());
+  assert.equal(backfill.messages.length, 0, "runs found on the first recording are history, not a loop");
+  const { ctx: later } = load(fixRunsRoute({ 202: limited }));
+  const first = later.recordFixRuns_(report([]), { fixRunsRecorded: [201] }, "fix-token", {}, Date.now());
   assert.equal(first.messages.length, 1);
   assert.match(first.messages[0], /^Security fix agent skipped 1 run\(s\) because of its limits/);
   assert.equal(first.limitAlertAt, NOW);
   const { ctx: next } = load(fixRunsRoute({ 202: limited }));
-  const quiet = next.recordFixRuns_(report([]), { fixLimitAlertAt: hoursAgo(3) }, "fix-token", {}, Date.now());
+  const quiet = next.recordFixRuns_(report([]), { fixRunsRecorded: [201], fixLimitAlertAt: hoursAgo(3) }, "fix-token", {}, Date.now());
   assert.equal(quiet.messages.length, 0);
 });
 
@@ -240,7 +243,7 @@ test("one alert per advisory across packages, then a reminder after 12 hours", (
 test("the limit message comes back after 24 hours", () => {
   const limited = { ...summary202, status: "daily_limit", tokens: null, agentSeconds: null };
   const { ctx } = load(fixRunsRoute({ 202: limited }));
-  const out = ctx.recordFixRuns_(report([]), { fixLimitAlertAt: hoursAgo(25) }, "fix-token", {}, Date.now());
+  const out = ctx.recordFixRuns_(report([]), { fixRunsRecorded: [201], fixLimitAlertAt: hoursAgo(25) }, "fix-token", {}, Date.now());
   assert.equal(out.messages.length, 1);
 });
 
