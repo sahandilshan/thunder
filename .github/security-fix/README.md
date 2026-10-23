@@ -12,7 +12,7 @@ The Apps Script security monitor detects a new advisory on upstream main and sta
    - `pnpm audit --ignore-registry-errors --audit-level=high` must no longer report the targeted advisories and must not report new ones. Advisories that were already reported and are handled elsewhere may remain; the PR description lists them.
    - `lint-overrides.mjs` must report no problems. It applies the conventions upstream review enforced on #5942: every touched override is range-qualified or parent-scoped, its justification names the advisory, an `Added` date and a `Remove once` condition, every cited GHSA ID lists that package, and no unchanged comment still names a replaced version.
 
-   An automatic fix becomes a signed-off commit on a `security-fix/` branch of the fork and a **draft** pull request on upstream. New overrides, major bumps, audit ignores and release-age exceptions are pushed as a branch for a maintainer instead. Every outcome is posted to Google Chat, except runs held back by the run limits, which the Apps Script monitor reports at most once a day.
+   An automatic fix becomes a signed-off commit on a `security-fix/` branch of the fork and a **draft** pull request on upstream. New overrides, major bumps, audit ignores and release-age exceptions are pushed as a branch for a maintainer instead. Every outcome is posted to Google Chat, except runs held back by the [run limits](#run-limits-and-usage), which are reported as described there.
 
 ## Setup
 
@@ -24,7 +24,7 @@ Secrets:
 |---|---|---|
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI key | All runs |
 | `AZURE_OPENAI_RESPONSES_ENDPOINT` | `https://<resource>.openai.azure.com/openai/v1/responses`. A secret so the resource name is masked in public run logs. | All runs |
-| `GOOGLE_CHAT_SECURITY_WEBHOOK` | Chat incoming webhook URL (already set for the monitor) | Live runs |
+| `GOOGLE_CHAT_SECURITY_WEBHOOK` | Chat incoming webhook URL (already set for the monitor) | All runs. Dry runs post only the daily token budget message. |
 | `SECURITY_FIX_FORK_TOKEN` | The fork token (see below). Pushes fix branches, which carry upstream commits that change workflow files and so cannot be pushed with the default `GITHUB_TOKEN`. | Live runs |
 | `UPSTREAM_PR_TOKEN` | The PR token (see below). Opens draft pull requests on `thunder-id/thunderid`. Stored only here. | Live runs |
 
@@ -38,6 +38,9 @@ Variables:
 | `SECURITY_FIX_GIT_NAME`, `SECURITY_FIX_GIT_EMAIL` | The identity used for the commit and its DCO sign-off | Live runs |
 | `SECURITY_FIX_PR_LABELS` | `trigger-pr-builder,skip-changelog` | Optional |
 | `SECURITY_FIX_DAILY_LIMIT` | `6` (default): agent runs allowed in 24 hours | Optional |
+| `SECURITY_FIX_DAILY_TOKEN_BUDGET` | `1000000` (default): agent tokens allowed in 24 hours | Optional |
+
+The two limits take a positive whole number; `1,000,000` and `1_000_000` also work. Any other value fails the run, and live runs post the failure to Google Chat.
 
 In the Apps Script project, add the script properties `FIX_DISPATCH_TOKEN` (the same fork token) and `FIX_MODE`. Move `FIX_MODE` from `off` to `dry-run`, then to `live`.
 
@@ -58,17 +61,21 @@ When a token expires, starting the workflow, pushing or opening the pull request
 
 Each layer stops repeated runs on its own, so one fault cannot loop the agent:
 
-- **Apps Script monitor:** starts the workflow for an advisory at most 3 times, a day apart, counted separately for dry-run and live mode. A start the workflow skipped without running the agent (open pull request, cooldown, daily limit, no longer reported) does not count. After the last attempt it posts one message and stops until upstream main no longer reports the advisory.
-- **check job:** holds back an advisory that a run of the same mode requested within the last 20 hours when its agent ran, and stops all advisories once the agent ran `SECURITY_FIX_DAILY_LIMIT` times in 24 hours. These skips are not posted to Chat; the monitor reports them at most once a day. The `force` input skips both limits for manual tests.
+- **Apps Script monitor:** starts the workflow for an advisory at most 3 times, a day apart, counted separately for dry-run and live mode. A start the workflow skipped without running the agent (open pull request, cooldown, daily limit, token budget, no longer reported) does not count. After the last attempt it posts one message and stops until upstream main no longer reports the advisory.
+- **check job:** holds back an advisory that a run of the same mode requested within the last 20 hours when its agent ran. It stops all advisories once the agent ran `SECURITY_FIX_DAILY_LIMIT` times in 24 hours. It stops the advisories that are not in that cooldown once the agent's tokens in those 24 hours reach `SECURITY_FIX_DAILY_TOKEN_BUDGET`. The cooldown comes first so that a run started again and again still shows up as a cooldown skip. These skips are not posted to Chat as run outcomes. The monitor reports cooldown and daily-limit skips at most once a day, because they mean something starts the agent too often; the token budget has its own message. The `force` input skips all three limits for manual tests.
+- **daily token budget:** counted like Codex's "tokens used", without cached input, from the summaries of the runs in the last 24 hours. Real fixes used 60,000 to 81,000, so the default of 1,000,000 allows six runs of twice the largest. A run that started Codex but recorded no usage, for example because it hit the time limit, counts as 450,000: 15 minutes at about 30,000 tokens a minute, the highest rate measured. A run where Codex never started counts as 0.
+  - The run that uses up the budget posts one message to Chat, including dry runs, saying when the agent can start again. Its summary records that, and runs the budget holds back stay quiet. If that message is missing, for example because Chat was unreachable, the first run held back posts it. If a run posts the message but its summary cannot be uploaded, a later run posts it again.
+  - The check happens before the agent starts, so the last run can go past the budget. Without forced runs or re-runs, the worst case is the budget plus one run: about 1,450,000 tokens in 24 hours with the defaults.
+  - Runs are placed in the 24 hours by the start of their latest attempt. A run re-run by hand counts once, with the usage its summary recorded, so tokens spent by its earlier attempts are not counted.
 - **agent job:** stops after 15 minutes. A fix usually takes about 4.
 
-These limit how often the agent runs, not what Azure charges. For a hard spending ceiling, set a tokens-per-minute quota on the Azure OpenAI deployment and a budget alert on its resource.
+These limits are enforced by this workflow, not by Azure. For a hard spending ceiling, set a tokens-per-minute quota on the Azure OpenAI deployment and a budget alert on its resource.
 
 Every run that reaches the publish job uploads `security-fix-summary` (kept 30 days): status, advisories, pull request or branch link, and the agent's token usage, read from the Codex session log. The agent's Chat message ends with the token count. Like Codex's own "tokens used", it leaves out cached input, which is billed at a lower rate and reported separately. The monitor adds a row per finished run to the sheet's **Fix runs** tab, including runs without a summary.
 
 ## Testing
 
-Run the workflow by hand against an upstream commit that still had an advisory, with `dry_run` checked. A dry run runs the agent and every check, then shows the outcome and the pull request body in the job summary. It does not push, open a pull request or post to Chat.
+Run the workflow by hand against an upstream commit that still had an advisory, with `dry_run` checked. A dry run runs the agent and every check, then shows the outcome and the pull request body in the job summary. It does not push, open a pull request or post its outcome to Chat. It does post the daily token budget message if it uses up the budget.
 
 ```sh
 gh workflow run security-fix-agent.yml -R sahandilshan/thunder \

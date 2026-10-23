@@ -206,6 +206,10 @@ test("runs skipped by the workflow's limits produce at most one message a day", 
   const { ctx: next } = load(fixRunsRoute({ 202: limited }));
   const quiet = next.recordFixRuns_(report([]), { fixRunsRecorded: [201], fixLimitAlertAt: hoursAgo(3) }, "fix-token", {}, Date.now());
   assert.equal(quiet.messages.length, 0);
+  const budget = { ...limited, status: "token_budget" };
+  const { ctx: overBudget } = load(fixRunsRoute({ 202: budget }));
+  const budgetSkip = overBudget.recordFixRuns_(report([]), { fixRunsRecorded: [201] }, "fix-token", {}, Date.now());
+  assert.equal(budgetSkip.messages.length, 0, "the workflow posts its own message when the token budget is used up");
 });
 
 test("a GitHub failure while recording is reported as a scan error and records nothing", () => {
@@ -261,6 +265,11 @@ test("an advisory a run skipped without the agent gets its attempt back, in that
   const { ctx: again } = load(fixRunsRoute({ 202: skipped }));
   again.recordFixRuns_(report([]), {}, "fix-token", other, Date.now());
   assert.equal(other[A].attempts, 3, "a live run does not refund a dry-run attempt");
+  const budgetSkip = { ...summary202, dryRun: false, requested: [A], targets: [], status: "token_budget", tokens: null };
+  const held = { [A]: { lastStartedAt: hoursAgo(2), attempts: 1, mode: "live" } };
+  const { ctx: overBudget } = load(fixRunsRoute({ 202: budgetSkip }));
+  overBudget.recordFixRuns_(report([]), {}, "fix-token", held, Date.now());
+  assert.equal(held[A].attempts, 0, "a run held back by the token budget does not use up an attempt");
 });
 
 test("an unreadable summary still gets a row, and a run already in the tab is not added again", () => {

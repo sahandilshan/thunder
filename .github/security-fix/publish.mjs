@@ -4,10 +4,12 @@
 //   prompt   renders the agent prompt
 //   usage    reads the agent's token usage from its Codex session log
 //   decide   combines the agent result, guard verdict and checks into the next action
+//   budget   says whether this run reports that the daily token budget is used up
 //   summary  writes the run summary that the Apps Script monitor records in its sheet
 //   notify   posts the outcome to Google Chat
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -18,8 +20,17 @@ const HOUR = 60 * 60 * 1000;
 // An advisory requested by a run in which the agent ran is not retried within this time, in the same mode.
 const COOLDOWN_MS = 20 * HOUR;
 const LIMIT_WINDOW_MS = 24 * HOUR;
-// Outcomes that exist to stop repeated runs; the Apps Script monitor reports them once a day instead.
-const SILENT_STATUSES = ["cooldown", "daily_limit"];
+// Agent runs allowed in 24 hours. SECURITY_FIX_DAILY_LIMIT overrides it.
+const DEFAULT_DAILY_LIMIT = 6;
+// Tokens the agent may use in 24 hours, counted like Codex's "tokens used" (cached input excluded). Real fixes used
+// 60,000 to 81,000; this allows six runs of twice the largest. SECURITY_FIX_DAILY_TOKEN_BUDGET overrides it.
+const DEFAULT_TOKEN_BUDGET = 1_000_000;
+// A run that started Codex but recorded no usage (for example, it hit the 15-minute time limit) counts as this
+// much: 15 minutes at about 30,000 tokens a minute, the highest rate measured.
+const UNKNOWN_RUN_TOKENS = 450_000;
+// Outcomes that exist to stop repeated runs. The Apps Script monitor reports cooldown and daily-limit skips once a
+// day; the budget step reports the token budget.
+const SILENT_STATUSES = ["cooldown", "daily_limit", "token_budget"];
 
 const STATUS_TEXT = {
   pr_open: "Opened a draft pull request. Review it, then mark it ready and add the trigger-pr-builder label.",
@@ -30,6 +41,8 @@ const STATUS_TEXT = {
   failed: "The fix did not pass the checks. Inspect the workflow run.",
   cooldown: "The agent already worked on this advisory in the last 20 hours. Nothing was changed.",
   daily_limit: "The agent reached its daily run limit. Nothing was changed.",
+  token_budget: "The agent reached its daily token budget. Nothing was changed.",
+  token_budget_reached: "The agent used up its daily token budget. It will not start again until its usage in the last 24 hours drops below the budget.",
 };
 
 export function parseAdvisories(text) {
@@ -41,6 +54,21 @@ export function parseAdvisories(text) {
   return [...new Set(ids)];
 }
 
+/** A run limit from a repository variable: empty means the default; "1,000,000" and "1_000_000" are accepted. */
+export function parseLimit(value, name, fallback) {
+  const text = String(value ?? "").trim();
+  if (!text) return fallback;
+  const number = Number(text.replace(/[,_]/g, ""));
+  if (!/^(\d+|\d{1,3}(,\d{3})+|\d{1,3}(_\d{3})+)$/.test(text) || !Number.isSafeInteger(number) || number < 1) {
+    throw new Error(`${name} must be a positive whole number, not "${value}"`);
+  }
+  return number;
+}
+
+/** Tokens for a run whose agent recorded no usage: none when Codex never started, otherwise UNKNOWN_RUN_TOKENS. */
+const fallbackTokens = (codexStarted) => (codexStarted ? UNKNOWN_RUN_TOKENS : 0);
+const sumTokens = (ran) => ran.reduce((sum, run) => sum + run.tokens, 0);
+
 /** Advisory IDs in a run title such as "Security fix: GHSA-a,GHSA-b (dry run)". */
 export function titleAdvisories(title) {
   return (String(title ?? "").match(/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/gi) ?? []).map((id) => `GHSA${id.slice(4).toLowerCase()}`);
@@ -48,29 +76,90 @@ export function titleAdvisories(title) {
 
 /**
  * Applies the run limits to the advisories that still need a fix. runs are earlier runs of this workflow:
- * {id, createdAt, title, url, agentRan}. The cooldown holds back every advisory a run of the same mode requested
- * when its agent ran, so a dry run never holds back a live fix. The daily limit counts every run in which the
- * agent ran, because each one costs tokens.
+ * {id, startedAt, title, url, agentRan, codexStarted, tokens, budgetNotified, forced}, where startedAt is the start of the
+ * run's latest attempt. The cooldown holds back every advisory a run of the same mode requested when its agent ran,
+ * so a dry run never holds back a live fix. The daily limit counts every run in which the agent ran, because each one
+ * costs tokens. The cooldown comes before the budget, so a run started again and again keeps showing up as a
+ * cooldown skip, which the Apps Script monitor reports.
  */
-export function applyLimits(ids, runs, { now, currentRunId, dryRun, dailyLimit, force }) {
-  const window = runs.filter((run) => String(run.id) !== String(currentRunId) && now - Date.parse(run.createdAt) < LIMIT_WINDOW_MS);
-  const agentRuns = window.filter((run) => run.agentRan).length;
-  if (force) return { allowed: ids, cooldown: [], limited: false, agentRuns };
-  if (agentRuns >= dailyLimit) return { allowed: [], cooldown: [], limited: true, agentRuns };
+export function applyLimits(ids, runs, { now, currentRunId, dryRun, dailyLimit, tokenBudget, force }) {
+  const window = runs.filter((run) => String(run.id) !== String(currentRunId) && now - Date.parse(run.startedAt) < LIMIT_WINDOW_MS);
+  const ran = window.filter((run) => run.agentRan).map((run) => ({ startedAt: run.startedAt, tokens: run.tokens ?? fallbackTokens(run.codexStarted) }));
+  const agentRuns = ran.length;
+  const tokensUsed = sumTokens(ran);
+  // usage lets the publish job count the budget again when it decides whether to report it.
+  const base = { cooldown: [], limited: false, overBudget: false, notifyBudget: false, agentRuns, tokensUsed, tokenBudget, budgetFreesAt: null, usage: ran };
+  if (force) return { ...base, allowed: ids };
+  if (agentRuns >= dailyLimit) return { ...base, allowed: [], limited: true };
   const allowed = [];
   const cooldown = [];
   for (const id of ids) {
     const recent = window.find(
       (run) =>
         run.agentRan &&
-        now - Date.parse(run.createdAt) < COOLDOWN_MS &&
+        now - Date.parse(run.startedAt) < COOLDOWN_MS &&
         /\(dry run\)/.test(run.title) === dryRun &&
         titleAdvisories(run.title).includes(id),
     );
     if (recent) cooldown.push({ id, url: recent.url });
     else allowed.push(id);
   }
-  return { allowed, cooldown, limited: false, agentRuns };
+  if (allowed.length && tokensUsed >= tokenBudget) {
+    // The run that used up the budget reports it. A report from before the newest agent run belongs to an earlier
+    // stretch over the budget, so without a later one this run reports it instead. Forced runs are left out: one run
+    // while the budget was already used up does not start a new stretch.
+    const lastAgentRun = Math.max(...window.filter((run) => run.agentRan && !run.forced).map((run) => Date.parse(run.startedAt)));
+    const notifyBudget = !window.some((run) => run.budgetNotified && Date.parse(run.startedAt) >= lastAgentRun);
+    return { ...base, allowed: [], cooldown, overBudget: true, notifyBudget, budgetFreesAt: budgetFreesAt(ran, tokenBudget) };
+  }
+  return { ...base, allowed, cooldown };
+}
+
+/** When usage in the rolling 24 hours drops below the budget, as the oldest counted runs leave the window. */
+export function budgetFreesAt(ran, budget) {
+  let used = sumTokens(ran);
+  for (const run of [...ran].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))) {
+    used -= run.tokens;
+    if (used < budget) return new Date(Date.parse(run.startedAt) + LIMIT_WINDOW_MS).toISOString();
+  }
+  return null;
+}
+
+/** Tokens a finished run's agent used, counted like Codex, from its summary; null when it recorded none. */
+export function runTokens(summary) {
+  const usage = summary?.tokens;
+  if (!usage || typeof usage !== "object") return null;
+  const value = "uncached" in usage ? Number(usage.uncached) : Number(usage.total) - Number(usage.cachedInput || 0);
+  return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
+}
+
+const formatTime = (iso) => (iso ? `${iso.slice(0, 16).replace("T", " ")} UTC` : "an unknown time");
+
+/**
+ * The Chat detail saying the daily token budget is used up, or null. Two runs report it: the run that used it up
+ * (usage in the last 24 hours was under the budget before the run and at or over it after), and a run held back by
+ * the budget when no run in the last 24 hours reported it. Usage is counted again at the time of the call, because
+ * earlier runs may have left the 24-hour window since the check job counted it.
+ */
+export function budgetMessage({ summary, tokens, agentRan, codexStarted, now }) {
+  const budget = summary.tokenBudget;
+  // No limits were applied, for example because nothing needed a fix.
+  if (!budget) return null;
+  const live = (summary.usage ?? []).filter((run) => now - Date.parse(run.startedAt) < LIMIT_WINDOW_MS);
+  const before = sumTokens(live);
+  const total = (count) => `Used ${count.toLocaleString("en-US")} of ${budget.toLocaleString("en-US")} tokens in the last 24 hours`;
+  if (summary.overBudget) {
+    if (!summary.notifyBudget || before < budget) return null;
+    return `${total(before)} (cached input not counted). The agent can start again around ${formatTime(budgetFreesAt(live, budget))}.`;
+  }
+  if (!agentRan) return null;
+  const used = runTokens({ tokens }) ?? fallbackTokens(codexStarted);
+  if (before >= budget || before + used < budget) return null;
+  const freesAt = budgetFreesAt([...live, { startedAt: summary.startedAt ?? new Date(now).toISOString(), tokens: used }], budget);
+  return (
+    `${total(before + used)} (this run: ${used.toLocaleString("en-US")}; cached input not counted). ` +
+    `The agent can start again around ${formatTime(freesAt)}.`
+  );
 }
 
 /** Total token usage from a Codex session log (JSON lines); the last token_count event holds the running total. */
@@ -92,6 +181,13 @@ export function tokenUsage(jsonl) {
   const cachedInput = count(usage.cached_input_tokens);
   // Codex reports "tokens used" without cached input, which is billed at a lower rate.
   return { total, uncached: Math.max(0, total - cachedInput), input: count(usage.input_tokens), cachedInput, output: count(usage.output_tokens) };
+}
+
+/** Adds up the usage of several Codex sessions, for example a session and the sub-agents it started. */
+export function addUsage(usages) {
+  const found = usages.filter(Boolean);
+  if (!found.length) return null;
+  return Object.fromEntries(Object.keys(found[0]).map((key) => [key, found.reduce((sum, usage) => sum + usage[key], 0)]));
 }
 
 function usageLine(tokens, seconds) {
@@ -193,6 +289,14 @@ Opened as a draft by the ThunderID security fix agent ([workflow run](${runUrl})
 export function decide({ summary, agentOutcome, result, guard, checks, patchSize, lint, audit }) {
   if (!summary.targets.length) {
     if (summary.limited) return { action: "none", status: "daily_limit", reasons: [`${summary.agentRuns} agent runs in the last 24 hours.`] };
+    if (summary.overBudget) {
+      const used = `${summary.tokensUsed.toLocaleString("en-US")} of ${summary.tokenBudget.toLocaleString("en-US")} tokens`;
+      return {
+        action: "none",
+        status: "token_budget",
+        reasons: [`${used} used in the last 24 hours; the agent can start again around ${formatTime(summary.budgetFreesAt)}.`],
+      };
+    }
     if (summary.existing.length) return { action: "none", status: "pr_exists", reasons: [] };
     if (summary.cooldown?.length) {
       return { action: "none", status: "cooldown", reasons: summary.cooldown.map(({ id, url }) => `${id}: ${url}`) };
@@ -255,36 +359,86 @@ export function changesDependencies(files) {
 }
 
 /**
- * Whether a run's agent job did work, from the job's conclusion, or its status while it has none. One that ran,
- * is running or is queued counts; one that was skipped, or a run without an agent job, does not.
+ * Whether a job or step did work, from its conclusion, or its status while it has none. One that ran, is running
+ * or is queued counts; one that was skipped, or one the run does not have, does not.
  */
-export function agentRanFrom(conclusionOrStatus) {
+export function ranFrom(conclusionOrStatus) {
   return conclusionOrStatus !== "" && conclusionOrStatus !== "skipped";
 }
 
-function earlierRuns(repo) {
-  const gh = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  const since = new Date(Date.now() - LIMIT_WINDOW_MS).toISOString();
+/**
+ * What a run's jobs did, from the jobs API listing reduced to {name, result, codex}: whether the agent job ran,
+ * whether its Codex step started (an agent job cancelled before it got a runner has no steps), and whether the publish
+ * job, which writes the summary, ran.
+ */
+export function jobFacts(jobs) {
+  const job = (name) => jobs.find((item) => item.name === name) ?? { result: "", codex: "" };
+  return { agentRan: ranFrom(job("agent").result), codexStarted: ranFrom(job("agent").codex), publishRan: ranFrom(job("publish").result) };
+}
+
+const gh = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+
+function runJobs(repo, runId) {
+  // The jobs have no display names, so they are listed as "agent" and "publish"; a test checks the workflow keeps
+  // those names and the "Run Codex" step name.
+  return jobFacts(
+    JSON.parse(
+      gh([
+        "api",
+        `repos/${repo}/actions/runs/${runId}/jobs?per_page=100`,
+        "--jq",
+        '[.jobs[] | {name, result: (.conclusion // .status), codex: ([.steps[]? | select(.name == "Run Codex") | (.conclusion // .status)][0] // "")}]',
+      ]),
+    ),
+  );
+}
+
+/**
+ * This workflow's runs whose latest attempt started in the last 24 hours. A run re-run by hand keeps its creation
+ * time and can be re-run for 30 days, so the listing reaches back that far. With the created filter GitHub lists at
+ * most 1,000 runs, far more than this workflow starts in 30 days. The current run is listed without its jobs, for
+ * its start time.
+ */
+function earlierRuns(repo, currentRunId) {
+  const since = new Date(Date.now() - 30 * 24 * HOUR).toISOString();
   const runs = gh([
     "api",
     "--paginate",
     `repos/${repo}/actions/workflows/${WORKFLOW}/runs?per_page=100&created=${encodeURIComponent(`>=${since}`)}`,
     "--jq",
-    ".workflow_runs[] | {id, createdAt: .created_at, title: .display_title, url: .html_url}",
+    ".workflow_runs[] | {id, startedAt: (.run_started_at // .created_at), title: .display_title, url: .html_url}",
   ])
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line));
+    .map((line) => JSON.parse(line))
+    .filter((run) => Date.now() - Date.parse(run.startedAt) < LIMIT_WINDOW_MS);
   return runs.map((run) => {
-    // The agent job has no display name, so it is listed as "agent"; a test checks the workflow keeps it that way.
-    const agent = gh([
-      "api",
-      `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`,
-      "--jq",
-      '[.jobs[] | select(.name == "agent") | (.conclusion // .status)][0] // ""',
-    ]).trim();
-    return { ...run, agentRan: agentRanFrom(agent) };
+    if (String(run.id) === String(currentRunId)) return run;
+    const { agentRan, codexStarted, publishRan } = runJobs(repo, run.id);
+    const summary = publishRan ? runSummary(repo, run.id) : null;
+    return {
+      ...run,
+      agentRan,
+      codexStarted,
+      tokens: agentRan ? runTokens(summary) : null,
+      budgetNotified: summary?.budgetNotified === true,
+      forced: summary?.force === true,
+    };
   });
+}
+
+/** A run's summary artifact, or null when it cannot be read. */
+function runSummary(repo, runId) {
+  const dir = mkdtempSync(join(process.env.RUNNER_TEMP || tmpdir(), "run-summary-"));
+  try {
+    execFileSync("gh", ["run", "download", String(runId), "-R", repo, "-n", "security-fix-summary", "-D", dir], { stdio: "ignore" });
+    return JSON.parse(readFileSync(join(dir, "summary.json"), "utf8"));
+  } catch {
+    console.log(`::warning::Could not read the summary of run ${runId}. If its agent ran, its usage counts as unknown.`);
+    return null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -292,7 +446,6 @@ function earlierRuns(repo) {
  * The pulls API is read directly because the search index can lag behind a newly opened PR.
  */
 function openFixPullRequests(ids) {
-  const gh = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   const open = gh([
     "api",
     "--paginate",
@@ -341,7 +494,10 @@ async function main() {
     const audit = readJson(opts.audit);
     if (!audit) throw new Error("Audit report is missing or invalid");
     const reported = reportedAdvisories(audit);
-    const summary = { requested, targets: [], missing: [], existing: [], cooldown: [], limited: false, agentRuns: 0 };
+    const summary = { requested, targets: [], missing: [], existing: [], cooldown: [], limited: false, overBudget: false, agentRuns: 0 };
+    // Read before the slow calls below, so an invalid repository variable fails the run at once.
+    const dailyLimit = parseLimit(opts["daily-limit"], "SECURITY_FIX_DAILY_LIMIT", DEFAULT_DAILY_LIMIT);
+    const tokenBudget = parseLimit(opts["token-budget"], "SECURITY_FIX_DAILY_TOKEN_BUDGET", DEFAULT_TOKEN_BUDGET);
     const openFixes = openFixPullRequests(requested.filter((id) => reported.has(id)));
     const needed = [];
     for (const id of requested) {
@@ -354,17 +510,28 @@ async function main() {
       else needed.push(id);
     }
     if (needed.length) {
-      const limits = applyLimits(needed, earlierRuns(opts.repo), {
-        now: Date.now(),
+      const now = Date.now();
+      const runs = earlierRuns(opts.repo, opts["run-id"]);
+      const limits = applyLimits(needed, runs, {
+        now,
         currentRunId: opts["run-id"],
         dryRun: opts["dry-run"] === "true",
-        dailyLimit: Number(opts["daily-limit"]) || 6,
+        dailyLimit,
+        tokenBudget,
         force: opts.force === "true",
       });
       summary.targets = limits.allowed;
       summary.cooldown = limits.cooldown;
       summary.limited = limits.limited;
       summary.agentRuns = limits.agentRuns;
+      summary.overBudget = limits.overBudget;
+      summary.notifyBudget = limits.notifyBudget;
+      summary.tokensUsed = limits.tokensUsed;
+      summary.tokenBudget = limits.tokenBudget;
+      summary.budgetFreesAt = limits.budgetFreesAt;
+      summary.usage = limits.usage;
+      // Other runs place this run in their 24-hour window by the start of its latest attempt, so the budget message does too.
+      summary.startedAt = runs.find((run) => String(run.id) === String(opts["run-id"]))?.startedAt ?? new Date(now).toISOString();
     }
     console.log(JSON.stringify(summary, null, 2));
     output("proceed", String(summary.targets.length > 0));
@@ -396,8 +563,7 @@ async function main() {
       }
     };
     walk(sessions);
-    const latest = files.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-    const tokens = latest ? tokenUsage(readFileSync(latest, "utf8")) : null;
+    const tokens = addUsage(files.map((file) => tokenUsage(readFileSync(file, "utf8"))));
     const seconds = opts.started ? Math.max(0, Math.round(Date.now() / 1000 - Number(opts.started))) : 0;
     console.log(JSON.stringify({ tokens, seconds }));
     output("tokens", tokens ? JSON.stringify(tokens) : "");
@@ -454,6 +620,25 @@ async function main() {
     return;
   }
 
+  if (command === "budget") {
+    let tokens = null;
+    try {
+      tokens = opts.tokens ? JSON.parse(opts.tokens) : null;
+    } catch {
+      tokens = null;
+    }
+    const summary = JSON.parse(opts.summary);
+    // Read the same way as for earlier runs, so this run counts here as later runs will count it. A run held back by
+    // the budget did not run the agent.
+    const counts = summary.tokenBudget && !summary.overBudget;
+    const { agentRan, codexStarted } = counts ? runJobs(opts.repo, opts["run-id"]) : { agentRan: false, codexStarted: false };
+    const detail = budgetMessage({ summary, tokens, agentRan, codexStarted, now: Date.now() });
+    console.log(detail ?? "This run does not report the daily token budget.");
+    output("report", String(Boolean(detail)));
+    output("detail", detail ?? "");
+    return;
+  }
+
   if (command === "summary") {
     const decision = readJson(opts.decision);
     if (!decision) throw new Error("Decision file is missing or invalid");
@@ -461,6 +646,7 @@ async function main() {
       version: 1,
       runId: Number(opts["run-id"]),
       dryRun: opts["dry-run"] === "true",
+      force: opts.force === "true",
       requested: decision.requested,
       targets: decision.targets,
       status: opts.status || decision.status,
@@ -469,6 +655,8 @@ async function main() {
       url: opts.url || "",
       tokens: decision.tokens,
       agentSeconds: decision.agentSeconds,
+      // Read by later runs, so the budget message is posted once.
+      budgetNotified: opts["budget-notified"] === "true",
       reasons: decision.reasons.slice(0, 5),
     };
     writeFileSync(opts.out, JSON.stringify(summary, null, 2));
@@ -481,7 +669,7 @@ async function main() {
     return;
   }
 
-  throw new Error("Usage: publish.mjs targets|prompt|usage|decide|summary|audit-check|notify [--option value ...]");
+  throw new Error("Usage: publish.mjs targets|prompt|usage|decide|budget|summary|audit-check|notify [--option value ...]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

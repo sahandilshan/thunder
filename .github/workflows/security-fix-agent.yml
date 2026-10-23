@@ -6,7 +6,8 @@ run-name: "Security fix: ${{ inputs.advisories }}${{ inputs.dry_run && ' (dry ru
 # and network access only to the npm registry. A separate job without the model key re-checks the
 # change and opens a draft pull request on upstream, or pushes a branch for a maintainer to review.
 # Limits: an advisory is not retried within 20 hours in the same mode, the agent runs at most
-# SECURITY_FIX_DAILY_LIMIT (default 6) times in 24 hours, and the agent job stops after 15 minutes.
+# SECURITY_FIX_DAILY_LIMIT (default 6) times in 24 hours and does not start once its tokens in 24 hours
+# reach SECURITY_FIX_DAILY_TOKEN_BUDGET (default 1,000,000), and the agent job stops after 15 minutes.
 
 on:
   workflow_dispatch:
@@ -24,11 +25,11 @@ on:
         type: string
         default: main
       dry_run:
-        description: Run the agent and the checks without pushing, opening a PR, or posting to Chat
+        description: Run the agent and the checks without pushing, opening a PR, or posting the outcome to Chat. The daily token budget message is still posted.
         type: boolean
         default: true
       force:
-        description: Ignore the 20-hour cooldown and the daily run limit. For manual tests only.
+        description: Ignore the 20-hour cooldown, the daily run limit and the daily token budget. For manual tests only.
         type: boolean
         default: false
 
@@ -49,7 +50,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      # Reads this workflow's earlier runs for the cooldown and the daily limit.
+      # Reads this workflow's earlier runs and their summaries for the cooldown, the daily limit and the token budget.
       actions: read
     outputs:
       proceed: ${{ steps.targets.outputs.proceed }}
@@ -105,10 +106,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ inputs.dry_run }}
           FORCE: ${{ inputs.force }}
-          DAILY_LIMIT: ${{ vars.SECURITY_FIX_DAILY_LIMIT || '6' }}
+          # Empty when unset; publish.mjs applies the defaults and rejects invalid values.
+          DAILY_LIMIT: ${{ vars.SECURITY_FIX_DAILY_LIMIT }}
+          TOKEN_BUDGET: ${{ vars.SECURITY_FIX_DAILY_TOKEN_BUDGET }}
         run: |
           node automation/.github/security-fix/publish.mjs targets --audit "$RUNNER_TEMP/audit.json" --advisories "$ADVISORIES" \
-            --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --dry-run "$DRY_RUN" --force "$FORCE" --daily-limit "$DAILY_LIMIT"
+            --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --dry-run "$DRY_RUN" --force "$FORCE" \
+            --daily-limit "$DAILY_LIMIT" --token-budget "$TOKEN_BUDGET"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: security-fix-context
@@ -220,6 +224,8 @@ jobs:
     # files, which GITHUB_TOKEN may not push. Opening the upstream PR uses UPSTREAM_PR_TOKEN.
     permissions:
       contents: read
+      # Reads this run's jobs for the daily token budget.
+      actions: read
     outputs:
       notified: ${{ steps.notify.outputs.notified }}
     steps:
@@ -334,7 +340,8 @@ jobs:
           fi
       - name: Notify Google Chat
         id: notify
-        # Cooldown and daily-limit skips stay out of Chat; the Apps Script monitor reports them once a day.
+        # Cooldown, daily-limit and token-budget skips stay out of Chat. The Apps Script monitor reports the first two
+        # once a day; the next steps report the budget.
         if: always() && !inputs.dry_run && steps.decide.outcome == 'success' && steps.decide.outputs.notify == 'true'
         env:
           GOOGLE_CHAT_SECURITY_WEBHOOK: ${{ secrets.GOOGLE_CHAT_SECURITY_WEBHOOK }}
@@ -345,6 +352,30 @@ jobs:
         run: |
           node automation/.github/security-fix/publish.mjs notify --status "$STATUS" --advisories "$ADVISORIES" --url "$URL" --detail "$DETAIL"
           echo "notified=true" >> "$GITHUB_OUTPUT"
+      # Posted by the run that used up the budget or, when that message is missing, by the first run the budget
+      # holds back; the run summary records it so later runs stay quiet. It needs the decision because the summary
+      # does: a message the summary cannot record would be posted again. Dry runs post it too, because they spend
+      # the same tokens.
+      - name: Check the daily token budget
+        id: budget
+        if: always() && steps.decide.outcome == 'success'
+        continue-on-error: true
+        env:
+          SUMMARY: ${{ needs.check.outputs.summary }}
+          AGENT_TOKENS: ${{ needs.agent.outputs.tokens }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node automation/.github/security-fix/publish.mjs budget --summary "$SUMMARY" --repo "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --tokens "$AGENT_TOKENS"
+      - name: Tell Google Chat the daily token budget is used up
+        id: budget_notify
+        if: always() && steps.budget.outputs.report == 'true'
+        continue-on-error: true
+        env:
+          GOOGLE_CHAT_SECURITY_WEBHOOK: ${{ secrets.GOOGLE_CHAT_SECURITY_WEBHOOK }}
+          DETAIL: ${{ steps.budget.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node automation/.github/security-fix/publish.mjs notify --status token_budget_reached --advisories "daily token budget" --url "$RUN_URL" --detail "$DETAIL"
       # Record keeping only: a failure here must not fail the run or end a silent skip with a Chat message.
       - name: Save the run summary
         if: always() && steps.decide.outcome == 'success'
@@ -353,10 +384,13 @@ jobs:
           STATUS: ${{ (steps.push.outcome == 'failure' || steps.pr.outcome == 'failure') && 'failed' || steps.decide.outputs.status }}
           URL: ${{ steps.pr.outputs.url || steps.push.outputs.url }}
           DRY_RUN: ${{ inputs.dry_run }}
+          FORCE: ${{ inputs.force }}
+          BUDGET_NOTIFIED: ${{ steps.budget_notify.outcome == 'success' }}
         run: |
           mkdir -p "$RUNNER_TEMP/summary"
           node automation/.github/security-fix/publish.mjs summary --decision "$RUNNER_TEMP/decision.json" --run-id "$GITHUB_RUN_ID" \
-            --dry-run "$DRY_RUN" --status "$STATUS" --url "$URL" --out "$RUNNER_TEMP/summary/summary.json"
+            --dry-run "$DRY_RUN" --force "$FORCE" --status "$STATUS" --url "$URL" --budget-notified "$BUDGET_NOTIFIED" \
+            --out "$RUNNER_TEMP/summary/summary.json"
       # Read by the Apps Script monitor, which records each run in the sheet's "Fix runs" tab.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && steps.decide.outcome == 'success'

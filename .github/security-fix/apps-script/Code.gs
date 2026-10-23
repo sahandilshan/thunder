@@ -45,7 +45,8 @@ const FIX_RUNS_SHEET = 'Fix runs';
 // Tokens is what Codex reports as "tokens used": everything except cached input, which costs less.
 const FIX_RUNS_COLUMNS = ['Started (UTC)', 'Mode', 'Advisories', 'Outcome', 'PR or branch', 'Tokens', 'Cached input tokens', 'Output tokens', 'Agent minutes', 'Run'];
 const FIX_SUMMARY_ARTIFACT = 'security-fix-summary';
-// Run outcomes the workflow uses to stop repeated runs; reported here at most once a day.
+// Run outcomes the workflow uses to stop repeated runs; reported here at most once a day. Token-budget skips are not
+// listed: the workflow reports those itself.
 const FIX_LIMIT_STATUSES = ['cooldown', 'daily_limit'];
 // Recording fix runs stops starting new downloads after this, leaving the rest for the next run.
 const FIX_RUNS_BUDGET_MS = RUN_BUDGET_MS + 60 * 1000;
@@ -236,8 +237,8 @@ function startFixes_(report, previous, { mode, token, preview }) {
 
 /**
  * Adds a "Fix runs" row for each finished fix agent run not recorded yet, from the summary file each run uploads.
- * An advisory the workflow skipped without running the agent (open PR, cooldown, daily limit, no longer reported)
- * gets its attempt back in fixes. Runs skipped by the workflow's limits get at most one message a day: something
+ * An advisory the workflow skipped without running the agent (open PR, cooldown, daily limit, token budget, no longer
+ * reported) gets its attempt back in fixes. Runs skipped by the workflow's limits get at most one message a day: something
  * starts the agent too often.
  */
 function recordFixRuns_(report, previous, token, fixes, started) {
@@ -356,7 +357,7 @@ function testFixDispatch() {
     advisories: 'GHSA-8r5x-fm3f-whwj,GHSA-p8wg-vrv2-v86f',
     ref: 'f00b0ef6e1b2e7182f75e276352a8f2115ed1510',
     dryRun: true,
-    // A manual test skips the cooldown and daily limit, so repeating it never looks like a loop.
+    // A manual test skips the cooldown, daily limit and token budget, so repeating it never looks like a loop.
     force: true,
   });
   console.log(
