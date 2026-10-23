@@ -1,15 +1,25 @@
 // Deterministic helpers for the security fix workflow. Nothing here talks to the AI model.
 //
-//   targets  which requested advisories the audit still reports and which already have an open PR
+//   targets  which requested advisories still need a fix: reported, without an open PR, within the run limits
 //   prompt   renders the agent prompt
+//   usage    reads the agent's token usage from its Codex session log
 //   decide   combines the agent result, guard verdict and checks into the next action
+//   summary  writes the run summary that the Apps Script monitor records in its sheet
 //   notify   posts the outcome to Google Chat
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const UPSTREAM = "thunder-id/thunderid";
 export const GHSA = /^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/;
+const WORKFLOW = "security-fix-agent.yml";
+const HOUR = 60 * 60 * 1000;
+// An advisory requested by a run in which the agent ran is not retried within this time, in the same mode.
+const COOLDOWN_MS = 20 * HOUR;
+const LIMIT_WINDOW_MS = 24 * HOUR;
+// Outcomes that exist to stop repeated runs; the Apps Script monitor reports them once a day instead.
+const SILENT_STATUSES = ["cooldown", "daily_limit"];
 
 const STATUS_TEXT = {
   pr_open: "Opened a draft pull request. Review it, then mark it ready and add the trigger-pr-builder label.",
@@ -18,6 +28,8 @@ const STATUS_TEXT = {
   not_reported: "Upstream main no longer reports this advisory. Nothing to fix.",
   pr_exists: "An open upstream pull request already mentions this advisory. Nothing was changed.",
   failed: "The fix did not pass the checks. Inspect the workflow run.",
+  cooldown: "The agent already worked on this advisory in the last 20 hours. Nothing was changed.",
+  daily_limit: "The agent reached its daily run limit. Nothing was changed.",
 };
 
 export function parseAdvisories(text) {
@@ -27,6 +39,74 @@ export function parseAdvisories(text) {
     .filter(Boolean);
   for (const id of ids) if (!GHSA.test(id)) throw new Error(`Invalid advisory ID: ${id}`);
   return [...new Set(ids)];
+}
+
+/** Advisory IDs in a run title such as "Security fix: GHSA-a,GHSA-b (dry run)". */
+export function titleAdvisories(title) {
+  return (String(title ?? "").match(/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/gi) ?? []).map((id) => `GHSA${id.slice(4).toLowerCase()}`);
+}
+
+/**
+ * Applies the run limits to the advisories that still need a fix. runs are earlier runs of this workflow:
+ * {id, createdAt, title, url, agentRan}. The cooldown holds back every advisory a run of the same mode requested
+ * when its agent ran, so a dry run never holds back a live fix. The daily limit counts every run in which the
+ * agent ran, because each one costs tokens.
+ */
+export function applyLimits(ids, runs, { now, currentRunId, dryRun, dailyLimit, force }) {
+  const window = runs.filter((run) => String(run.id) !== String(currentRunId) && now - Date.parse(run.createdAt) < LIMIT_WINDOW_MS);
+  const agentRuns = window.filter((run) => run.agentRan).length;
+  if (force) return { allowed: ids, cooldown: [], limited: false, agentRuns };
+  if (agentRuns >= dailyLimit) return { allowed: [], cooldown: [], limited: true, agentRuns };
+  const allowed = [];
+  const cooldown = [];
+  for (const id of ids) {
+    const recent = window.find(
+      (run) =>
+        run.agentRan &&
+        now - Date.parse(run.createdAt) < COOLDOWN_MS &&
+        /\(dry run\)/.test(run.title) === dryRun &&
+        titleAdvisories(run.title).includes(id),
+    );
+    if (recent) cooldown.push({ id, url: recent.url });
+    else allowed.push(id);
+  }
+  return { allowed, cooldown, limited: false, agentRuns };
+}
+
+/** Total token usage from a Codex session log (JSON lines); the last token_count event holds the running total. */
+export function tokenUsage(jsonl) {
+  let usage = null;
+  for (const line of String(jsonl).split("\n")) {
+    if (!line.includes('"token_count"')) continue;
+    try {
+      const total = JSON.parse(line).payload?.info?.total_token_usage;
+      if (total) usage = total;
+    } catch {
+      // A truncated last line is possible when the agent was stopped.
+    }
+  }
+  if (!usage) return null;
+  // Numbers only: these values reach Chat and a spreadsheet cell.
+  const count = (value) => Math.max(0, Math.trunc(Number(value) || 0));
+  return {
+    total: count(usage.total_tokens),
+    input: count(usage.input_tokens),
+    cachedInput: count(usage.cached_input_tokens),
+    output: count(usage.output_tokens),
+  };
+}
+
+function usageLine(tokens, seconds) {
+  if (!tokens?.total) return "";
+  const minutes = seconds ? ` in ${(seconds / 60).toFixed(1)} minutes` : "";
+  return `Agent: ${tokens.total.toLocaleString("en-US")} tokens (${tokens.output.toLocaleString("en-US")} output)${minutes}.`;
+}
+
+/** The Chat detail: reasons, each open PR once (several advisories can share one), and the agent's usage. */
+export function detailLines({ reasons, existing, tokens, seconds }) {
+  const urls = [...new Set(existing.flatMap((entry) => entry.urls))];
+  const usage = usageLine(tokens, seconds);
+  return [...reasons.slice(0, 10), ...urls.map((url) => `Open PR: ${url}`), ...(usage ? [usage] : [])].join("\n");
 }
 
 export function reportedAdvisories(audit) {
@@ -113,7 +193,12 @@ Opened as a draft by the ThunderID security fix agent ([workflow run](${runUrl})
  */
 export function decide({ summary, agentOutcome, result, guard, checks, patchSize, lint, audit }) {
   if (!summary.targets.length) {
-    return { action: "none", status: summary.existing.length ? "pr_exists" : "not_reported", reasons: [] };
+    if (summary.limited) return { action: "none", status: "daily_limit", reasons: [`${summary.agentRuns} agent runs in the last 24 hours.`] };
+    if (summary.existing.length) return { action: "none", status: "pr_exists", reasons: [] };
+    if (summary.cooldown?.length) {
+      return { action: "none", status: "cooldown", reasons: summary.cooldown.map(({ id, url }) => `${id}: ${url}`) };
+    }
+    return { action: "none", status: "not_reported", reasons: [] };
   }
   if (agentOutcome !== "success" || !result) {
     return { action: "none", status: "failed", reasons: [`The agent job ended with ${agentOutcome}.`] };
@@ -171,6 +256,39 @@ export function changesDependencies(files) {
 }
 
 /**
+ * Whether a run's agent job did work, from the job's conclusion, or its status while it has none. One that ran,
+ * is running or is queued counts; one that was skipped, or a run without an agent job, does not.
+ */
+export function agentRanFrom(conclusionOrStatus) {
+  return conclusionOrStatus !== "" && conclusionOrStatus !== "skipped";
+}
+
+function earlierRuns(repo) {
+  const gh = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const since = new Date(Date.now() - LIMIT_WINDOW_MS).toISOString();
+  const runs = gh([
+    "api",
+    "--paginate",
+    `repos/${repo}/actions/workflows/${WORKFLOW}/runs?per_page=100&created=${encodeURIComponent(`>=${since}`)}`,
+    "--jq",
+    ".workflow_runs[] | {id, createdAt: .created_at, title: .display_title, url: .html_url}",
+  ])
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  return runs.map((run) => {
+    // The agent job has no display name, so it is listed as "agent"; a test checks the workflow keeps it that way.
+    const agent = gh([
+      "api",
+      `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`,
+      "--jq",
+      '[.jobs[] | select(.name == "agent") | (.conclusion // .status)][0] // ""',
+    ]).trim();
+    return { ...run, agentRan: agentRanFrom(agent) };
+  });
+}
+
+/**
  * Open upstream PRs whose title or description names the advisory and that change dependency files.
  * The pulls API is read directly because the search index can lag behind a newly opened PR.
  */
@@ -224,8 +342,9 @@ async function main() {
     const audit = readJson(opts.audit);
     if (!audit) throw new Error("Audit report is missing or invalid");
     const reported = reportedAdvisories(audit);
-    const summary = { requested, targets: [], missing: [], existing: [] };
+    const summary = { requested, targets: [], missing: [], existing: [], cooldown: [], limited: false, agentRuns: 0 };
     const openFixes = openFixPullRequests(requested.filter((id) => reported.has(id)));
+    const needed = [];
     for (const id of requested) {
       if (!reported.has(id)) {
         summary.missing.push(id);
@@ -233,7 +352,20 @@ async function main() {
       }
       const urls = openFixes[id];
       if (urls.length) summary.existing.push({ id, urls });
-      else summary.targets.push(id);
+      else needed.push(id);
+    }
+    if (needed.length) {
+      const limits = applyLimits(needed, earlierRuns(opts.repo), {
+        now: Date.now(),
+        currentRunId: opts["run-id"],
+        dryRun: opts["dry-run"] === "true",
+        dailyLimit: Number(opts["daily-limit"]) || 6,
+        force: opts.force === "true",
+      });
+      summary.targets = limits.allowed;
+      summary.cooldown = limits.cooldown;
+      summary.limited = limits.limited;
+      summary.agentRuns = limits.agentRuns;
     }
     console.log(JSON.stringify(summary, null, 2));
     output("proceed", String(summary.targets.length > 0));
@@ -254,6 +386,26 @@ async function main() {
     return;
   }
 
+  if (command === "usage") {
+    const sessions = join(opts["codex-home"], "sessions");
+    const files = [];
+    const walk = (dir) => {
+      for (const entry of existsSync(dir) ? readdirSync(dir, { withFileTypes: true }) : []) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/^rollout-.*\.jsonl$/.test(entry.name)) files.push(path);
+      }
+    };
+    walk(sessions);
+    const latest = files.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+    const tokens = latest ? tokenUsage(readFileSync(latest, "utf8")) : null;
+    const seconds = opts.started ? Math.max(0, Math.round(Date.now() / 1000 - Number(opts.started))) : 0;
+    console.log(JSON.stringify({ tokens, seconds }));
+    output("tokens", tokens ? JSON.stringify(tokens) : "");
+    output("seconds", String(seconds));
+    return;
+  }
+
   if (command === "decide") {
     const summary = JSON.parse(opts.summary);
     const result = readJson(opts.result);
@@ -271,11 +423,23 @@ async function main() {
       writeFileSync(opts["body-out"], renderBody({ result, guard, runUrl: opts["run-url"], audit, lint }));
     }
     writeFileSync(opts["commit-out"], `${title}\n\nFix the pnpm audit advisories ${ids.join(", ")}.\n`);
-    const existing = summary.existing.flatMap((entry) => entry.urls);
-    const detail = [...decision.reasons, ...existing.map((url) => `Open PR: ${url}`)].slice(0, 12).join("\n");
+    let tokens = null;
+    try {
+      tokens = opts.tokens ? JSON.parse(opts.tokens) : null;
+    } catch {
+      tokens = null;
+    }
+    const detail = detailLines({ reasons: decision.reasons, existing: summary.existing, tokens, seconds: Number(opts.seconds) || 0 });
     console.log(JSON.stringify({ ...decision, title, branch }, null, 2));
+    if (opts["decision-out"]) {
+      writeFileSync(
+        opts["decision-out"],
+        JSON.stringify({ ...decision, title, requested: summary.requested, targets: summary.targets, tokens, agentSeconds: Number(opts.seconds) || null }),
+      );
+    }
     output("action", decision.action);
     output("status", decision.status);
+    output("notify", String(!SILENT_STATUSES.includes(decision.status)));
     output("title", title);
     output("branch", branch);
     output("advisories", ids.join(", "));
@@ -291,12 +455,34 @@ async function main() {
     return;
   }
 
+  if (command === "summary") {
+    const decision = readJson(opts.decision);
+    if (!decision) throw new Error("Decision file is missing or invalid");
+    const summary = {
+      version: 1,
+      runId: Number(opts["run-id"]),
+      dryRun: opts["dry-run"] === "true",
+      requested: decision.requested,
+      targets: decision.targets,
+      status: opts.status || decision.status,
+      action: decision.action,
+      title: decision.title,
+      url: opts.url || "",
+      tokens: decision.tokens,
+      agentSeconds: decision.agentSeconds,
+      reasons: decision.reasons.slice(0, 5),
+    };
+    writeFileSync(opts.out, JSON.stringify(summary, null, 2));
+    console.log(JSON.stringify(summary, null, 2));
+    return;
+  }
+
   if (command === "notify") {
     await notify({ status: opts.status, advisories: opts.advisories, url: opts.url, detail: opts.detail });
     return;
   }
 
-  throw new Error("Usage: publish.mjs targets|prompt|decide|notify [--option value ...]");
+  throw new Error("Usage: publish.mjs targets|prompt|usage|decide|summary|audit-check|notify [--option value ...]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -5,6 +5,8 @@ run-name: "Security fix: ${{ inputs.advisories }}${{ inputs.dry_run && ' (dry ru
 # npm advisory. Codex (Azure OpenAI) prepares the fix in a job that has read-only repository access
 # and network access only to the npm registry. A separate job without the model key re-checks the
 # change and opens a draft pull request on upstream, or pushes a branch for a maintainer to review.
+# Limits: an advisory is not retried within 20 hours in the same mode, the agent runs at most
+# SECURITY_FIX_DAILY_LIMIT (default 6) times in 24 hours, and the agent job stops after 15 minutes.
 
 on:
   workflow_dispatch:
@@ -25,6 +27,10 @@ on:
         description: Run the agent and the checks without pushing, opening a PR, or posting to Chat
         type: boolean
         default: true
+      force:
+        description: Ignore the 20-hour cooldown and the daily run limit. For manual tests only.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,6 +47,10 @@ jobs:
     if: github.repository != 'thunder-id/thunderid' && vars.SECURITY_FIX_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      # Reads this workflow's earlier runs for the cooldown and the daily limit.
+      actions: read
     outputs:
       proceed: ${{ steps.targets.outputs.proceed }}
       targets: ${{ steps.targets.outputs.targets }}
@@ -88,12 +98,17 @@ jobs:
           code=$?
           set -e
           [[ $code -le 1 ]] || { echo "::error::pnpm audit could not run (exit $code)"; exit 1; }
-      - name: Select advisories that are still reported and have no open pull request
+      - name: Select advisories that still need a fix
         id: targets
         env:
           ADVISORIES: ${{ inputs.advisories }}
           GH_TOKEN: ${{ github.token }}
-        run: node automation/.github/security-fix/publish.mjs targets --audit "$RUNNER_TEMP/audit.json" --advisories "$ADVISORIES"
+          DRY_RUN: ${{ inputs.dry_run }}
+          FORCE: ${{ inputs.force }}
+          DAILY_LIMIT: ${{ vars.SECURITY_FIX_DAILY_LIMIT || '6' }}
+        run: |
+          node automation/.github/security-fix/publish.mjs targets --audit "$RUNNER_TEMP/audit.json" --advisories "$ADVISORIES" \
+            --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --dry-run "$DRY_RUN" --force "$FORCE" --daily-limit "$DAILY_LIMIT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: security-fix-context
@@ -104,9 +119,13 @@ jobs:
     needs: check
     if: needs.check.outputs.proceed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A fix takes about 4 minutes; this caps a stuck or looping agent.
+    timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      tokens: ${{ steps.usage.outputs.tokens }}
+      seconds: ${{ steps.usage.outputs.seconds }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -144,6 +163,9 @@ jobs:
           node automation/.github/security-fix/publish.mjs prompt \
             --template automation/.github/security-fix/prompt.md --out security-fix-prompt.md \
             --advisories "$TARGETS" --context /tmp/security-fix/context --tools /tmp/security-fix/tools --sha "$SHA"
+      - name: Note the start time
+        id: start
+        run: echo "time=$(date +%s)" >> "$GITHUB_OUTPUT"
       - name: Run Codex
         id: codex
         uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
@@ -165,6 +187,14 @@ jobs:
           working-directory: repo
           output-schema-file: automation/.github/security-fix/result-schema.json
           output-file: ${{ runner.temp }}/security-fix-result.json
+      # Record keeping only: a failure here must not change the run's outcome.
+      - name: Measure the agent's token usage
+        id: usage
+        if: always() && steps.codex.outcome != 'skipped'
+        continue-on-error: true
+        env:
+          STARTED: ${{ steps.start.outputs.time }}
+        run: node automation/.github/security-fix/publish.mjs usage --codex-home "$RUNNER_TEMP/codex-home" --started "$STARTED"
       - name: Save the agent's changes
         if: always() && steps.codex.outcome != 'skipped'
         run: |
@@ -258,10 +288,13 @@ jobs:
         env:
           SUMMARY: ${{ needs.check.outputs.summary }}
           AGENT_OUTCOME: ${{ needs.agent.result }}
+          AGENT_TOKENS: ${{ needs.agent.outputs.tokens }}
+          AGENT_SECONDS: ${{ needs.agent.outputs.seconds }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           node automation/.github/security-fix/publish.mjs decide \
             --summary "$SUMMARY" --agent-outcome "$AGENT_OUTCOME" --run-url "$RUN_URL" \
+            --tokens "$AGENT_TOKENS" --seconds "$AGENT_SECONDS" --decision-out "$RUNNER_TEMP/decision.json" \
             --result "$RUNNER_TEMP/output/security-fix-result.json" --patch "$RUNNER_TEMP/output/security-fix.patch" \
             --guard "$RUNNER_TEMP/guard.json" --checks "$RUNNER_TEMP/checks.json" --lint "$RUNNER_TEMP/lint.json" \
             --audit-check "$RUNNER_TEMP/audit-check.json" \
@@ -301,7 +334,8 @@ jobs:
           fi
       - name: Notify Google Chat
         id: notify
-        if: always() && !inputs.dry_run && steps.decide.outcome == 'success'
+        # Cooldown and daily-limit skips stay out of Chat; the Apps Script monitor reports them once a day.
+        if: always() && !inputs.dry_run && steps.decide.outcome == 'success' && steps.decide.outputs.notify == 'true'
         env:
           GOOGLE_CHAT_SECURITY_WEBHOOK: ${{ secrets.GOOGLE_CHAT_SECURITY_WEBHOOK }}
           STATUS: ${{ (steps.push.outcome == 'failure' || steps.pr.outcome == 'failure') && 'failed' || steps.decide.outputs.status }}
@@ -311,6 +345,26 @@ jobs:
         run: |
           node automation/.github/security-fix/publish.mjs notify --status "$STATUS" --advisories "$ADVISORIES" --url "$URL" --detail "$DETAIL"
           echo "notified=true" >> "$GITHUB_OUTPUT"
+      # Record keeping only: a failure here must not fail the run or end a silent skip with a Chat message.
+      - name: Save the run summary
+        if: always() && steps.decide.outcome == 'success'
+        continue-on-error: true
+        env:
+          STATUS: ${{ (steps.push.outcome == 'failure' || steps.pr.outcome == 'failure') && 'failed' || steps.decide.outputs.status }}
+          URL: ${{ steps.pr.outputs.url || steps.push.outputs.url }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/summary"
+          node automation/.github/security-fix/publish.mjs summary --decision "$RUNNER_TEMP/decision.json" --run-id "$GITHUB_RUN_ID" \
+            --dry-run "$DRY_RUN" --status "$STATUS" --url "$URL" --out "$RUNNER_TEMP/summary/summary.json"
+      # Read by the Apps Script monitor, which records each run in the sheet's "Fix runs" tab.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.decide.outcome == 'success'
+        continue-on-error: true
+        with:
+          name: security-fix-summary
+          path: ${{ runner.temp }}/summary/summary.json
+          retention-days: 30
       - name: Write the job summary
         if: always()
         env:

@@ -8,7 +8,8 @@
  *      upstream's configured GHSA ignores are applied.
  *   2. Inspects failed PR Builder runs from the last seven days for failed `pnpm audit` steps.
  *   3. Posts new findings to Google Chat and keeps deduplication state in this spreadsheet.
- *   4. Optionally starts the security fix agent workflow in the fork for new findings on main.
+ *   4. Optionally starts the security fix agent workflow in the fork for new findings on main, at most
+ *      FIX_MAX_ATTEMPTS times per advisory, and records every finished fix run in the "Fix runs" tab.
  *
  * Script properties (Project Settings > Script Properties):
  *   GITHUB_TOKEN                  Read-only token. GitHub refuses job logs without one.
@@ -38,6 +39,14 @@ const FIX_REPO = 'sahandilshan/thunder';
 const FIX_WORKFLOW = 'security-fix-agent.yml';
 const FIX_MODES = ['off', 'dry-run', 'live'];
 const FIX_RETRY_MS = DAY;
+// Automatic fix agent starts per advisory while upstream main keeps reporting it, a day apart.
+const FIX_MAX_ATTEMPTS = 3;
+const FIX_RUNS_SHEET = 'Fix runs';
+const FIX_SUMMARY_ARTIFACT = 'security-fix-summary';
+// Run outcomes the workflow uses to stop repeated runs; reported here at most once a day.
+const FIX_LIMIT_STATUSES = ['cooldown', 'daily_limit'];
+// Recording fix runs stops starting new downloads after this, leaving the rest for the next run.
+const FIX_RUNS_BUDGET_MS = RUN_BUDGET_MS + 60 * 1000;
 // An advisory that upstream main still reports is announced again after this long.
 const MAIN_REMINDER_MS = 12 * 60 * 60 * 1000;
 
@@ -128,17 +137,29 @@ function execute_({ dryRun }) {
 
     const previous = loadState_(token);
     const report = scan_({ token, previous, started });
-    // Runs before planning so a failed start is reported with the other errors.
-    const fix = startFixes_(report, previous, {
-      mode: (props.getProperty('FIX_MODE') || 'off').trim(),
-      token: (props.getProperty('FIX_DISPATCH_TOKEN') || '').trim(),
-      preview: dryRun,
-    });
-    const { messages, state } = planNotifications_(report, previous);
+    const fixToken = (props.getProperty('FIX_DISPATCH_TOKEN') || '').trim();
+    // Both run before planning so their failures are reported with the other errors.
+    const fix = startFixes_(report, previous, { mode: (props.getProperty('FIX_MODE') || 'off').trim(), token: fixToken, preview: dryRun });
+    // A dry run saves no state, so recording there would add the same rows again on the next run.
+    const fixRuns = dryRun ? null : recordFixRuns_(report, previous, fixToken, fix.fixes, started);
+    if (!dryRun) {
+      // Saved before any Chat delivery: a failed send must not restart the agent or repeat Fix runs rows.
+      const fixState = { version: 1, fixes: fix.fixes };
+      if (fixRuns && fixRuns.recorded) fixState.fixRunsRecorded = fixRuns.recorded;
+      saveState_(Object.assign({}, previous, fixState));
+    }
+    const planned = planNotifications_(report, previous);
+    const state = planned.state;
     state.fixes = fix.fixes;
+    if (fixRuns && fixRuns.recorded) {
+      state.fixRunsRecorded = fixRuns.recorded;
+      state.fixLimitAlertAt = fixRuns.limitAlertAt;
+    }
+    const messages = planned.messages.concat(fix.messages, fixRuns ? fixRuns.messages : []);
+    const fixSummary = `${fix.summary}${fixRuns && fixRuns.count ? `; recorded ${fixRuns.count} fix run(s)` : ''}`;
     console.log(
       `Main findings: ${report.main ? report.main.length : 'unknown'}; failed audit jobs: ${report.failures.length}; ` +
-        `scan errors: ${report.errors.length}; deferred runs: ${report.deferred}; fix agent: ${fix.summary}`,
+        `scan errors: ${report.errors.length}; deferred runs: ${report.deferred}; fix agent: ${fixSummary}`,
     );
 
     if (dryRun) {
@@ -151,7 +172,7 @@ function execute_({ dryRun }) {
       }
       saveState_(state);
     }
-    logRun_(report, dryRun, messages.length, Date.now() - started, fix.summary);
+    logRun_(report, dryRun, messages.length, Date.now() - started, fixSummary);
     if (report.errors.length) console.warn(report.errors.join('\n'));
   } finally {
     lock.releaseLock();
@@ -159,45 +180,160 @@ function execute_({ dryRun }) {
 }
 
 /**
- * Starts the security fix agent workflow in the fork for advisories upstream main reports that it was not
- * started for in the last day. The workflow itself skips advisories that already have an open upstream PR.
+ * Starts the security fix agent workflow in the fork for advisories upstream main reports. Each advisory gets at
+ * most FIX_MAX_ATTEMPTS automatic starts, a day apart, and one message once they are used up. The workflow also
+ * skips advisories that have an open upstream PR or that it worked on in the last 20 hours.
  */
 function startFixes_(report, previous, { mode, token, preview }) {
-  const fixes = Object.assign({}, previous.fixes || {});
-  if (report.main === null) return { fixes, summary: 'skipped, main scan failed' };
+  const fixes = {};
+  for (const id of Object.keys(previous.fixes || {})) {
+    const entry = previous.fixes[id];
+    // Older state kept only the time of the last start.
+    const fix = typeof entry === 'string' ? { lastStartedAt: entry, attempts: 1 } : Object.assign({}, entry);
+    // Attempts count per mode, so dry-run starts never use up the live ones.
+    if (fix.mode && (mode === 'dry-run' || mode === 'live') && fix.mode !== mode) continue;
+    fixes[id] = fix;
+  }
+  const messages = [];
+  if (report.main === null) return { fixes, messages, summary: 'skipped, main scan failed' };
   const current = report.main.map((finding) => finding.id).filter((id, index, ids) => ids.indexOf(id) === index);
   // Forget advisories main no longer reports, so a regression starts the agent again.
   for (const id of Object.keys(fixes)) if (current.indexOf(id) < 0) delete fixes[id];
   if (FIX_MODES.indexOf(mode) < 0) {
     report.errors.push(`Fix agent: FIX_MODE must be off, dry-run or live, not "${mode}"`);
-    return { fixes, summary: 'invalid FIX_MODE' };
+    return { fixes, messages, summary: 'invalid FIX_MODE' };
   }
+  if (mode === 'off') return { fixes, messages, summary: 'off' };
   const now = Date.parse(report.scannedAt);
-  const due = current.filter((id) => !(fixes[id] && now - Date.parse(fixes[id]) < FIX_RETRY_MS));
-  if (mode === 'off') return { fixes, summary: 'off' };
-  if (!due.length) return { fixes, summary: 'nothing new' };
-  if (preview) return { fixes, summary: `would start for ${due.join(', ')} (${mode})` };
+  const waited = (id) => !fixes[id] || now - Date.parse(fixes[id].lastStartedAt) >= FIX_RETRY_MS;
+  const due = current.filter((id) => waited(id) && (!fixes[id] || fixes[id].attempts < FIX_MAX_ATTEMPTS));
+  const exhausted = current.filter((id) => fixes[id] && fixes[id].attempts >= FIX_MAX_ATTEMPTS && waited(id) && !fixes[id].stoppedAt);
+  for (const id of exhausted) {
+    messages.push(
+      `Security fix agent stopped for ${id}: it worked on it ${FIX_MAX_ATTEMPTS} times and upstream main still reports it. ` +
+        `A fixed release may not exist yet, or a pull request may be waiting for review; otherwise fix it by hand. ` +
+        `Earlier runs: https://github.com/${FIX_REPO}/actions/workflows/${FIX_WORKFLOW}`,
+    );
+    fixes[id].stoppedAt = report.scannedAt;
+  }
+  const stopped = exhausted.length ? `stopped for ${exhausted.join(', ')}` : '';
+  if (!due.length) return { fixes, messages, summary: stopped || 'nothing new' };
+  if (preview) return { fixes, messages, summary: [`would start for ${due.join(', ')} (${mode})`, stopped].filter(Boolean).join('; ') };
   if (!token) {
     report.errors.push('Fix agent: missing FIX_DISPATCH_TOKEN script property');
-    return { fixes, summary: 'missing token' };
+    return { fixes, messages, summary: 'missing token' };
   }
-  const status = dispatchFix_(token, { advisories: due.join(','), ref: 'main', dryRun: mode === 'dry-run' });
+  const status = dispatchFix_(token, { advisories: due.join(','), ref: 'main', dryRun: mode === 'dry-run', force: false });
   if (status !== 204) {
     report.errors.push(`Fix agent: starting the workflow failed with HTTP ${status}`);
-    return { fixes, summary: 'start failed' };
+    return { fixes, messages, summary: 'start failed' };
   }
-  for (const id of due) fixes[id] = report.scannedAt;
-  return { fixes, summary: `started for ${due.join(', ')} (${mode})` };
+  for (const id of due) fixes[id] = { lastStartedAt: report.scannedAt, attempts: (fixes[id] ? fixes[id].attempts : 0) + 1, mode };
+  return { fixes, messages, summary: [`started for ${due.join(', ')} (${mode})`, stopped].filter(Boolean).join('; ') };
+}
+
+/**
+ * Adds a "Fix runs" row for each finished fix agent run not recorded yet, from the summary file each run uploads.
+ * An advisory the workflow skipped without running the agent (open PR, cooldown, daily limit, no longer reported)
+ * gets its attempt back in fixes. Runs skipped by the workflow's limits get at most one message a day: something
+ * starts the agent too often.
+ */
+function recordFixRuns_(report, previous, token, fixes, started) {
+  const result = { recorded: null, limitAlertAt: previous.fixLimitAlertAt || null, messages: [], count: 0 };
+  if (!token) return result;
+  try {
+    const known = (previous.fixRunsRecorded || []).slice();
+    const runs = github_(`repos/${FIX_REPO}/actions/workflows/${FIX_WORKFLOW}/runs?status=completed&per_page=30`, { token }).workflow_runs;
+    const rows = [];
+    let limited = 0;
+    for (const run of runs.filter((item) => known.indexOf(item.id) < 0).reverse()) {
+      if (Date.now() - started > FIX_RUNS_BUDGET_MS) break;
+      let summary = null;
+      let unreadable = false;
+      try {
+        summary = fixRunSummary_(run.id, token);
+      } catch (error) {
+        unreadable = true;
+        console.warn(`Fix run ${run.id} summary: ${error.message}`);
+      }
+      if (summary && FIX_LIMIT_STATUSES.indexOf(summary.status) >= 0) limited++;
+      if (summary) refundSkipped_(fixes, summary);
+      const seconds = summary && Number(summary.agentSeconds);
+      const tokens = summary && summary.tokens ? Number(summary.tokens.total) : NaN;
+      rows.push([
+        run.run_started_at || run.created_at,
+        (summary ? summary.dryRun : /\(dry run\)/.test(run.display_title)) ? 'dry run' : 'live',
+        summary ? summary.requested.join(', ') : (run.display_title.match(/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/gi) || []).join(', '),
+        summary ? summary.status : `${run.conclusion} (${unreadable ? 'summary unreadable' : 'no summary'})`,
+        (summary && summary.url) || '',
+        tokens >= 0 ? tokens : '',
+        seconds > 0 ? Math.round(seconds / 6) / 10 : '',
+        run.html_url,
+      ]);
+      known.push(run.id);
+    }
+    if (rows.length) appendFixRuns_(rows);
+    result.recorded = known.slice(-300);
+    result.count = rows.length;
+    if (limited && (!result.limitAlertAt || Date.parse(report.scannedAt) - Date.parse(result.limitAlertAt) >= DAY)) {
+      result.messages.push(
+        `Security fix agent skipped ${limited} run(s) because of its limits (20-hour cooldown or daily run limit). ` +
+          `Something may be starting it more than once a day: https://github.com/${FIX_REPO}/actions/workflows/${FIX_WORKFLOW}`,
+      );
+      result.limitAlertAt = report.scannedAt;
+    }
+  } catch (error) {
+    report.errors.push(`Fix runs log: ${error.message}`);
+  }
+  return result;
+}
+
+/** Gives back the attempt of each advisory a run requested but did not run the agent for, in the run's own mode. */
+function refundSkipped_(fixes, summary) {
+  const mode = summary.dryRun ? 'dry-run' : 'live';
+  for (const id of summary.requested || []) {
+    const fix = fixes && fixes[id];
+    if (!fix || (summary.targets || []).indexOf(id) >= 0 || (fix.mode && fix.mode !== mode) || !(fix.attempts > 0)) continue;
+    fix.attempts -= 1;
+    delete fix.stoppedAt;
+  }
+}
+
+function fixRunSummary_(runId, token) {
+  const artifacts = github_(`repos/${FIX_REPO}/actions/runs/${runId}/artifacts?per_page=100`, { token }).artifacts || [];
+  const artifact = artifacts.filter((item) => item.name === FIX_SUMMARY_ARTIFACT && !item.expired)[0];
+  if (!artifact) return null;
+  const files = Utilities.unzip(githubDownload_(`repos/${FIX_REPO}/actions/artifacts/${artifact.id}/zip`, token).getBlob());
+  const file = files.filter((item) => item.getName() === 'summary.json')[0];
+  return file ? JSON.parse(file.getDataAsString()) : null;
+}
+
+function appendFixRuns_(rows) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(FIX_RUNS_SHEET);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(FIX_RUNS_SHEET, 1);
+    sheet
+      .getRange(1, 1, 1, 8)
+      .setValues([['Started (UTC)', 'Mode', 'Advisories', 'Outcome', 'PR or branch', 'Tokens', 'Agent minutes', 'Run']])
+      .setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  // The run link is the key: a run already in the tab is never added twice.
+  const last = sheet.getLastRow();
+  const present = last > 1 ? sheet.getRange(2, 8, last - 1, 1).getValues().map((row) => row[0]) : [];
+  const fresh = rows.filter((row) => present.indexOf(row[7]) < 0);
+  if (fresh.length) sheet.getRange(last + 1, 1, fresh.length, 8).setValues(fresh);
 }
 
 /** Starts the fix agent workflow on the fork's main and returns the HTTP status; GitHub answers 204 on success. */
-function dispatchFix_(token, { advisories, ref, dryRun }) {
+function dispatchFix_(token, { advisories, ref, dryRun, force }) {
   return fetchWithRetry_(`https://api.github.com/repos/${FIX_REPO}/actions/workflows/${FIX_WORKFLOW}/dispatches`, {
     method: 'post',
     contentType: 'application/json',
     muteHttpExceptions: true,
     headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' },
-    payload: JSON.stringify({ ref: 'main', inputs: { advisories, ref, base_branch: 'main', dry_run: String(dryRun) } }),
+    payload: JSON.stringify({ ref: 'main', inputs: { advisories, ref, base_branch: 'main', dry_run: String(dryRun), force: String(force) } }),
   }).getResponseCode();
 }
 
@@ -210,6 +346,8 @@ function testFixDispatch() {
     advisories: 'GHSA-8r5x-fm3f-whwj,GHSA-p8wg-vrv2-v86f',
     ref: 'f00b0ef6e1b2e7182f75e276352a8f2115ed1510',
     dryRun: true,
+    // A manual test skips the cooldown and daily limit, so repeating it never looks like a loop.
+    force: true,
   });
   console.log(
     status === 204
@@ -550,9 +688,12 @@ function github_(path, { token, raw = false, allow404 = false } = {}) {
   return raw ? response.getContentText() : JSON.parse(response.getContentText());
 }
 
-/** GitHub answers with a redirect to signed blob storage, which must not receive the GitHub token. */
 function jobLog_(jobId, token) {
-  const path = `repos/${UPSTREAM}/actions/jobs/${jobId}/logs`;
+  return githubDownload_(`repos/${UPSTREAM}/actions/jobs/${jobId}/logs`, token).getContentText();
+}
+
+/** GitHub answers downloads with a redirect to signed blob storage, which must not receive the GitHub token. */
+function githubDownload_(path, token) {
   const redirect = fetchWithRetry_(`https://api.github.com/${path}`, {
     method: 'get',
     muteHttpExceptions: true,
@@ -564,13 +705,13 @@ function jobLog_(jobId, token) {
     },
   });
   const status = redirect.getResponseCode();
-  if (status === 200) return redirect.getContentText();
+  if (status === 200) return redirect;
   const headers = redirect.getAllHeaders();
   const location = headers.Location || headers.location;
-  if (status !== 302 || !location) throw new Error(`GitHub GET ${path}: HTTP ${status}`);
-  const log = fetchWithRetry_(location, { method: 'get', muteHttpExceptions: true });
-  if (log.getResponseCode() !== 200) throw new Error(`Job log download: HTTP ${log.getResponseCode()}`);
-  return log.getContentText();
+  if (status !== 302 || !location) throw new Error(`GitHub GET ${path.split('?')[0]}: HTTP ${status}`);
+  const download = fetchWithRetry_(location, { method: 'get', muteHttpExceptions: true });
+  if (download.getResponseCode() !== 200) throw new Error(`Download of ${path.split('?')[0]}: HTTP ${download.getResponseCode()}`);
+  return download;
 }
 
 function pages_(path, field, token) {
