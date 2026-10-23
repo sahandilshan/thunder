@@ -78,7 +78,7 @@ catalog:
   vite: 8.1.6
   vite-plugin-svgr: 5.2.0
   vitest: 4.1.10
-  zod: 4.3.6
+  zod: 4.6.6
 
 overrides:
   # JUSTIFICATION: Fixes GHSA-w7jw-789q-3m8p and GHSA-395f-4hp3-45gv (quadratic-complexity DoS in
