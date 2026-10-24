@@ -270,6 +270,11 @@ test("an advisory a run skipped without the agent gets its attempt back, in that
   const { ctx: overBudget } = load(fixRunsRoute({ 202: budgetSkip }));
   overBudget.recordFixRuns_(report([]), {}, "fix-token", held, Date.now());
   assert.equal(held[A].attempts, 0, "a run held back by the token budget does not use up an attempt");
+  const carriedRun = { ...summary202, dryRun: false, requested: [A, B], targets: [A, B], carried: [A], status: "pr_updated" };
+  const both = { [A]: { lastStartedAt: hoursAgo(2), attempts: 2, mode: "live" }, [B]: { lastStartedAt: hoursAgo(2), attempts: 1, mode: "live" } };
+  const { ctx: folded } = load(fixRunsRoute({ 202: carriedRun }));
+  folded.recordFixRuns_(report([]), {}, "fix-token", both, Date.now());
+  assert.deepEqual([both[A].attempts, both[B].attempts], [1, 1], "an advisory carried from the open pull request gets its attempt back");
 });
 
 test("an unreadable summary still gets a row, and a run already in the tab is not added again", () => {

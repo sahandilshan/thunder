@@ -2,6 +2,8 @@ You are fixing npm security advisories in the ThunderID monorepo checked out in 
 
 Advisories to fix: {{ADVISORIES}}
 
+{{OPEN_PR}}
+
 The audit output for this commit is in `{{CONTEXT_DIR}}/audit.json`. It is `pnpm audit --json --ignore-registry-errors --audit-level=high` from pnpm 11: `advisories` is keyed by numeric ID, and each entry has `github_advisory_id`, `module_name`, `vulnerable_versions`, `patched_versions`, `severity` and `findings[].paths`.
 
 Follow `.agent/skills/fix-npm-vulnerability/SKILL.md` and `AGENTS.md`, with these rules for unattended use. Where the skill says to ask the user, apply the rules below instead.

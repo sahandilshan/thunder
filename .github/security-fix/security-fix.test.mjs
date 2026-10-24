@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import { classify, floor } from "./guard.mjs";
 import { lintWorkspace, overrideTarget } from "./lint-overrides.mjs";
 import {
   addUsage,
+  agentPullRequest,
   applyLimits,
   auditCheck,
   budgetFreesAt,
@@ -18,7 +19,11 @@ import {
   cleanTitle,
   decide,
   detailLines,
+  compareUrl,
   jobFacts,
+  lockedPullRequest,
+  markerAdvisories,
+  openPrNote,
   parseAdvisories,
   parseLimit,
   ranFrom,
@@ -136,6 +141,68 @@ test("only a clean automatic fix opens a pull request", () => {
   assert.equal(decide({ summary, agentOutcome: "success", result: fixed, guard: rejected, checks: passing, patchSize: 10 }).action, "none");
 });
 
+test("a new fix goes into the agent's open pull request, unless it needs review or has other commits", () => {
+  const auto = { verdict: "auto", changes: ["raise"], reasons: [] };
+  const openPr = { number: 6034, url: "https://pr/6034", branch: "security-fix/ghsa-27r3-jxmh-p828-20261024-0308", sha: "466cbf1", advisories: [HB2], locked: false };
+  const folded = { ...summary, targets: [HB2, HB1], openPr };
+  assert.deepEqual(decide({ summary: folded, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10 }), {
+    action: "pr",
+    status: "pr_updated",
+    reasons: [`#6034 now fixes ${HB2}, ${HB1}.`],
+    update: { number: 6034, branch: openPr.branch, sha: "466cbf1" },
+  });
+  const locked = decide({ summary: { ...folded, openPr: { ...openPr, locked: true } }, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10 });
+  assert.equal(locked.action, "branch");
+  assert.equal(locked.status, "needs_review");
+  assert.match(locked.reasons.at(-1), /^#6034 has commits the agent did not make, so it was not updated\./);
+  const theirs = { ...folded, openPr: { ...openPr, locked: true, lockReason: "was opened by @maintainer" } };
+  assert.match(decide({ summary: theirs, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10 }).reasons.at(-1), /^#6034 was opened by @maintainer, so it was not updated\./);
+  assert.deepEqual(decide({ summary: theirs, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10, addsChange: false }),
+    { action: "none", status: "pr_exists", reasons: [`#6034 already fixes ${HB1}. Add them to its security-fix-agent marker line.`] }, "a branch would only repeat the locked pull request");
+  const review = decide({ summary: folded, agentOutcome: "success", result: fixed, guard: { verdict: "review", changes: [], reasons: ["new override"] }, checks: passing, patchSize: 10 });
+  assert.deepEqual([review.action, review.status, review.reasons], ["branch", "needs_review", ["new override", "This branch contains the change from #6034, which was not updated. Push it to the branch of #6034, or close #6034 when you open it, so only one fix stays open."]]);
+  const waiting = { ...fixed, status: "waiting_for_release", notes: "" };
+  assert.deepEqual(decide({ summary: folded, agentOutcome: "success", result: waiting, guard: auto, checks: passing, patchSize: 10, addsChange: false }),
+    { action: "none", status: "waiting_for_release", reasons: [] }, "a run that adds nothing to the open pull request changes nothing");
+  assert.equal(decide({ summary: folded, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10, addsChange: false }).status,
+    "pr_updated", "the open pull request already fixes the new advisory: its description is updated to list it");
+  assert.deepEqual(decide({ summary: folded, agentOutcome: "success", result: fixed, guard: auto, checks: { ...passing, audit: "fail" }, patchSize: 10, addsChange: false, audit: { remaining: [HB1], introduced: [] } }),
+    { action: "none", status: "failed", reasons: [`pnpm audit still reports ${HB1}.`, "The agent changed nothing on top of #6034."] }, "a wrong fixed with no change pushes nothing");
+});
+
+test("the agent's own pull request is found by fork, branch, base and marker", () => {
+  const pr = (number, extra = {}) => ({ number, marker: [HB1], user: "sahandilshan", headRepo: "sahandilshan/thunder", head: `security-fix/x-${number}`, base: "main", ...extra });
+  const options = { repo: "sahandilshan/thunder", baseBranch: "main" };
+  assert.equal(agentPullRequest([pr(1), pr(3), pr(2)], options).number, 3, "the newest one");
+  assert.equal(agentPullRequest([pr(1, { user: "maintainer", association: "MEMBER" })], options).number, 1, "opened from a needs-review link by a maintainer");
+  for (const other of [{ marker: null }, { user: "someone", association: "CONTRIBUTOR" }, { headRepo: "someone/thunderid" }, { head: "fix-zod" }, { base: "1.0.x" }]) {
+    assert.equal(agentPullRequest([pr(1, other)], options), null, JSON.stringify(other));
+  }
+  assert.equal(markerAdvisories("no marker here"), null);
+  assert.deepEqual(markerAdvisories("<!-- security-fix-agent: -->"), []);
+  assert.equal(openPrNote({ number: "", advisories: "", applied: "" }), "");
+  const me = "sahandilshan222@gmail.com";
+  assert.equal(lockedPullRequest([[me, me]], "SahanDilshan222@gmail.com"), false);
+  assert.equal(lockedPullRequest([[me, me], [me, me]], me), true, "two commits, even by the agent's identity");
+  assert.equal(lockedPullRequest([[me, "maintainer@example.com"]], me), true, "amended by someone else");
+  assert.equal(lockedPullRequest([], me), true);
+});
+
+test("the agent is told how much of the open pull request's change applied", () => {
+  const note = (applied) => openPrNote({ number: "6034", advisories: `${HB1},${HB2}`, applied });
+  assert.match(note("all"), new RegExp(`^The working tree already contains the change from open pull request #6034 \\(it fixes ${HB1}, ${HB2}\\)\\. Keep that change`));
+  assert.match(note("without-lockfile"), /Its `pnpm-lock\.yaml` part did not apply to this commit, so run `pnpm install --lockfile-only` first\./);
+  assert.match(note("none"), /^Applying the change from open pull request #6034 .* failed, so the working tree is clean\. Fix every advisory above\./);
+  for (const applied of ["all", "without-lockfile", "none"]) assert.match(note(applied), /Your change replaces that pull request's change/);
+});
+
+test("a branch for review links to a pull request on upstream that carries the marker", () => {
+  const url = new URL(compareUrl({ repo: "sahandilshan/thunder", branch: "security-fix/x", baseBranch: "main", title: "Raise zod", runUrl: "https://run/1", targets: [HB1, HB2] }));
+  assert.equal(url.origin + url.pathname, "https://github.com/thunder-id/thunderid/compare/main...sahandilshan:security-fix/x");
+  assert.equal(url.searchParams.get("title"), "Raise zod");
+  assert.deepEqual(markerAdvisories(url.searchParams.get("body")), [HB1, HB2]);
+});
+
 test("runs without a usable change never push", () => {
   const none = { verdict: "none", changes: [], reasons: [] };
   const waiting = { ...fixed, status: "waiting_for_release", notes: "No release yet" };
@@ -152,7 +219,7 @@ test("runs without a usable change never push", () => {
 });
 
 test("the PR body follows the repository template", () => {
-  const body = renderBody({ result: fixed, guard: { changes: ["raises a"], reasons: [] }, runUrl: "https://run" });
+  const body = renderBody({ result: fixed, guard: { changes: ["raises a"], reasons: [] }, runUrl: "https://run", targets: [HB1] });
   for (const heading of ["### Purpose", "### Approach", "### Validation", "### Related Issues", "### Checklist", "### Security checks"]) {
     assert.ok(body.includes(heading), heading);
   }
@@ -272,16 +339,19 @@ test("the PR body names the fixed advisories and those handled elsewhere", () =>
     guard: { changes: ["raises handlebars"], reasons: [] },
     runUrl: "https://run",
     audit: { fixed: [HB1, HB2], unrelated: [VITE], remaining: [], introduced: [] },
+    targets: [HB1, HB2],
   });
   assert.match(body, new RegExp(`no longer reports ${HB1}, ${HB2}, and the change adds no new`));
   assert.match(body, new RegExp(`${VITE} is still reported on the base commit and handled separately`));
+  assert.ok(body.endsWith(`<!-- security-fix-agent: ${HB1},${HB2} -->\n`));
+  assert.deepEqual(markerAdvisories(body), [HB1, HB2], "the advisory handled elsewhere is named in the text but not in the marker");
 });
 
 test("the PR body mentions overrides only when the fix touched one", () => {
-  const plain = renderBody({ result: fixed, guard: { changes: ["raises a"], reasons: [] }, runUrl: "u", lint: { touched: [], problems: [] } });
+  const plain = renderBody({ result: fixed, guard: { changes: ["raises a"], reasons: [] }, runUrl: "u", lint: { touched: [], problems: [] }, targets: [HB1] });
   assert.ok(!plain.includes("Every touched override"));
   assert.ok(plain.includes("still names a replaced version"));
-  const overrides = renderBody({ result: fixed, guard: { changes: ["raises a"], reasons: [] }, runUrl: "u", lint: { touched: ["a@<1.2.3"], problems: [] } });
+  const overrides = renderBody({ result: fixed, guard: { changes: ["raises a"], reasons: [] }, runUrl: "u", lint: { touched: ["a@<1.2.3"], problems: [] }, targets: [HB1] });
   assert.ok(overrides.includes("Every touched override is range-qualified or parent-scoped"));
 });
 
@@ -429,12 +499,16 @@ test("decide marks limit skips as silent and writes the decision the summary com
   assert.deepEqual([marked.budgetNotified, marked.force, written.force], [true, true, false]);
 });
 
-test("the workflow keeps the names and titles the run limits depend on", () => {
-  const workflow = JSON.parse(
+/** The workflow as JSON; Ruby's YAML parser stands in for the one GitHub uses. */
+const workflowYaml = () =>
+  JSON.parse(
     execFileSync("ruby", ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.safe_load(File.read(ARGV[0]), aliases: false))", join(here, "..", "workflows", "security-fix-agent.yml")], {
       encoding: "utf8",
     }),
   );
+
+test("the workflow keeps the names and titles the run limits depend on", () => {
+  const workflow = workflowYaml();
   assert.match(workflow["run-name"], /inputs\.advisories/);
   assert.match(workflow["run-name"], /' \(dry run\)'/);
   assert.equal(workflow.jobs.agent.name, undefined, "the agent job must keep the display name 'agent'");
@@ -451,6 +525,16 @@ test("the workflow keeps the names and titles the run limits depend on", () => {
   const budgetNotify = step("publish", "Tell Google Chat the daily token budget is used up");
   assert.equal(budgetNotify.id, "budget_notify");
   assert.doesNotMatch(budgetNotify.if, /dry_run/, "dry runs post the budget message too");
+  assert.equal(workflow.jobs.check.outputs.open_pr, "${{ steps.targets.outputs.open_pr }}");
+  assert.match(step("check", "Validate inputs").run, /\[\[ "\$DRY_RUN" == true \|\| "\$REF" == "\$BASE_BRANCH" \]\]/, "live runs fix the base branch itself");
+  const start = step("agent", "Start from the open pull request's change");
+  assert.equal(start.if, "needs.check.outputs.open_pr != ''");
+  const steps = workflow.jobs.agent.steps.map((s) => s.name);
+  assert.ok(steps.indexOf("Start from the open pull request's change") < steps.indexOf("Prepare the Codex configuration and prompt"), "the prompt needs the apply result");
+  const open = step("publish", "Open or update the pull request on upstream");
+  assert.doesNotMatch(open.run, /--draft/, "pull requests open ready for review");
+  assert.match(open.run, /gh pr edit "\$PR_NUMBER"/);
+  assert.match(step("publish", "Commit and push the branch").run, /--force-with-lease="refs\/heads\/\$BRANCH:\$LEASE"/);
   assert.equal(step("publish", "Save the run summary").env.BUDGET_NOTIFIED, "${{ steps.budget_notify.outcome == 'success' }}");
   for (const [job, name] of [
     ["agent", "Measure the agent's token usage"],
@@ -573,7 +657,8 @@ if (args[0] === "run" && args[1] === "download") {
 }
 const path = args.find((arg) => arg.startsWith("repos/"));
 const jobs = path.match(/actions\\/runs\\/(\\d+)\\/jobs/);
-const body = path.includes("/pulls?") ? [] : jobs ? data.jobs[jobs[1]] : path.includes("/workflows/") ? data.runs : null;
+const pull = path.match(/pulls\\/(\\d+)\\/(files|commits)/);
+const body = path.includes("/pulls?") ? data.pulls ?? [] : pull ? data[pull[2]][pull[1]] : jobs ? data.jobs[jobs[1]] : path.includes("/workflows/") ? data.runs : null;
 const jq = args[args.indexOf("--jq") + 1];
 process.stdout.write(execFileSync("jq", ["-cr", jq], { input: JSON.stringify(body), encoding: "utf8" }));
 `,
@@ -678,4 +763,137 @@ test("the targets command reads earlier runs, their jobs and their summaries thr
   const forced = JSON.parse(targets("400000").out.summary);
   assert.equal(forced.notifyBudget, false, "run 1 was forced, so run 4's message still covers this stretch");
   assert.throws(() => targets("lots"), /SECURITY_FIX_DAILY_TOKEN_BUDGET must be a positive whole number/);
+});
+
+test("the prompt says which open pull request the working tree starts from", () => {
+  const dir = mkdtempSync(join(tmpdir(), "prompt-"));
+  writeFileSync(join(dir, "prompt.md"), "Fix: {{ADVISORIES}}\n\n{{OPEN_PR}}\nEnd");
+  const sha = "7879bc593".padEnd(40, "0");
+  const render = (extra) => {
+    cli(["prompt", "--template", join(dir, "prompt.md"), "--out", join(dir, "out.md"), "--advisories", `${HB1},${HB2}`, "--context", "/c", "--tools", "/t", "--sha", sha, ...extra]);
+    return readFileSync(join(dir, "out.md"), "utf8");
+  };
+  assert.equal(render([]), `Fix: ${HB1}, ${HB2}\n\n\nEnd`);
+  assert.match(render(["--open-pr", "6034", "--open-pr-advisories", HB1, "--open-pr-applied", "all"]), new RegExp(`already contains the change from open pull request #6034 \\(it fixes ${HB1}\\)\\.`));
+  // The real template has the placeholder.
+  assert.match(readFileSync(join(here, "prompt.md"), "utf8"), /^\{\{OPEN_PR\}\}$/m);
+});
+
+test("the targets command adds a new fix to the agent's open pull request", () => {
+  const A = "GHSA-27r3-jxmh-p828", B = "GHSA-xjj6-f33q-929c", C = "GHSA-mrhx-c7xc-m3w5", D = "GHSA-dddd-dddd-dddd", E = "GHSA-eeee-eeee-eeee";
+  const agentPr = {
+    number: 6034,
+    html_url: "https://github.com/thunder-id/thunderid/pull/6034",
+    title: "Refresh body-parser and undici for two audit advisories",
+    // The description names C as handled elsewhere; only the marker says what the pull request fixes.
+    body: `${C} (zod) is still reported on main.\n\n<!-- security-fix-agent: ${A},${B} -->\n`,
+    user: { login: "sahandilshan" },
+    head: { ref: "security-fix/ghsa-27r3-jxmh-p828-20261024-0308", sha: "466cbf1fa76a08afd764cf12446400be189dfc1a", repo: { full_name: "sahandilshan/thunder" } },
+    base: { ref: "main" },
+  };
+  const humanPr = { number: 7000, html_url: "https://github.com/thunder-id/thunderid/pull/7000", title: `Fix ${D}`, body: "", user: { login: "someone" }, head: { ref: "fix-d", sha: "1", repo: { full_name: "someone/thunderid" } }, base: { ref: "main" } };
+  const data = {
+    runs: { workflow_runs: [{ id: 99, created_at: new Date().toISOString(), display_title: `Security fix: ${C},${D},${E}`, html_url: "https://run/99" }] },
+    jobs: {},
+    summaries: {},
+    pulls: [agentPr, humanPr],
+    files: { 6034: [{ filename: "pnpm-lock.yaml" }], 7000: [{ filename: "pnpm-workspace.yaml" }] },
+    commits: { 6034: [{ commit: { author: { email: "sahandilshan222@gmail.com" }, committer: { email: "sahandilshan222@gmail.com" } } }] },
+  };
+  const gh = fakeGh(data);
+  const reported = [A, B, C, D, E].map((id, i) => [i, { severity: "high", github_advisory_id: id }]);
+  writeFileSync(join(gh.dir, "audit.json"), JSON.stringify({ advisories: Object.fromEntries(reported) }));
+  const targets = (ref = "main") =>
+    gh.run(["targets", "--audit", join(gh.dir, "audit.json"), "--advisories", `${C},${D},${E}`, "--repo", "sahandilshan/thunder", "--run-id", "99",
+      "--dry-run", "false", "--force", "false", "--daily-limit", "", "--token-budget", "", "--ref", ref, "--base-branch", "main", "--git-email", "SahanDilshan222@gmail.com"]).out;
+  const out = targets();
+  const summary = JSON.parse(out.summary);
+  assert.deepEqual(summary.targets, [A, B, C, E], "the open pull request's advisories, then the new ones");
+  assert.deepEqual(summary.existing, [{ id: D, urls: [humanPr.html_url] }]);
+  assert.deepEqual(summary.openPr, { number: 6034, url: agentPr.html_url, branch: agentPr.head.ref, sha: agentPr.head.sha, advisories: [A, B], locked: false, lockReason: null });
+  assert.deepEqual([out.open_pr, out.open_pr_advisories, out.open_pr_sha, out.proceed], ["6034", `${A},${B}`, agentPr.head.sha, "true"]);
+  const old = targets("f00b0ef6e1b2e7182f75e276352a8f2115ed1510");
+  assert.deepEqual([JSON.parse(old.summary).targets, old.open_pr], [[C, E], ""], "a run of an older commit leaves the open pull request alone");
+  gh.setData({ ...data, commits: { 6034: [...data.commits[6034], { commit: { author: { email: "maintainer@example.com" }, committer: { email: "maintainer@example.com" } } }] } });
+  assert.equal(JSON.parse(targets().summary).openPr.locked, true, "a commit by someone else locks it");
+  gh.setData({ ...data, pulls: [{ ...agentPr, user: { login: "maintainer" }, author_association: "MEMBER" }, humanPr] });
+  assert.deepEqual(JSON.parse(targets().summary).openPr.lockReason, "was opened by @maintainer", "a maintainer's pull request from the agent's branch is theirs to update");
+  gh.setData({ ...data, pulls: [humanPr] });
+  const alone = JSON.parse(targets().summary);
+  assert.deepEqual([alone.targets, alone.openPr], [[C, E], undefined]);
+});
+
+test("the agent job starts from the open pull request's change, whatever main did since", () => {
+  const steps = workflowYaml().jobs.agent.steps;
+  const script = (name) => steps.find((step) => step.name === name).run;
+  const dir = mkdtempSync(join(tmpdir(), "open-pr-step-"));
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com",
+  };
+  const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", env }).trim();
+  const lines = (n, change = {}) => Array.from({ length: n }, (_, i) => change[i] ?? `line ${i}`).join("\n") + "\n";
+  // origin has main and refs/pull/7/head, like upstream; the step fetches both from it.
+  const setup = (name, { pr, main }) => {
+    const origin = join(dir, name, "origin");
+    mkdirSync(origin, { recursive: true });
+    git(origin, "init", "-q", "-b", "main");
+    const write = (files) => {
+      for (const [file, text] of Object.entries(files)) writeFileSync(join(origin, file), text);
+      git(origin, "add", "-A");
+      git(origin, "commit", "-q", "-m", "change");
+    };
+    write({ "package.json": lines(20), "pnpm-lock.yaml": lines(40), "README.md": "readme\n" });
+    git(origin, "checkout", "-q", "-b", "pr");
+    write(pr);
+    git(origin, "update-ref", "refs/pull/7/head", "HEAD");
+    git(origin, "checkout", "-q", "main");
+    write(main);
+    const repo = join(dir, name, "repo");
+    git(join(dir, name), "clone", "-q", origin, repo);
+    return { repo, prSha: git(origin, "rev-parse", "refs/pull/7/head") };
+  };
+  const runStep = (name, { prSha }, extra = {}) => {
+    const out = join(dir, name, "out");
+    writeFileSync(out, "");
+    const result = spawnSync("bash", ["-e", "-c", script("Start from the open pull request's change")], {
+      cwd: join(dir, name),
+      encoding: "utf8",
+      env: { ...env, OPEN_PR: "7", OPEN_PR_SHA: prSha, BASE_BRANCH: "main", RUNNER_TEMP: join(dir, name), GITHUB_OUTPUT: out, ...extra },
+    });
+    return { status: result.status, log: result.stdout + result.stderr, applied: readFileSync(out, "utf8").match(/^applied=(\S+)$/m)?.[1] };
+  };
+
+  // The pull request's branch is behind main, which changed another file since.
+  const behind = setup("behind", { pr: { "pnpm-lock.yaml": lines(40, { 5: "lock fix" }), "package.json": lines(20, { 3: "dep fix" }) }, main: { "README.md": "newer readme\n" } });
+  assert.equal(runStep("behind", behind).applied, "all");
+  assert.equal(git(behind.repo, "diff", "--name-only"), "package.json\npnpm-lock.yaml", "only the pull request's own change, not main's README");
+
+  const lockConflict = setup("lock", { pr: { "pnpm-lock.yaml": lines(40, { 5: "lock fix" }), "package.json": lines(20, { 3: "dep fix" }) }, main: { "pnpm-lock.yaml": lines(40, { 5: "main moved" }) } });
+  assert.equal(runStep("lock", lockConflict).applied, "without-lockfile");
+  assert.equal(git(lockConflict.repo, "diff", "--name-only"), "package.json");
+
+  const lockOnly = setup("lockonly", { pr: { "pnpm-lock.yaml": lines(40, { 5: "lock fix" }) }, main: { "pnpm-lock.yaml": lines(40, { 5: "main moved" }) } });
+  assert.equal(runStep("lockonly", lockOnly).applied, "none");
+  assert.equal(git(lockOnly.repo, "status", "--porcelain"), "", "nothing applied, so the tree stays clean");
+
+  const moved = setup("moved", { pr: { "package.json": lines(20, { 3: "dep fix" }) }, main: { "README.md": "newer\n" } });
+  const stale = runStep("moved", { prSha: "0".repeat(40) });
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.log, /::error::#7 changed since the check job read it/);
+  assert.equal(git(moved.repo, "status", "--porcelain"), "", "it stops before applying anything");
+
+  // The save step tells whether the agent added anything to the pull request's change.
+  const save = (name) => {
+    const out = join(dir, name, "out");
+    writeFileSync(out, "");
+    execFileSync("bash", ["-e", "-c", script("Save the agent's changes")], { cwd: join(dir, name), env: { ...env, RUNNER_TEMP: join(dir, name), GITHUB_OUTPUT: out } });
+    return readFileSync(out, "utf8").match(/^changed=(\S+)$/m)?.[1];
+  };
+  assert.equal(save("behind"), "false");
+  writeFileSync(join(behind.repo, "pnpm-workspace.yaml"), "overrides: {}\n");
+  assert.equal(save("behind"), "true");
+  assert.ok(readFileSync(join(dir, "behind", "security-fix.patch"), "utf8").includes("dep fix"), "the patch keeps the pull request's change");
 });

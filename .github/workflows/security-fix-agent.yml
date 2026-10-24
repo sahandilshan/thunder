@@ -4,7 +4,8 @@ run-name: "Security fix: ${{ inputs.advisories }}${{ inputs.dry_run && ' (dry ru
 # Started by the Apps Script security monitor when upstream main reports a new high or critical
 # npm advisory. Codex (Azure OpenAI) prepares the fix in a job that has read-only repository access
 # and network access only to the npm registry. A separate job without the model key re-checks the
-# change and opens a draft pull request on upstream, or pushes a branch for a maintainer to review.
+# change and opens a pull request on upstream, or pushes a branch for a maintainer to review. While the
+# agent's own pull request is open, a new fix is added to it as one commit instead of a second pull request.
 # Limits: an advisory is not retried within 20 hours in the same mode, the agent runs at most
 # SECURITY_FIX_DAILY_LIMIT (default 6) times in 24 hours and does not start once its tokens in 24 hours
 # reach SECURITY_FIX_DAILY_TOKEN_BUDGET (default 1,000,000), and the agent job stops after 15 minutes.
@@ -17,7 +18,7 @@ on:
         required: true
         type: string
       ref:
-        description: Upstream branch or commit to fix. Use main for real runs and an older commit to test.
+        description: Upstream branch or commit to fix. Live runs must use base_branch itself; test an older commit with dry_run.
         type: string
         default: main
       base_branch:
@@ -56,6 +57,9 @@ jobs:
       proceed: ${{ steps.targets.outputs.proceed }}
       targets: ${{ steps.targets.outputs.targets }}
       summary: ${{ steps.targets.outputs.summary }}
+      open_pr: ${{ steps.targets.outputs.open_pr }}
+      open_pr_advisories: ${{ steps.targets.outputs.open_pr_advisories }}
+      open_pr_sha: ${{ steps.targets.outputs.open_pr_sha }}
       sha: ${{ steps.resolve.outputs.sha }}
       pnpm: ${{ steps.resolve.outputs.pnpm }}
     steps:
@@ -64,11 +68,14 @@ jobs:
           ADVISORIES: ${{ inputs.advisories }}
           REF: ${{ inputs.ref }}
           BASE_BRANCH: ${{ inputs.base_branch }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           ghsa='GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}'
           [[ "$ADVISORIES" =~ ^$ghsa(,$ghsa)*$ ]] || { echo "::error::Invalid advisories input"; exit 1; }
           [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::Invalid ref input"; exit 1; }
           [[ "$BASE_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::Invalid base_branch input"; exit 1; }
+          # A live fix of an older commit would open a second pull request next to the agent's open one.
+          [[ "$DRY_RUN" == true || "$REF" == "$BASE_BRANCH" ]] || { echo "::error::A live run must fix base_branch itself; test an older commit with dry_run"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: thunder-id/thunderid
@@ -106,13 +113,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ inputs.dry_run }}
           FORCE: ${{ inputs.force }}
+          REF: ${{ inputs.ref }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          # The agent updates its open pull request only while its one commit was authored and committed by this identity.
+          GIT_EMAIL: ${{ vars.SECURITY_FIX_GIT_EMAIL }}
           # Empty when unset; publish.mjs applies the defaults and rejects invalid values.
           DAILY_LIMIT: ${{ vars.SECURITY_FIX_DAILY_LIMIT }}
           TOKEN_BUDGET: ${{ vars.SECURITY_FIX_DAILY_TOKEN_BUDGET }}
         run: |
           node automation/.github/security-fix/publish.mjs targets --audit "$RUNNER_TEMP/audit.json" --advisories "$ADVISORIES" \
             --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --dry-run "$DRY_RUN" --force "$FORCE" \
-            --daily-limit "$DAILY_LIMIT" --token-budget "$TOKEN_BUDGET"
+            --daily-limit "$DAILY_LIMIT" --token-budget "$TOKEN_BUDGET" --ref "$REF" --base-branch "$BASE_BRANCH" --git-email "$GIT_EMAIL"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: security-fix-context
@@ -130,6 +141,7 @@ jobs:
     outputs:
       tokens: ${{ steps.usage.outputs.tokens }}
       seconds: ${{ steps.usage.outputs.seconds }}
+      changed: ${{ steps.save.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -154,10 +166,39 @@ jobs:
         with:
           name: security-fix-context
           path: ${{ runner.temp }}/context
+      # Builds on the agent's open pull request, so one pull request fixes every advisory and can pass the audit.
+      - name: Start from the open pull request's change
+        id: open_pr
+        if: needs.check.outputs.open_pr != ''
+        env:
+          OPEN_PR: ${{ needs.check.outputs.open_pr }}
+          OPEN_PR_SHA: ${{ needs.check.outputs.open_pr_sha }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        run: |
+          git -C repo fetch --no-tags --quiet origin "+refs/pull/$OPEN_PR/head:refs/security-fix/open-pr" "+refs/heads/$BASE_BRANCH:refs/security-fix/base"
+          # The publish job only replaces the commit the check job saw, so stop before Codex runs if it moved.
+          [[ "$(git -C repo rev-parse refs/security-fix/open-pr)" == "$OPEN_PR_SHA" ]] || { echo "::error::#$OPEN_PR changed since the check job read it"; exit 1; }
+          # The pull request's own change: from where its branch left the base branch to its head.
+          start=$(git -C repo merge-base refs/security-fix/open-pr refs/security-fix/base)
+          git -C repo diff --binary "$start" refs/security-fix/open-pr > "$RUNNER_TEMP/open-pr.patch"
+          if git -C repo apply "$RUNNER_TEMP/open-pr.patch"; then
+            applied=all
+          # git apply changes nothing when it fails; without the lockfile, the change may be empty.
+          elif git -C repo apply --exclude=pnpm-lock.yaml "$RUNNER_TEMP/open-pr.patch" && [[ -n "$(git -C repo status --porcelain)" ]]; then
+            applied=without-lockfile
+          else
+            applied=none
+          fi
+          echo "applied=$applied" | tee -a "$GITHUB_OUTPUT"
+          git -C repo add --intent-to-add --all
+          git -C repo diff --binary > "$RUNNER_TEMP/open-pr-start.patch"
       - name: Prepare the Codex configuration and prompt
         env:
           TARGETS: ${{ needs.check.outputs.targets }}
           SHA: ${{ needs.check.outputs.sha }}
+          OPEN_PR: ${{ needs.check.outputs.open_pr }}
+          OPEN_PR_ADVISORIES: ${{ needs.check.outputs.open_pr_advisories }}
+          OPEN_PR_APPLIED: ${{ steps.open_pr.outputs.applied }}
         run: |
           # Codex may only write inside the checkout and temporary directories.
           mkdir -p "$RUNNER_TEMP/codex-home" /tmp/security-fix/context /tmp/security-fix/tools /tmp/security-fix/pnpm-cache /tmp/security-fix/pnpm-store /tmp/security-fix/npm-cache
@@ -166,7 +207,8 @@ jobs:
           cp automation/.github/security-fix/lint-overrides.mjs /tmp/security-fix/tools/lint-overrides.mjs
           node automation/.github/security-fix/publish.mjs prompt \
             --template automation/.github/security-fix/prompt.md --out security-fix-prompt.md \
-            --advisories "$TARGETS" --context /tmp/security-fix/context --tools /tmp/security-fix/tools --sha "$SHA"
+            --advisories "$TARGETS" --context /tmp/security-fix/context --tools /tmp/security-fix/tools --sha "$SHA" \
+            --open-pr "$OPEN_PR" --open-pr-advisories "$OPEN_PR_ADVISORIES" --open-pr-applied "$OPEN_PR_APPLIED"
       - name: Note the start time
         id: start
         run: echo "time=$(date +%s)" >> "$GITHUB_OUTPUT"
@@ -200,11 +242,18 @@ jobs:
           STARTED: ${{ steps.start.outputs.time }}
         run: node automation/.github/security-fix/publish.mjs usage --codex-home "$RUNNER_TEMP/codex-home" --started "$STARTED"
       - name: Save the agent's changes
+        id: save
         if: always() && steps.codex.outcome != 'skipped'
         run: |
           git -C repo add --intent-to-add --all
           git -C repo diff --binary > "$RUNNER_TEMP/security-fix.patch"
-          echo "Patch size: $(wc -c < "$RUNNER_TEMP/security-fix.patch") bytes"
+          # Built on the open pull request: whether the agent added anything to its change.
+          changed=true
+          if [[ -f "$RUNNER_TEMP/open-pr-start.patch" ]] && cmp -s "$RUNNER_TEMP/open-pr-start.patch" "$RUNNER_TEMP/security-fix.patch"; then
+            changed=false
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "Patch size: $(wc -c < "$RUNNER_TEMP/security-fix.patch") bytes, adds to the open pull request: $changed"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && steps.codex.outcome != 'skipped'
         with:
@@ -221,7 +270,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Pushes use SECURITY_FIX_FORK_TOKEN: the branch carries upstream commits that change workflow
-    # files, which GITHUB_TOKEN may not push. Opening the upstream PR uses UPSTREAM_PR_TOKEN.
+    # files, which GITHUB_TOKEN may not push. Opening or updating the upstream PR uses UPSTREAM_PR_TOKEN.
     permissions:
       contents: read
       # Reads this run's jobs for the daily token budget.
@@ -296,10 +345,13 @@ jobs:
           AGENT_OUTCOME: ${{ needs.agent.result }}
           AGENT_TOKENS: ${{ needs.agent.outputs.tokens }}
           AGENT_SECONDS: ${{ needs.agent.outputs.seconds }}
+          ADDS_CHANGE: ${{ needs.agent.outputs.changed }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           node automation/.github/security-fix/publish.mjs decide \
-            --summary "$SUMMARY" --agent-outcome "$AGENT_OUTCOME" --run-url "$RUN_URL" \
+            --summary "$SUMMARY" --agent-outcome "$AGENT_OUTCOME" --run-url "$RUN_URL" --adds-change "$ADDS_CHANGE" \
+            --repo "$GITHUB_REPOSITORY" --base-branch "$BASE_BRANCH" \
             --tokens "$AGENT_TOKENS" --seconds "$AGENT_SECONDS" --decision-out "$RUNNER_TEMP/decision.json" \
             --result "$RUNNER_TEMP/output/security-fix-result.json" --patch "$RUNNER_TEMP/output/security-fix.patch" \
             --guard "$RUNNER_TEMP/guard.json" --checks "$RUNNER_TEMP/checks.json" --lint "$RUNNER_TEMP/lint.json" \
@@ -310,6 +362,8 @@ jobs:
         if: steps.decide.outputs.action != 'none' && !inputs.dry_run
         env:
           BRANCH: ${{ steps.decide.outputs.branch }}
+          LEASE: ${{ steps.decide.outputs.lease }}
+          COMPARE_URL: ${{ steps.decide.outputs.compare_url }}
           GIT_NAME: ${{ vars.SECURITY_FIX_GIT_NAME }}
           GIT_EMAIL: ${{ vars.SECURITY_FIX_GIT_EMAIL }}
           GH_TOKEN: ${{ secrets.SECURITY_FIX_FORK_TOKEN }}
@@ -320,20 +374,31 @@ jobs:
           git config user.email "$GIT_EMAIL"
           git commit --signoff -F "$RUNNER_TEMP/commit-message.txt"
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c http.extraheader="AUTHORIZATION: basic $auth" push "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH"
-          echo "url=https://github.com/$GITHUB_REPOSITORY/compare/${BRANCH}?expand=1" >> "$GITHUB_OUTPUT"
-      - name: Open a draft pull request on upstream
+          # Updating the agent's open pull request replaces its one commit. The lease stops the push if the branch
+          # moved since the check job read it.
+          lease=()
+          [[ -z "$LEASE" ]] || lease=(--force-with-lease="refs/heads/$BRANCH:$LEASE")
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push "${lease[@]}" "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH"
+          # Opens the pull request on upstream with the description filled in; a pull request step replaces it.
+          echo "url=$COMPARE_URL" >> "$GITHUB_OUTPUT"
+      - name: Open or update the pull request on upstream
         id: pr
         if: steps.decide.outputs.action == 'pr' && !inputs.dry_run
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
           BRANCH: ${{ steps.decide.outputs.branch }}
+          PR_NUMBER: ${{ steps.decide.outputs.pr_number }}
           BASE_BRANCH: ${{ inputs.base_branch }}
           TITLE: ${{ steps.decide.outputs.title }}
           LABELS: ${{ vars.SECURITY_FIX_PR_LABELS }}
         run: |
+          if [[ -n "$PR_NUMBER" ]]; then
+            gh pr edit "$PR_NUMBER" --repo "$UPSTREAM" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+            echo "url=https://github.com/$UPSTREAM/pull/$PR_NUMBER" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           url=$(gh pr create --repo "$UPSTREAM" --base "$BASE_BRANCH" --head "$GITHUB_REPOSITORY_OWNER:$BRANCH" \
-            --draft --title "$TITLE" --body-file "$RUNNER_TEMP/body.md")
+            --title "$TITLE" --body-file "$RUNNER_TEMP/body.md")
           echo "url=$url" >> "$GITHUB_OUTPUT"
           if [[ -n "$LABELS" ]]; then
             gh pr edit "$url" --add-label "$LABELS" || echo "::warning::Could not add labels $LABELS"
@@ -416,7 +481,8 @@ jobs:
             for file in checks.json guard.json lint.json audit-check.json; do
               [[ -s "$RUNNER_TEMP/$file" ]] && { echo; echo "### $file"; echo '```json'; cat "$RUNNER_TEMP/$file"; echo '```'; }
             done
-            [[ -s "$RUNNER_TEMP/body.md" ]] && { echo; echo "### Pull request body"; cat "$RUNNER_TEMP/body.md"; }
+            # Raw Markdown, so it can be pasted into a pull request with its marker line.
+            [[ -s "$RUNNER_TEMP/body.md" ]] && { echo; echo "### Pull request body"; echo '````markdown'; cat "$RUNNER_TEMP/body.md"; echo '````'; }
             true
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

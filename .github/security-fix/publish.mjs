@@ -1,6 +1,7 @@
 // Deterministic helpers for the security fix workflow. Nothing here talks to the AI model.
 //
-//   targets  which requested advisories still need a fix: reported, without an open PR, within the run limits
+//   targets  which requested advisories still need a fix: reported, without an open PR, within the run limits. When the
+//            agent's own pull request is open, the fix is added to it, so one pull request fixes every advisory.
 //   prompt   renders the agent prompt
 //   usage    reads the agent's token usage from its Codex session log
 //   decide   combines the agent result, guard verdict and checks into the next action
@@ -33,7 +34,8 @@ const UNKNOWN_RUN_TOKENS = 450_000;
 const SILENT_STATUSES = ["cooldown", "daily_limit", "token_budget"];
 
 const STATUS_TEXT = {
-  pr_open: "Opened a draft pull request. Review it, then mark it ready and add the trigger-pr-builder label.",
+  pr_open: "Opened a pull request. Review it before it is merged.",
+  pr_updated: "Updated the agent's open pull request to cover these advisories, still as one commit. Review it again before it is merged.",
   needs_review: "Prepared a change that needs a maintainer decision. It was pushed as a branch, not opened as a pull request.",
   waiting_for_release: "No usable fixed release yet: none is published, or it is too new for pnpm's release-age rule. Nothing was changed.",
   not_reported: "Upstream main no longer reports this advisory. Nothing to fix.",
@@ -72,6 +74,66 @@ const sumTokens = (ran) => ran.reduce((sum, run) => sum + run.tokens, 0);
 /** Advisory IDs in a run title such as "Security fix: GHSA-a,GHSA-b (dry run)". */
 export function titleAdvisories(title) {
   return (String(title ?? "").match(/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/gi) ?? []).map((id) => `GHSA${id.slice(4).toLowerCase()}`);
+}
+
+/**
+ * The advisories a pull request fixes, from the hidden marker the agent writes at the end of its description, or null
+ * when there is none. Only the marker counts: the description also names advisories that are handled elsewhere.
+ */
+export function markerAdvisories(body) {
+  const marker = String(body ?? "").match(/<!--\s*security-fix-agent:([^>]*)-->/);
+  return marker ? titleAdvisories(marker[1]) : null;
+}
+
+// Upstream roles that may open the agent's pull request, for example from the link in a "needs review" message.
+const TRUSTED_ASSOCIATIONS = ["OWNER", "MEMBER", "COLLABORATOR"];
+
+/**
+ * The agent's own open pull request: from a security-fix/ branch of the fork into the base branch, with the marker,
+ * opened by the fork's owner (the PR token's account) or an upstream member. The newest one counts.
+ */
+export function agentPullRequest(open, { repo, baseBranch }) {
+  const owner = repo.split("/")[0];
+  const own = open.filter(
+    (pr) =>
+      pr.marker &&
+      (pr.user === owner || TRUSTED_ASSOCIATIONS.includes(pr.association)) &&
+      pr.headRepo === repo &&
+      pr.head.startsWith("security-fix/") &&
+      pr.base === baseBranch,
+  );
+  return own.sort((a, b) => b.number - a.number)[0] ?? null;
+}
+
+/**
+ * Whether the agent may replace a pull request's commits: only one commit, authored and committed by the agent's
+ * identity. commits holds the [author, committer] emails of each commit.
+ */
+export function lockedPullRequest(commits, gitEmail) {
+  const ours = (email) => !gitEmail || String(email).toLowerCase() === gitEmail.toLowerCase();
+  return commits.length !== 1 || !commits.flat().every(ours);
+}
+
+/**
+ * A link that opens a pull request on upstream from a pushed branch. It fills in the title and the marker, so a pull
+ * request opened from it counts as the agent's own; the description is in the run's job summary, too long for a link.
+ */
+export function compareUrl({ repo, branch, baseBranch, title, runUrl, targets }) {
+  const body = `Copy the description from the job summary of ${runUrl} and keep the line below it.\n\n<!-- security-fix-agent: ${targets.join(",")} -->\n`;
+  return (
+    `https://github.com/${UPSTREAM}/compare/${baseBranch}...${repo.split("/")[0]}:${branch}?expand=1` +
+    `&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`
+  );
+}
+
+/** What the agent is told about the open pull request it builds on. applied: all, without-lockfile or none. */
+export function openPrNote({ number, advisories, applied }) {
+  if (!number) return "";
+  const change = `the change from open pull request #${number}${advisories ? ` (it fixes ${advisories.split(",").join(", ")})` : ""}`;
+  const update = "Your change replaces that pull request's change, so describe the whole change, for every advisory above, in `title`, `purpose`, `approach` and `validation`.";
+  if (applied === "none") return `Applying ${change} to this commit failed, so the working tree is clean. Fix every advisory above. ${update}`;
+  const lockfile = applied === "without-lockfile" ? " Its `pnpm-lock.yaml` part did not apply to this commit, so run `pnpm install --lockfile-only` first." : "";
+  return `The working tree already contains ${change}.${lockfile} Keep that change unless it is wrong, and extend it so every advisory above is fixed. ${update}`;
 }
 
 /**
@@ -235,7 +297,7 @@ export function cleanTitle(title, ids) {
   return ids.length === 1 ? `Fix the ${ids[0]} audit advisory` : `Fix ${ids.length} pnpm audit advisories`;
 }
 
-export function renderBody({ result, guard, runUrl, audit, lint }) {
+export function renderBody({ result, guard, runUrl, audit, lint, targets }) {
   const changes = guard.changes.length ? guard.changes.map((change) => `  - ${change}`).join("\n") : "  - None";
   const unrelated = audit?.unrelated?.length
     ? `\n\n${audit.unrelated.join(", ")} ${audit.unrelated.length === 1 ? "is" : "are"} still reported on the base commit and handled separately, so the PR Builder audit keeps failing until ${audit.unrelated.length === 1 ? "it is" : "they are"} fixed.`
@@ -278,15 +340,17 @@ ${result.notes.trim() ? `\n### Notes for reviewers\n${result.notes.trim()}\n` : 
 - [ ] Followed secure coding standards in [WSO2 Secure Coding Guidelines](https://security.docs.wso2.com/en/latest/security-guidelines/secure-engineering-guidelines/secure-coding-guidlines/introduction/)
 - [ ] Confirmed that this PR doesn't commit any keys, passwords, tokens, usernames, or other secrets.
 
-Opened as a draft by the ThunderID security fix agent ([workflow run](${runUrl})). A maintainer must review it before it is marked ready.
+Prepared by the ThunderID security fix agent ([workflow run](${runUrl})). A maintainer must review it before it is merged.
+
+<!-- security-fix-agent: ${targets.join(",")} -->
 `;
 }
 
 /**
- * Chooses the outcome. action is "pr" (push a branch and open a draft PR), "branch" (push a branch
- * for a maintainer to review) or "none".
+ * Chooses the outcome. action is "pr" (push a branch and open a PR, or update the agent's open PR when
+ * decision.update is set), "branch" (push a branch for a maintainer to review) or "none".
  */
-export function decide({ summary, agentOutcome, result, guard, checks, patchSize, lint, audit }) {
+export function decide({ summary, agentOutcome, result, guard, checks, patchSize, lint, audit, addsChange }) {
   if (!summary.targets.length) {
     if (summary.limited) return { action: "none", status: "daily_limit", reasons: [`${summary.agentRuns} agent runs in the last 24 hours.`] };
     if (summary.overBudget) {
@@ -306,7 +370,9 @@ export function decide({ summary, agentOutcome, result, guard, checks, patchSize
   if (agentOutcome !== "success" || !result) {
     return { action: "none", status: "failed", reasons: [`The agent job ended with ${agentOutcome}.`] };
   }
-  if (!patchSize) {
+  // A run that built on the open pull request and added nothing to it has no change of its own, unless the open pull
+  // request already fixes the new advisories too: then it is updated so its description lists them.
+  if (!patchSize || (summary.openPr && addsChange === false && result.status !== "fixed")) {
     const status = ["waiting_for_release", "needs_review", "not_reported"].includes(result.status) ? result.status : "failed";
     return { action: "none", status, reasons: result.notes ? [result.notes] : [] };
   }
@@ -323,10 +389,29 @@ export function decide({ summary, agentOutcome, result, guard, checks, patchSize
   }
   if (checks.lint !== "pass") reasons.push(...(lint?.problems?.length ? lint.problems : ["The override conventions check did not run."]));
   if (result.status !== "fixed") reasons.push(`The agent reported ${result.status}.`);
-  if (guard.verdict === "auto" && checks.audit === "pass" && checks.lint === "pass" && result.status === "fixed") {
-    return { action: "pr", status: "pr_open", reasons };
+  const ready = guard.verdict === "auto" && checks.audit === "pass" && checks.lint === "pass" && result.status === "fixed";
+  const pr = summary.openPr;
+  if (!pr) return ready ? { action: "pr", status: "pr_open", reasons } : { action: "branch", status: "needs_review", reasons };
+  // The agent said fixed but changed nothing, and the open pull request does not pass: a branch would only repeat it.
+  if (addsChange === false && !ready) return { action: "none", status: "failed", reasons: [...reasons, `The agent changed nothing on top of #${pr.number}.`] };
+  // The open pull request already fixes everything, but the agent may not update it.
+  if (addsChange === false && pr.locked) {
+    const added = summary.targets.filter((id) => !pr.advisories.includes(id));
+    return { action: "none", status: "pr_exists", reasons: [...reasons, `#${pr.number} already fixes ${added.join(", ")}. Add them to its security-fix-agent marker line.`] };
   }
-  return { action: "branch", status: "needs_review", reasons };
+  // The change contains the open pull request's change, so it either replaces that pull request's commit or waits for a maintainer.
+  if (ready && !pr.locked) {
+    return {
+      action: "pr",
+      status: "pr_updated",
+      reasons: [...reasons, `#${pr.number} now fixes ${summary.targets.join(", ")}.`],
+      update: { number: pr.number, branch: pr.branch, sha: pr.sha },
+    };
+  }
+  const why = pr.locked
+    ? `#${pr.number} ${pr.lockReason ?? "has commits the agent did not make"}, so it was not updated. This branch contains its change and the new fix; use it to update #${pr.number}.`
+    : `This branch contains the change from #${pr.number}, which was not updated. Push it to the branch of #${pr.number}, or close #${pr.number} when you open it, so only one fix stays open.`;
+  return { action: "branch", status: "needs_review", reasons: [...reasons, why] };
 }
 
 function args(argv) {
@@ -442,29 +527,40 @@ function runSummary(repo, runId) {
 }
 
 /**
- * Open upstream PRs whose title or description names the advisory and that change dependency files.
- * The pulls API is read directly because the search index can lag behind a newly opened PR.
+ * Open upstream PRs that fix each advisory, and the agent's own open pull request. A PR with the agent's marker fixes
+ * the advisories it lists; any other PR fixes an advisory its title or description names, if it changes dependency
+ * files. The pulls API is read directly because the search index can lag behind a newly opened PR.
  */
-function openFixPullRequests(ids) {
+function openFixPullRequests(ids, { repo, baseBranch, gitEmail }) {
   const open = gh([
     "api",
     "--paginate",
     `repos/${UPSTREAM}/pulls?state=open&per_page=100`,
     "--jq",
-    '.[] | {number, html_url, text: ((.title // "") + "\\n" + (.body // ""))}',
+    '.[] | {number, html_url, text: ((.title // "") + "\\n" + (.body // "")), user: .user.login, association: .author_association, head: .head.ref, headRepo: (.head.repo.full_name // ""), sha: .head.sha, base: .base.ref}',
   ])
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line));
+    .map((line) => JSON.parse(line))
+    .map((pr) => ({ ...pr, marker: markerAdvisories(pr.text) }));
   const files = {};
   const fixes = (pr) => {
     // A PR that only quotes the advisory, for example a feature PR blocked by the audit, is not a fix.
     files[pr.number] ??= gh(["api", "--paginate", `repos/${UPSTREAM}/pulls/${pr.number}/files?per_page=100`, "--jq", ".[].filename"]).split("\n");
     return changesDependencies(files[pr.number]);
   };
-  return Object.fromEntries(
-    ids.map((id) => [id, open.filter((pr) => pr.text.toLowerCase().includes(id.toLowerCase()) && fixes(pr)).map((pr) => pr.html_url)]),
-  );
+  const names = (pr, id) => (pr.marker ? pr.marker.includes(id) : pr.text.toLowerCase().includes(id.toLowerCase()));
+  const byId = Object.fromEntries(ids.map((id) => [id, open.filter((pr) => names(pr, id) && fixes(pr)).map((pr) => pr.html_url)]));
+  const own = agentPullRequest(open, { repo, baseBranch });
+  if (!own) return { fixes: byId, agentPr: null };
+  const commits = JSON.parse(gh(["api", `repos/${UPSTREAM}/pulls/${own.number}/commits?per_page=100`, "--jq", "[.[].commit | [.author.email, .committer.email]]"]));
+  // A pull request someone else opened is theirs to update; the agent pushes the combined change as a branch instead.
+  const lockReason =
+    own.user !== repo.split("/")[0] ? `was opened by @${own.user}` : lockedPullRequest(commits, gitEmail) ? "has commits the agent did not make" : null;
+  return {
+    fixes: byId,
+    agentPr: { number: own.number, url: own.html_url, branch: own.head, sha: own.sha, advisories: own.marker, locked: Boolean(lockReason), lockReason },
+  };
 }
 
 async function notify({ status, advisories, url, detail }) {
@@ -498,7 +594,10 @@ async function main() {
     // Read before the slow calls below, so an invalid repository variable fails the run at once.
     const dailyLimit = parseLimit(opts["daily-limit"], "SECURITY_FIX_DAILY_LIMIT", DEFAULT_DAILY_LIMIT);
     const tokenBudget = parseLimit(opts["token-budget"], "SECURITY_FIX_DAILY_TOKEN_BUDGET", DEFAULT_TOKEN_BUDGET);
-    const openFixes = openFixPullRequests(requested.filter((id) => reported.has(id)));
+    const { fixes: openFixes, agentPr } = openFixPullRequests(
+      requested.filter((id) => reported.has(id)),
+      { repo: opts.repo, baseBranch: opts["base-branch"] || "main", gitEmail: opts["git-email"] },
+    );
     const needed = [];
     for (const id of requested) {
       if (!reported.has(id)) {
@@ -533,9 +632,21 @@ async function main() {
       // Other runs place this run in their 24-hour window by the start of its latest attempt, so the budget message does too.
       summary.startedAt = runs.find((run) => String(run.id) === String(opts["run-id"]))?.startedAt ?? new Date(now).toISOString();
     }
+    // Two open fixes for different advisories each fail the audit for lack of the other, so a new fix goes into the
+    // agent's open pull request. The agent fixes its advisories again too, from its change. Only a run of the base
+    // branch itself does this: a run of an older commit must not rewrite the pull request onto that commit.
+    const baseBranch = opts["base-branch"] || "main";
+    if (summary.targets.length && agentPr && opts.ref === baseBranch) {
+      const carried = agentPr.advisories.filter((id) => reported.has(id) && !summary.targets.includes(id));
+      summary.openPr = { ...agentPr, advisories: carried };
+      summary.targets = [...carried, ...summary.targets];
+    }
     console.log(JSON.stringify(summary, null, 2));
     output("proceed", String(summary.targets.length > 0));
     output("targets", summary.targets.join(","));
+    output("open_pr", summary.openPr ? String(summary.openPr.number) : "");
+    output("open_pr_advisories", summary.openPr ? summary.openPr.advisories.join(",") : "");
+    output("open_pr_sha", summary.openPr?.sha ?? "");
     output("summary", JSON.stringify(summary));
     return;
   }
@@ -547,7 +658,8 @@ async function main() {
       .replaceAll("{{ADVISORIES}}", ids.join(", "))
       .replaceAll("{{CONTEXT_DIR}}", opts.context)
       .replaceAll("{{TOOLS_DIR}}", opts.tools)
-      .replaceAll("{{BASE_SHA}}", opts.sha);
+      .replaceAll("{{BASE_SHA}}", opts.sha)
+      .replaceAll("{{OPEN_PR}}", openPrNote({ number: opts["open-pr"], advisories: opts["open-pr-advisories"], applied: opts["open-pr-applied"] }));
     writeFileSync(opts.out, text);
     return;
   }
@@ -579,13 +691,17 @@ async function main() {
     const patchSize = opts.patch && existsSync(opts.patch) ? statSync(opts.patch).size : 0;
     const lint = readJson(opts.lint);
     const audit = readJson(opts["audit-check"]);
-    const decision = decide({ summary, agentOutcome: opts["agent-outcome"], result, guard, checks, patchSize, lint, audit });
+    const addsChange = { true: true, false: false }[opts["adds-change"]];
+    const decision = decide({ summary, agentOutcome: opts["agent-outcome"], result, guard, checks, patchSize, lint, audit, addsChange });
     const ids = summary.targets.length ? summary.targets : summary.requested;
     const title = cleanTitle(result?.title, ids);
     const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 13).replace("T", "-");
-    const branch = `security-fix/${ids[0].toLowerCase()}-${stamp}`;
+    const branch = decision.update?.branch ?? `security-fix/${ids[0].toLowerCase()}-${stamp}`;
+    let compare = "";
     if (result && decision.action !== "none") {
-      writeFileSync(opts["body-out"], renderBody({ result, guard, runUrl: opts["run-url"], audit, lint }));
+      const body = renderBody({ result, guard, runUrl: opts["run-url"], audit, lint, targets: ids });
+      writeFileSync(opts["body-out"], body);
+      compare = compareUrl({ repo: opts.repo, branch, baseBranch: opts["base-branch"] || "main", title, runUrl: opts["run-url"], targets: ids });
     }
     writeFileSync(opts["commit-out"], `${title}\n\nFix the pnpm audit advisories ${ids.join(", ")}.\n`);
     let tokens = null;
@@ -599,7 +715,15 @@ async function main() {
     if (opts["decision-out"]) {
       writeFileSync(
         opts["decision-out"],
-        JSON.stringify({ ...decision, title, requested: summary.requested, targets: summary.targets, tokens, agentSeconds: Number(opts.seconds) || null }),
+        JSON.stringify({
+          ...decision,
+          title,
+          requested: summary.requested,
+          targets: summary.targets,
+          carried: summary.openPr?.advisories ?? [],
+          tokens,
+          agentSeconds: Number(opts.seconds) || null,
+        }),
       );
     }
     output("action", decision.action);
@@ -607,6 +731,10 @@ async function main() {
     output("notify", String(!SILENT_STATUSES.includes(decision.status)));
     output("title", title);
     output("branch", branch);
+    // Set when the agent's open pull request is updated: its number, and the commit its branch must still point at.
+    output("pr_number", decision.update ? String(decision.update.number) : "");
+    output("lease", decision.update?.sha ?? "");
+    output("compare_url", compare);
     output("advisories", ids.join(", "));
     output("detail", detail);
     return;
@@ -649,6 +777,8 @@ async function main() {
       force: opts.force === "true",
       requested: decision.requested,
       targets: decision.targets,
+      // Targets that came from the open pull request rather than this run's request; the monitor refunds their attempts.
+      carried: decision.carried ?? [],
       status: opts.status || decision.status,
       action: decision.action,
       title: decision.title,

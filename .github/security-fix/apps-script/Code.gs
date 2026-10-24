@@ -298,12 +298,17 @@ function recordFixRuns_(report, previous, token, fixes, started) {
   return result;
 }
 
-/** Gives back the attempt of each advisory a run requested but did not run the agent for, in the run's own mode. */
+/**
+ * Gives back the attempt of each advisory a run requested but did not run the agent for, in the run's own mode. An
+ * advisory the agent only carried along because its open pull request already fixes it counts as not worked on.
+ */
 function refundSkipped_(fixes, summary) {
   const mode = summary.dryRun ? 'dry-run' : 'live';
+  const carried = summary.carried || [];
+  const worked = (summary.targets || []).filter((id) => carried.indexOf(id) < 0);
   for (const id of summary.requested || []) {
     const fix = fixes && fixes[id];
-    if (!fix || (summary.targets || []).indexOf(id) >= 0 || (fix.mode && fix.mode !== mode) || !(fix.attempts > 0)) continue;
+    if (!fix || worked.indexOf(id) >= 0 || (fix.mode && fix.mode !== mode) || !(fix.attempts > 0)) continue;
     fix.attempts -= 1;
     delete fix.stoppedAt;
   }
