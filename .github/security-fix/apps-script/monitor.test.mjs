@@ -94,7 +94,7 @@ test("after the last attempt the agent is not started again and one message says
   const first = ctx.startFixes_(report([A]), previous, { mode: "live", token: "t", preview: false });
   assert.equal(requests.length, 0);
   assert.equal(first.messages.length, 1);
-  assert.match(first.messages[0], new RegExp(`^Security fix agent stopped for ${A}: it worked on it 3 times`));
+  assert.match(first.messages[0], new RegExp(`^<users/all> Security fix agent stopped for ${A}: it worked on it 3 times`));
   assert.equal(first.summary, `stopped for ${A}`);
   const second = ctx.startFixes_(report([A]), { fixes: plain(first.fixes) }, { mode: "live", token: "t", preview: false });
   assert.equal(second.messages.length, 0);
@@ -229,7 +229,7 @@ test("job logs are still downloaded through the shared redirect helper", () => {
   assert.equal(ctx.jobLog_(7, "t"), "GHSA-aaaa-aaaa-aaaa failed");
 });
 
-test("one alert per advisory across packages, then a reminder after 12 hours", () => {
+test("one alert per advisory across packages, then a reminder after 12 hours, both mentioning everyone", () => {
   const { ctx } = load();
   const main = ctx.groupFindings_([
     { id: A, package: "vite", severity: "high", title: "t", url: "u", patched: ">=8.1.6" },
@@ -238,10 +238,13 @@ test("one alert per advisory across packages, then a reminder after 12 hours", (
   const at = (hours) => ({ scannedAt: new Date(Date.parse(NOW) + hours * 3600 * 1000).toISOString(), sha: "abc", main, failures: [], errors: [] });
   const first = ctx.planNotifications_(at(0), { version: 1 });
   assert.equal(first.messages.length, 1);
-  assert.match(first.messages[0], /^Upstream main: HIGH launch-editor, vite/);
+  assert.match(first.messages[0], /^<users\/all> Upstream main: HIGH launch-editor, vite/);
   assert.equal(ctx.planNotifications_(at(0.5), plain(first.state)).messages.length, 0);
   const reminder = ctx.planNotifications_(at(12), plain(first.state));
-  assert.match(reminder.messages[0], /^Reminder: still not fixed on upstream main\./);
+  assert.match(reminder.messages[0], /^<users\/all> Reminder: still not fixed on upstream main\./);
+  const changed = ctx.groupFindings_([{ id: A, package: "vite", severity: "critical", title: "t", url: "u", patched: ">=8.1.6" }]);
+  const raised = ctx.planNotifications_({ ...at(1), main: changed }, plain(first.state));
+  assert.match(raised.messages[0], /^<users\/all> Advisory details changed since the last alert\./);
 });
 
 test("the limit message comes back after 24 hours", () => {

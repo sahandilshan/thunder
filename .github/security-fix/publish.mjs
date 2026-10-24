@@ -32,11 +32,20 @@ const UNKNOWN_RUN_TOKENS = 450_000;
 // Outcomes that exist to stop repeated runs. The Apps Script monitor reports cooldown and daily-limit skips once a
 // day; the budget step reports the token budget.
 const SILENT_STATUSES = ["cooldown", "daily_limit", "token_budget"];
+// Outcomes that need someone to act: a pull request to review, a fix for a maintainer, or no fix yet. Their Chat
+// messages mention everyone in the space.
+const MENTION_STATUSES = ["pr_open", "pr_updated", "needs_review", "marker_update", "waiting_for_release", "failed"];
+// What a maintainer does with a branch that needs review. Placed before the other reasons, which Chat may cut.
+const TRACKING_STEP = "If it adds an override, create the tracking issue the fix-npm-vulnerability skill asks for and add it as a `# Tracking:` line.";
+const REVIEW_STEPS = `Review the branch. ${TRACKING_STEP} Then open the pull request from the link.`;
+// Google Chat's mention of every member of the space.
+const MENTION_ALL = "<users/all>";
 
 const STATUS_TEXT = {
   pr_open: "Opened a pull request. Review it before it is merged.",
   pr_updated: "Updated the agent's open pull request to cover these advisories, still as one commit. Review it again before it is merged.",
-  needs_review: "Prepared a change that needs a maintainer decision. It was pushed as a branch, not opened as a pull request.",
+  needs_review: "Needs a maintainer decision, such as a major version bump or a new override. Nothing was opened or updated automatically; the details below say what to do.",
+  marker_update: "An open pull request already fixes these advisories, but the agent may not update it. Add them to its security-fix-agent marker line.",
   waiting_for_release: "No usable fixed release yet: none is published, or it is too new for pnpm's release-age rule. Nothing was changed.",
   not_reported: "Upstream main no longer reports this advisory. Nothing to fix.",
   pr_exists: "An open upstream pull request already mentions this advisory. Nothing was changed.",
@@ -300,7 +309,7 @@ export function cleanTitle(title, ids) {
 export function renderBody({ result, guard, runUrl, audit, lint, targets }) {
   const changes = guard.changes.length ? guard.changes.map((change) => `  - ${change}`).join("\n") : "  - None";
   const unrelated = audit?.unrelated?.length
-    ? `\n\n${audit.unrelated.join(", ")} ${audit.unrelated.length === 1 ? "is" : "are"} still reported on the base commit and handled separately, so the PR Builder audit keeps failing until ${audit.unrelated.length === 1 ? "it is" : "they are"} fixed.`
+    ? `\n\n${audit.unrelated.join(", ")} ${audit.unrelated.length === 1 ? "is" : "are"} still reported on the base commit and not fixed by this pull request, so the PR Builder audit keeps failing until ${audit.unrelated.length === 1 ? "it is" : "they are"} fixed.`
     : "";
   return `### Purpose
 ${result.purpose.trim()}
@@ -374,7 +383,8 @@ export function decide({ summary, agentOutcome, result, guard, checks, patchSize
   // request already fixes the new advisories too: then it is updated so its description lists them.
   if (!patchSize || (summary.openPr && addsChange === false && result.status !== "fixed")) {
     const status = ["waiting_for_release", "needs_review", "not_reported"].includes(result.status) ? result.status : "failed";
-    return { action: "none", status, reasons: result.notes ? [result.notes] : [] };
+    const notes = result.notes || (status === "needs_review" ? "The agent changed nothing; the workflow run has its full result." : "");
+    return { action: "none", status, reasons: notes ? [notes] : [] };
   }
   const reasons = [...guard.reasons];
   if (guard.verdict === "reject") return { action: "none", status: "failed", reasons };
@@ -391,13 +401,13 @@ export function decide({ summary, agentOutcome, result, guard, checks, patchSize
   if (result.status !== "fixed") reasons.push(`The agent reported ${result.status}.`);
   const ready = guard.verdict === "auto" && checks.audit === "pass" && checks.lint === "pass" && result.status === "fixed";
   const pr = summary.openPr;
-  if (!pr) return ready ? { action: "pr", status: "pr_open", reasons } : { action: "branch", status: "needs_review", reasons };
+  if (!pr) return ready ? { action: "pr", status: "pr_open", reasons } : { action: "branch", status: "needs_review", reasons: [REVIEW_STEPS, ...reasons] };
   // The agent said fixed but changed nothing, and the open pull request does not pass: a branch would only repeat it.
   if (addsChange === false && !ready) return { action: "none", status: "failed", reasons: [...reasons, `The agent changed nothing on top of #${pr.number}.`] };
   // The open pull request already fixes everything, but the agent may not update it.
   if (addsChange === false && pr.locked) {
     const added = summary.targets.filter((id) => !pr.advisories.includes(id));
-    return { action: "none", status: "pr_exists", reasons: [...reasons, `#${pr.number} already fixes ${added.join(", ")}. Add them to its security-fix-agent marker line.`] };
+    return { action: "none", status: "marker_update", reasons: [...reasons, `#${pr.number} already fixes ${added.join(", ")}.`] };
   }
   // The change contains the open pull request's change, so it either replaces that pull request's commit or waits for a maintainer.
   if (ready && !pr.locked) {
@@ -411,7 +421,7 @@ export function decide({ summary, agentOutcome, result, guard, checks, patchSize
   const why = pr.locked
     ? `#${pr.number} ${pr.lockReason ?? "has commits the agent did not make"}, so it was not updated. This branch contains its change and the new fix; use it to update #${pr.number}.`
     : `This branch contains the change from #${pr.number}, which was not updated. Push it to the branch of #${pr.number}, or close #${pr.number} when you open it, so only one fix stays open.`;
-  return { action: "branch", status: "needs_review", reasons: [...reasons, why] };
+  return { action: "branch", status: "needs_review", reasons: [why, TRACKING_STEP, ...reasons] };
 }
 
 function args(argv) {
@@ -563,14 +573,21 @@ function openFixPullRequests(ids, { repo, baseBranch, gitEmail }) {
   };
 }
 
+/** The Chat message for an outcome; one that needs someone to act starts by mentioning everyone in the space. */
+export function chatText({ status, advisories, url, detail }) {
+  const mention = MENTION_STATUSES.includes(status) ? `${MENTION_ALL} ` : "";
+  let text = `${mention}ThunderID security fix agent: ${advisories}\n${STATUS_TEXT[status] ?? status}`;
+  if (url) text += `\n${url}`;
+  if (detail) text += `\n\n${detail}`;
+  return text;
+}
+
 async function notify({ status, advisories, url, detail }) {
   const webhook = (process.env.GOOGLE_CHAT_SECURITY_WEBHOOK ?? "").trim();
   if (!/^https:\/\/chat\.googleapis\.com\/v1\/spaces\//.test(webhook)) {
     throw new Error("GOOGLE_CHAT_SECURITY_WEBHOOK secret is missing or not a Chat webhook");
   }
-  let text = `ThunderID security fix agent: ${advisories}\n${STATUS_TEXT[status] ?? status}`;
-  if (url) text += `\n${url}`;
-  if (detail) text += `\n\n${detail}`;
+  const text = chatText({ status, advisories, url, detail });
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json; charset=UTF-8" },

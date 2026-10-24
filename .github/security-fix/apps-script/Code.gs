@@ -213,7 +213,7 @@ function startFixes_(report, previous, { mode, token, preview }) {
   const exhausted = current.filter((id) => fixes[id] && fixes[id].attempts >= FIX_MAX_ATTEMPTS && waited(id) && !fixes[id].stoppedAt);
   for (const id of exhausted) {
     messages.push(
-      `Security fix agent stopped for ${id}: it worked on it ${FIX_MAX_ATTEMPTS} times and upstream main still reports it. ` +
+      `${MENTION_ALL} Security fix agent stopped for ${id}: it worked on it ${FIX_MAX_ATTEMPTS} times and upstream main still reports it. ` +
         `A fixed release may not exist yet, or a pull request may be waiting for review; otherwise fix it by hand. ` +
         `Earlier runs: https://github.com/${FIX_REPO}/actions/workflows/${FIX_WORKFLOW}`,
     );
@@ -620,6 +620,13 @@ function advisoryIds(log) {
   return Object.keys(ids).sort();
 }
 
+// Google Chat's mention of every member of the space, for alerts someone has to act on.
+const MENTION_ALL = '<users/all>';
+
+/**
+ * Plans the Chat messages for a scan. Alerts about an advisory on upstream main mention everyone: the fix agent may
+ * not run or post for it (disabled, held back by its limits, or failing to start).
+ */
 function planNotifications_(report, previous) {
   const state = JSON.parse(JSON.stringify(previous || {}));
   state.version = 1;
@@ -642,14 +649,14 @@ function planNotifications_(report, previous) {
           : saved;
       const entry = known ? Object.assign({}, known) : { firstReportedAt: report.scannedAt };
       if (!known) {
-        messages.push(mainMessage_(finding, report.sha));
+        messages.push(`${MENTION_ALL} ${mainMessage_(finding, report.sha)}`);
         entry.notifiedAt = report.scannedAt;
       } else if (known.fingerprint !== fingerprint) {
-        messages.push(`Advisory details changed since the last alert.\n\n${mainMessage_(finding, report.sha)}`);
+        messages.push(`${MENTION_ALL} Advisory details changed since the last alert.\n\n${mainMessage_(finding, report.sha)}`);
         entry.notifiedAt = report.scannedAt;
       } else if (now - Date.parse(known.notifiedAt) >= MAIN_REMINDER_MS) {
         messages.push(
-          `Reminder: still not fixed on upstream main. First reported ${formatTime_(known.firstReportedAt)}.\n\n${mainMessage_(finding, report.sha)}`,
+          `${MENTION_ALL} Reminder: still not fixed on upstream main. First reported ${formatTime_(known.firstReportedAt)}.\n\n${mainMessage_(finding, report.sha)}`,
         );
         entry.notifiedAt = report.scannedAt;
       }

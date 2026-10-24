@@ -19,8 +19,9 @@ Follow `.agent/skills/fix-npm-vulnerability/SKILL.md` and `AGENTS.md`, with thes
   2. The existing ranges already allow a patched version: refresh only that package in the lockfile.
   3. An override already exists for it: raise the override to the patched version.
   4. A newer release of the dependency that pulls it in ships the patched version within the same major version: raise that dependency.
-  5. Anything else needs a maintainer: a new override, a major version bump, an `auditConfig.ignoreGhsas` entry or a `minimumReleaseAgeExclude` entry. You may prepare such a change, but set `status` to `needs_review` and explain why the lighter options do not work.
-- If no published release fixes an advisory, set `status` to `waiting_for_release` and change nothing for it.
+  5. Anything else needs a maintainer: a major version bump (the skill's Step 5a) or a new override (its Step 5b). Prepare the complete change the skill describes anyway, so that `pnpm audit` no longer reports the advisory and a maintainer only has to review it. Do not stop at a partial fix. For a major version bump, put the skill's Step 6 testing checklist (affected workspaces and the commands that test them) in `notes`. For a new override, leave out the skill's `# Tracking:` line and say in `notes` that it needs the Step 7 tracking issue, which a maintainer creates and adds. A dependent whose declared range excludes the patched major (for example a dependency that requires `^3` when only 4.x is patched) is a compatibility risk to explain in `notes`, not a reason to stop: override it for that dependent. Set `status` to `needs_review` and explain why the lighter options do not work.
+- Never add `auditConfig.ignoreGhsas` or `minimumReleaseAgeExclude` entries; the skill has no step for them.
+- If no published release in any major version fixes an advisory, set `status` to `waiting_for_release` and change nothing for it. A fix that exists only in a newer major version falls under rule 5, not this one.
 - If pnpm refuses a patched version because of `minimumReleaseAge`, do not add an exclusion. Set `status` to `waiting_for_release` and say when the version becomes eligible.
 - Keep lockfile drift minimal. If pnpm also changes entries unrelated to the advisories, revert that drift only when the lockfile stays consistent; otherwise keep it and mention it.
 - Match the comment and formatting style of existing entries in `pnpm-workspace.yaml`.
@@ -38,7 +39,7 @@ Upstream review enforces these on every override a change touches, including one
 ## Verify before you finish
 
 - After your edits, `pnpm install --lockfile-only` must leave `pnpm-lock.yaml` unchanged.
-- `pnpm audit --json --ignore-registry-errors --audit-level=high`, the command upstream CI runs, must no longer report the advisories you were asked to fix and must not report any advisory that `{{CONTEXT_DIR}}/audit.json` does not already list. Other advisories already in that file are handled elsewhere; leave them alone. This may fail only when `status` is `needs_review` or `waiting_for_release`.
+- `pnpm audit --json --ignore-registry-errors --audit-level=high`, the command upstream CI runs, must no longer report the advisories you were asked to fix and must not report any advisory that `{{CONTEXT_DIR}}/audit.json` does not already list. Other advisories already in that file are handled elsewhere; leave them alone. It may still report them only when `status` is `waiting_for_release`, or when pnpm cannot resolve the complete change; then quote pnpm's error in `notes`.
 - `node {{TOOLS_DIR}}/lint-overrides.mjs --repo . --base {{BASE_SHA}}` reports no problems.
 
 ## Final answer
@@ -53,6 +54,6 @@ The `purpose`, `approach`, `validation` and `notes` fields become the pull reque
 - `purpose`: Markdown. Say which advisories make `pnpm audit --audit-level=high` fail, with a table of package, advisory link (`https://github.com/advisories/<GHSA>`) and fixed version.
 - `approach`: Markdown. Say what changed and why in plain terms, including why a lighter fix was not possible and any lockfile drift you kept. Never refer to these instructions, their rule numbers or this workflow.
 - `validation`: Markdown list of the checks a reviewer can re-run from the repository root, such as `pnpm why <package>`, `pnpm install --frozen-lockfile` and `pnpm audit --ignore-registry-errors --audit-level=high`, with their results. Do not list paths outside the repository, environment variable tricks or tools from this workflow.
-- `notes`: only what a reviewer must know about the change itself, such as kept lockfile drift or a compatibility risk; otherwise an empty string. Do not describe how you worked (scripts, `node_modules`, commits) and do not mention advisories outside this fix, because the description already lists them.
+- `notes`: only what a reviewer must know about the change itself, such as kept lockfile drift, a compatibility risk, or the testing checklist and tracking issue a `needs_review` fix needs; otherwise an empty string. Do not describe how you worked (scripts, `node_modules`, commits) and do not mention advisories outside this fix, because the description already lists them.
 
 Write "ThunderID", never "Thunder" alone. Do not use em dashes.

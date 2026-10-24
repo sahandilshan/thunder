@@ -1,9 +1,10 @@
 // Classifies a dependency fix before it can become a pull request.
 //
 //   auto    only same-major version raises of existing dependencies, catalog entries or overrides
-//   review  a change a maintainer must judge: new or removed entries, major bumps, audit ignores,
-//           release-age exceptions or any other configuration change
-//   reject  a file other than package.json, pnpm-workspace.yaml or pnpm-lock.yaml changed
+//   review  a change a maintainer must judge: new or removed entries, major bumps or any other configuration change
+//   reject  a file other than package.json, pnpm-workspace.yaml or pnpm-lock.yaml changed, or an audit ignore or
+//           release-age setting changed: the fix-npm-vulnerability skill has no step for those, so a maintainer
+//           makes them by hand
 //   none    nothing changed
 //
 // Usage: node guard.mjs --repo <dir> --base <sha> [--head <sha>]
@@ -139,11 +140,11 @@ export function compareWorkspace(before, after, out) {
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
     if (["catalog", "catalogs", "overrides"].includes(key)) continue;
     if (canonical(before[key]) === canonical(after[key])) continue;
-    out.review.push(
-      WORKSPACE_REVIEW_KEYS.includes(key)
-        ? `pnpm-workspace.yaml: changes ${key} (audit ignores and release-age exceptions need a maintainer)`
-        : `pnpm-workspace.yaml: changes ${key}`,
-    );
+    if (WORKSPACE_REVIEW_KEYS.includes(key)) {
+      out.reject.push(`pnpm-workspace.yaml: changes ${key} (audit ignores and release-age exceptions are left to a maintainer)`);
+    } else {
+      out.review.push(`pnpm-workspace.yaml: changes ${key}`);
+    }
   }
 }
 

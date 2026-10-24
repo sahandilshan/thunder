@@ -25,7 +25,6 @@
               "head_dependency",
               "new_override",
               "major_bump",
-              "ignore",
               "none"
             ]
           },

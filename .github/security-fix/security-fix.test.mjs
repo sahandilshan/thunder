@@ -15,6 +15,7 @@ import {
   auditCheck,
   budgetFreesAt,
   budgetMessage,
+  chatText,
   changesDependencies,
   cleanTitle,
   decide,
@@ -56,18 +57,22 @@ test("catalog and existing override raises are automatic", () => {
   assert.equal(result.changes.length, 2);
 });
 
-test("new overrides, audit ignores and release-age exceptions need review", () => {
+test("new overrides need review; audit ignores and release-age exceptions are rejected", () => {
   const files = {
     "pnpm-workspace.yaml": {
       before: "overrides:\n  vue: 3.5.34\nauditConfig:\n  ignoreGhsas: []\n",
-      after:
-        "overrides:\n  vue: 3.5.42\n  '@docusaurus/core>tinypool': 2.1.2\nauditConfig:\n  ignoreGhsas:\n    - GHSA-ch52-4w7c-c8xp\nminimumReleaseAgeExclude:\n  - source-map-js@1.2.2\n",
+      after: "overrides:\n  vue: 3.5.42\n  '@docusaurus/core>tinypool': 2.1.2\nauditConfig:\n  ignoreGhsas: []\n",
     },
   };
   const result = classify(["pnpm-workspace.yaml"], reader(files));
   assert.equal(result.verdict, "review");
-  assert.equal(result.reasons.length, 3);
+  assert.equal(result.reasons.length, 1);
   assert.deepEqual(result.changes, ["pnpm-workspace.yaml overrides: raises vue from 3.5.34 to 3.5.42"]);
+  for (const after of ["auditConfig:\n  ignoreGhsas:\n    - GHSA-ch52-4w7c-c8xp\n", "auditConfig:\n  ignoreGhsas: []\nminimumReleaseAgeExclude:\n  - source-map-js@1.2.2\n"]) {
+    const rejected = classify(["pnpm-workspace.yaml"], reader({ "pnpm-workspace.yaml": { before: "auditConfig:\n  ignoreGhsas: []\n", after } }));
+    assert.equal(rejected.verdict, "reject", after);
+    assert.ok(rejected.reasons.some((reason) => /are left to a maintainer/.test(reason)), after);
+  }
 });
 
 test("major bumps, 0.x minor bumps, lowered and added dependencies need review", () => {
@@ -131,7 +136,7 @@ test("only a clean automatic fix opens a pull request", () => {
   const review = { verdict: "review", changes: [], reasons: ["new override"] };
   assert.deepEqual(
     decide({ summary, agentOutcome: "success", result: fixed, guard: review, checks: passing, patchSize: 10 }),
-    { action: "branch", status: "needs_review", reasons: ["new override"] },
+    { action: "branch", status: "needs_review", reasons: ["Review the branch. If it adds an override, create the tracking issue the fix-npm-vulnerability skill asks for and add it as a `# Tracking:` line. Then open the pull request from the link.", "new override"] },
   );
   const failingAudit = { ...passing, audit: "fail" };
   assert.equal(decide({ summary, agentOutcome: "success", result: fixed, guard: auto, checks: failingAudit, patchSize: 10 }).status, "needs_review");
@@ -154,13 +159,16 @@ test("a new fix goes into the agent's open pull request, unless it needs review 
   const locked = decide({ summary: { ...folded, openPr: { ...openPr, locked: true } }, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10 });
   assert.equal(locked.action, "branch");
   assert.equal(locked.status, "needs_review");
-  assert.match(locked.reasons.at(-1), /^#6034 has commits the agent did not make, so it was not updated\./);
+  assert.match(locked.reasons[0], /^#6034 has commits the agent did not make, so it was not updated\./);
   const theirs = { ...folded, openPr: { ...openPr, locked: true, lockReason: "was opened by @maintainer" } };
-  assert.match(decide({ summary: theirs, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10 }).reasons.at(-1), /^#6034 was opened by @maintainer, so it was not updated\./);
+  assert.match(decide({ summary: theirs, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10 }).reasons[0], /^#6034 was opened by @maintainer, so it was not updated\./);
   assert.deepEqual(decide({ summary: theirs, agentOutcome: "success", result: fixed, guard: auto, checks: passing, patchSize: 10, addsChange: false }),
-    { action: "none", status: "pr_exists", reasons: [`#6034 already fixes ${HB1}. Add them to its security-fix-agent marker line.`] }, "a branch would only repeat the locked pull request");
+    { action: "none", status: "marker_update", reasons: [`#6034 already fixes ${HB1}.`] }, "a branch would only repeat the locked pull request");
   const review = decide({ summary: folded, agentOutcome: "success", result: fixed, guard: { verdict: "review", changes: [], reasons: ["new override"] }, checks: passing, patchSize: 10 });
-  assert.deepEqual([review.action, review.status, review.reasons], ["branch", "needs_review", ["new override", "This branch contains the change from #6034, which was not updated. Push it to the branch of #6034, or close #6034 when you open it, so only one fix stays open."]]);
+  assert.deepEqual([review.action, review.status, review.reasons[0], review.reasons.at(-1)], ["branch", "needs_review", "This branch contains the change from #6034, which was not updated. Push it to the branch of #6034, or close #6034 when you open it, so only one fix stays open.", "new override"]);
+  assert.match(review.reasons[1], /^If it adds an override, create the tracking issue/);
+  const many = decide({ summary: folded, agentOutcome: "success", result: fixed, guard: { verdict: "review", changes: [], reasons: Array.from({ length: 12 }, (_, i) => `change ${i}`) }, checks: passing, patchSize: 10 });
+  assert.match(detailLines({ reasons: many.reasons, existing: [], tokens: null, seconds: 0 }), /^This branch contains the change from #6034/, "the steps survive when Chat cuts the reasons");
   const waiting = { ...fixed, status: "waiting_for_release", notes: "" };
   assert.deepEqual(decide({ summary: folded, agentOutcome: "success", result: waiting, guard: auto, checks: passing, patchSize: 10, addsChange: false }),
     { action: "none", status: "waiting_for_release", reasons: [] }, "a run that adds nothing to the open pull request changes nothing");
@@ -294,7 +302,8 @@ test("a failing conventions check turns a clean fix into a review branch", () =>
     lint: { problems: ["overrides \"a\" pins every version of a."] },
   });
   assert.equal(decision.action, "branch");
-  assert.deepEqual(decision.reasons, ['overrides "a" pins every version of a.']);
+  assert.deepEqual(decision.reasons.slice(1), ['overrides "a" pins every version of a.']);
+  assert.match(decision.reasons[0], /^Review the branch\. If it adds an override/);
 });
 
 const auditOf = (...ids) => ({ advisories: Object.fromEntries(ids.map((id, i) => [i, { github_advisory_id: id, severity: "high" }])) });
@@ -324,7 +333,7 @@ test("the audit fails when a target remains or the change adds an advisory", () 
     lint: { problems: [] },
     audit: added,
   }).reasons;
-  assert.deepEqual(reasons, [`The change adds ${NEW}.`]);
+  assert.deepEqual(reasons.slice(1), [`The change adds ${NEW}.`]);
 });
 
 test("only PRs that change dependency files count as existing fixes", () => {
@@ -342,7 +351,7 @@ test("the PR body names the fixed advisories and those handled elsewhere", () =>
     targets: [HB1, HB2],
   });
   assert.match(body, new RegExp(`no longer reports ${HB1}, ${HB2}, and the change adds no new`));
-  assert.match(body, new RegExp(`${VITE} is still reported on the base commit and handled separately`));
+  assert.match(body, new RegExp(`${VITE} is still reported on the base commit and not fixed by this pull request`));
   assert.ok(body.endsWith(`<!-- security-fix-agent: ${HB1},${HB2} -->\n`));
   assert.deepEqual(markerAdvisories(body), [HB1, HB2], "the advisory handled elsewhere is named in the text but not in the marker");
 });
@@ -897,4 +906,27 @@ test("the agent job starts from the open pull request's change, whatever main di
   writeFileSync(join(behind.repo, "pnpm-workspace.yaml"), "overrides: {}\n");
   assert.equal(save("behind"), "true");
   assert.ok(readFileSync(join(dir, "behind", "security-fix.patch"), "utf8").includes("dep fix"), "the patch keeps the pull request's change");
+});
+
+test("Chat messages that need someone to act mention everyone in the space", () => {
+  const mention = ["pr_open", "pr_updated", "needs_review", "marker_update", "waiting_for_release", "failed"];
+  // Nothing to act on, or reported elsewhere: the monitor mentions everyone about the advisory itself.
+  const quiet = ["pr_exists", "not_reported", "cooldown", "daily_limit", "token_budget", "token_budget_reached"];
+  for (const status of mention) assert.match(chatText({ status, advisories: HB1 }), new RegExp(`^<users/all> ThunderID security fix agent: ${HB1}\n`), status);
+  for (const status of quiet) assert.match(chatText({ status, advisories: HB1 }), /^ThunderID security fix agent:/, status);
+  const statuses = readFileSync(join(here, "publish.mjs"), "utf8").match(/const STATUS_TEXT = \{([\s\S]*?)\n\};/)[1].match(/^  (\w+):/gm).map((key) => key.trim().slice(0, -1));
+  assert.deepEqual([...statuses].sort(), [...mention, ...quiet].sort(), "every outcome is placed on purpose");
+  assert.equal(chatText({ status: "pr_open", advisories: HB1, url: "https://pr/1", detail: "Agent: 1 tokens." }),
+    `<users/all> ThunderID security fix agent: ${HB1}\nOpened a pull request. Review it before it is merged.\nhttps://pr/1\n\nAgent: 1 tokens.`);
+});
+
+test("the prompt asks for the complete fix the skill describes, even when it needs a maintainer", () => {
+  const prompt = readFileSync(join(here, "prompt.md"), "utf8");
+  assert.match(prompt, /Prepare the complete change the skill describes anyway/);
+  assert.match(prompt, /Do not stop at a partial fix\./);
+  assert.match(prompt, /is a compatibility risk to explain in `notes`, not a reason to stop/);
+  assert.match(prompt, /A fix that exists only in a newer major version falls under rule 5/);
+  assert.match(prompt, /only when `status` is `waiting_for_release`, or when pnpm cannot resolve the complete change/);
+  assert.doesNotMatch(prompt, /`needs_review` with `notes` saying what blocks/);
+  assert.match(prompt, /Never add `auditConfig\.ignoreGhsas` or `minimumReleaseAgeExclude` entries/);
 });
