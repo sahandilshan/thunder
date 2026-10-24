@@ -533,7 +533,8 @@ test("the workflow keeps the names and titles the run limits depend on", () => {
   assert.ok(steps.indexOf("Start from the open pull request's change") < steps.indexOf("Prepare the Codex configuration and prompt"), "the prompt needs the apply result");
   const open = step("publish", "Open or update the pull request on upstream");
   assert.doesNotMatch(open.run, /--draft/, "pull requests open ready for review");
-  assert.match(open.run, /gh pr edit "\$PR_NUMBER"/);
+  assert.doesNotMatch(open.run, /gh pr edit/, "gh pr edit needs read:org, which the PR token does not have");
+  assert.match(open.run, /gh api -X PATCH "repos\/\$UPSTREAM\/pulls\/\$PR_NUMBER" --input -/);
   assert.match(step("publish", "Commit and push the branch").run, /--force-with-lease="refs\/heads\/\$BRANCH:\$LEASE"/);
   assert.equal(step("publish", "Save the run summary").env.BUDGET_NOTIFIED, "${{ steps.budget_notify.outcome == 'success' }}");
   for (const [job, name] of [

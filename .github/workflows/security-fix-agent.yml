@@ -391,9 +391,13 @@ jobs:
           BASE_BRANCH: ${{ inputs.base_branch }}
           TITLE: ${{ steps.decide.outputs.title }}
           LABELS: ${{ vars.SECURITY_FIX_PR_LABELS }}
+        # The REST API, not gh pr edit: gh pr edit also reads teams and users, which needs read:org, and the PR
+        # token has only public_repo.
         run: |
+          set -o pipefail
           if [[ -n "$PR_NUMBER" ]]; then
-            gh pr edit "$PR_NUMBER" --repo "$UPSTREAM" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+            jq -n --arg title "$TITLE" --rawfile body "$RUNNER_TEMP/body.md" '{title: $title, body: $body}' \
+              | gh api -X PATCH "repos/$UPSTREAM/pulls/$PR_NUMBER" --input - > /dev/null
             echo "url=https://github.com/$UPSTREAM/pull/$PR_NUMBER" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -401,7 +405,8 @@ jobs:
             --title "$TITLE" --body-file "$RUNNER_TEMP/body.md")
           echo "url=$url" >> "$GITHUB_OUTPUT"
           if [[ -n "$LABELS" ]]; then
-            gh pr edit "$url" --add-label "$LABELS" || echo "::warning::Could not add labels $LABELS"
+            jq -n --arg labels "$LABELS" '{labels: ($labels | split(",") | map(gsub("^ +| +$"; "")) | map(select(length > 0)))}' \
+              | gh api -X POST "repos/$UPSTREAM/issues/${url##*/}/labels" --input - > /dev/null || echo "::warning::Could not add labels $LABELS"
           fi
       - name: Notify Google Chat
         id: notify
